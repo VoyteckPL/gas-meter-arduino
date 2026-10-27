@@ -57,6 +57,8 @@ after the next restart it reverts to the last working settings.
 ## Pulse accounting rules
 
 * One pulse = reed contact closes (pin goes LOW).
-* No pulse may be lost: pulses are counted in RTC memory while sleeping, by an interrupt
-  while awake (WiFi session, service mode), and the counter is backed up to flash.
-* After a power loss the counter is restored from the retained `counter` topic.
+* Implemented: pulses are counted in RTC memory while sleeping; after a power loss the counter
+  is restored from the retained `counter` topic.
+* Planned (see the improvements list in the repository issues/README): counting by interrupt
+  while awake (WiFi session, service mode), a backup of the counter in flash, and handling of
+  pulses shorter than the wake-up time.
