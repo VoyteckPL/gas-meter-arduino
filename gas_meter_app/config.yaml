@@ -1,5 +1,5 @@
 name: "Gas Meter"
-version: "0.4.0"
+version: "0.5.0"
 slug: "gas_meter"
 description: "Dashboard and settings panel for the battery powered ESP32 gas meter (MQTT). / Panel i ustawienia gazomierza na baterii (MQTT)."
 url: "https://github.com/VoyteckPL/gas-meter-arduino"
@@ -24,7 +24,10 @@ options:
   mqtt_password: ""
   root_topic: "Gaz/Gazomierz"
   battery_test_topic: "Gaz/BatteryTest"
-  battery_capacity_mah: 5900
+  battery_preset: "NCR18650GA"
+  battery_cells: 2
+  battery_cell_mah: 3000
+  battery_usable_pct: 85
   publish_discovery: true
   language: "auto"
 schema:
@@ -34,6 +37,9 @@ schema:
   mqtt_password: "password?"
   root_topic: "str"
   battery_test_topic: "str?"
-  battery_capacity_mah: "int(500,50000)"
+  battery_preset: "list(NCR18650GA|NCR18650B|NCR18650PF|INR18650-35E|INR18650-30Q|INR18650-MJ1|INR18650-25R|custom)"
+  battery_cells: "int(1,8)"
+  battery_cell_mah: "int(500,10000)"
+  battery_usable_pct: "int(50,100)"
   publish_discovery: "bool"
   language: "list(auto|pl|en)"

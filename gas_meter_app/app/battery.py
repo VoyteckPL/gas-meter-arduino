@@ -16,6 +16,35 @@ GENERIC_CURVE = [(3.00, 0), (3.30, 4), (3.50, 10), (3.60, 20), (3.70, 35), (3.80
                  (3.90, 65), (4.00, 80), (4.10, 90), (4.20, 100)]
 
 DAY = 86400.0
+
+# rated (typical) capacity of popular 18650 cells in mAh, from the data sheets (0.2 C discharge to 2.5-3.0 V)
+PRESETS = {
+    "NCR18650GA": 3450, "NCR18650B": 3400, "NCR18650PF": 2900, "INR18650-35E": 3500,
+    "INR18650-30Q": 3000, "INR18650-MJ1": 3500, "INR18650-25R": 2500,
+}
+# Real capacity is lower than the label. For the data sheet value: about 3 % lost to the 3.0 V cut-off,
+# 5 % for the cold at the meter (average about 8 degrees, low current), 3 % for ageing and
+# 5 % because real cells are a little below the label -> about 85 %. A cell measured in the discharge test
+# already contains the label difference, so only cold and ageing (about 92 %) remain.
+DEFAULT_USABLE_PCT = 85.0
+MEASURED_USABLE_PCT = 92.0
+
+
+def capacity(options, measured_per_cell=None):
+    """Usable capacity (mAh) of the battery and how it was calculated.
+    options: battery_cells, battery_preset, battery_cell_mah (for preset 'custom'), battery_usable_pct."""
+    cells = max(1, int(options.get("battery_cells") or 2))
+    preset = options.get("battery_preset") or "NCR18650GA"
+    if preset in PRESETS:
+        rated = float(PRESETS[preset])
+    else:
+        rated = float(options.get("battery_cell_mah") or 3000)
+    if measured_per_cell:
+        per_cell, usable, source = float(measured_per_cell), MEASURED_USABLE_PCT, "measured"
+    else:
+        per_cell, usable, source = rated, float(options.get("battery_usable_pct") or DEFAULT_USABLE_PCT), "rated"
+    return {"cells": cells, "preset": preset, "rated_mah": rated, "per_cell_mah": per_cell,
+            "usable_pct": usable, "source": source, "total_mah": cells * per_cell * usable / 100.0}
 DEFAULTS = {
     "capacity_mah": 5900.0,     # two 3500 mAh cells, reduced for cold and ageing
     "session_mah": 0.04,        # one WiFi session (DHCP). About 0.025 with a static IP
@@ -202,7 +231,7 @@ def analyze(volts, series, options, curve=None, now=None):
 
 def learn_curve(volts, floor_v=3.0, min_hours=3.0):
     """Build a voltage -> charge curve from one finished discharge at (nearly) constant current.
-    volts: [[ts, V]...] of the discharge test. Returns a curve (list of (V, %)) or None."""
+    volts: [[ts, V]...] of the discharge test. Returns (curve, hours of the discharge) or None."""
     if len(volts) < 30:
         return None
     start = 0
@@ -240,4 +269,6 @@ def learn_curve(volts, floor_v=3.0, min_hours=3.0):
     for v, p in GENERIC_CURVE:                           # above the start of the test: generic values
         if v > v_start and (not curve or p > curve[-1][1]):
             curve.append((v, float(p)))
-    return curve if len(curve) >= 6 and curve[-1][1] <= 100 else None
+    if len(curve) < 6 or curve[-1][1] > 100:
+        return None
+    return curve, (t1 - t0) / 3600.0

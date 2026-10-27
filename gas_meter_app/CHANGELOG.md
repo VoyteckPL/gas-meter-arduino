@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0
+
+* Battery settings: cell type (NCR18650GA, NCR18650B, NCR18650PF, 35E, 30Q, MJ1, 25R or custom),
+  number of cells and usable part of the label capacity. The Battery tab shows how the capacity was
+  calculated. This replaces the `battery_capacity_mah` option of 0.4.0.
+* Real capacity of your cell from the discharge test: enter the test current and the number of cells,
+  the panel computes the capacity (while the test runs as an estimate, afterwards as a measurement),
+  saves it and uses it for the life prediction.
+
 ## 0.4.0
 
 * New **Battery** tab: voltage history with a forecast to the WiFi stop voltage and the cut-off

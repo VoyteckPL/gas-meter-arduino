@@ -37,6 +37,10 @@ Shows the voltage history with a forecast and two independent life predictions:
 * **Voltage trend**: a line through the state of charge over the last 7 days, extended to the cut-off
   voltage. It is measured but settles slowly, because a Li-ion cell has a flat voltage curve at the top.
 
+The capacity used by both is the number of cells times the capacity of one cell times the usable part. Type the current
+drawn during the discharge test (measured with a multimeter in series with the battery) and the number of cells in the test, and
+the panel calculates the real capacity of your cell (current x time to empty), saves it and uses it instead of the data sheet value.
+
 When both agree, trust the result. With the discharge test running (`firmware/battery_test`) the tab
 can also show the test; when a run reaches 3.0 V the real curve of your cells is learned and used for the gas meter.
 
@@ -47,7 +51,10 @@ can also show the test; when a run reaches 3.0 V the real curve of your cells is
 | `mqtt_host`, `mqtt_port`, `mqtt_user`, `mqtt_password` | empty | broker, leave empty to use the Mosquitto add-on |
 | `root_topic` | `Gaz/Gazomierz` | must be the same as `ROOT_TOPIC` in the firmware |
 | `battery_test_topic` | `Gaz/BatteryTest` | topic of the `battery_test` sketch, shows a discharge test card and chart (empty = off) |
-| `battery_capacity_mah` | `5900` | usable capacity of the battery, used for the life prediction in the Battery tab (two 3500 mAh cells in parallel, reduced for cold and ageing) |
+| `battery_preset` | `NCR18650GA` | cell type (rated capacity from the data sheet) or `custom` |
+| `battery_cells` | `2` | number of cells **in parallel** |
+| `battery_cell_mah` | `3000` | capacity of one cell, used only with `custom` |
+| `battery_usable_pct` | `85` | usable part of the label capacity (3.0 V cut-off, cold, ageing, real cells below the label) |
 | `publish_discovery` | `true` | create the Home Assistant entities (meter, battery, signal) |
 | `language` | `auto` | `auto` (browser language), `pl` or `en`. The PL / EN button in the panel overrides it |
 

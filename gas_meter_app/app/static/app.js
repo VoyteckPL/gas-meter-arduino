@@ -30,6 +30,11 @@ const TEXT = {
     wifi_sessions: "WiFi sessions", wakes_per_pulse: "Wake-ups per pulse", wifi_connect_ms: "WiFi connect time",
     uptime: "Uptime", reset_reason: "Reset reason", firmware: "Firmware", mac: "MAC address", bssid: "Access point",
     ssid: "WiFi network", currentIp: "Current IP", installed: "Installed", available: "Available",
+    bCapacity: "Battery capacity", bCapRated: "from the data sheet", bCapMeasured: "from your discharge test", bUsable: "usable",
+    bCapHint: "The label capacity is reduced for the 3.0 V cut-off, the cold at the meter, ageing and the difference between the label and real cells. Set the cell type and the number of cells in the app Configuration tab.",
+    bTestCapTitle: "Capacity of your cell (from the test)", bTestMa: "Current drawn during the test (mA)", bTestCells: "Cells in the test",
+    bTestCapEst: "Capacity of one cell", bTestCapFinal: "measured (test finished)", bTestCapRunning: "estimate (test running)",
+    bTestCapHint: "Measure the current with a multimeter in series with the battery (it should be about 120-150 mA with FAST_DISCHARGE 1) and type it here. Capacity = current x time to empty. When the test reaches 3.0 V the result is saved and used for the life prediction.",
     tabBattery: "Battery", bTitle: "Battery now", bSource: "Source", bMeter: "Gas meter", bTest: "Discharge test",
     bVolts: "Voltage", bSoc: "Charge (estimated)", bCurveGeneric: "Generic Li-ion curve", bCurveLearned: "Curve learned from your discharge test",
     bPredTitle: "Life prediction", bModel: "Usage model", bTrend: "Voltage trend", bToWarn: "To the WiFi stop voltage", bToCut: "To the cut-off voltage",
@@ -79,6 +84,11 @@ const TEXT = {
     wifi_sessions: "Sesje WiFi", wakes_per_pulse: "Obudzenia na impuls", wifi_connect_ms: "Czas łączenia z WiFi",
     uptime: "Czas pracy", reset_reason: "Powód restartu", firmware: "Firmware", mac: "Adres MAC", bssid: "Punkt dostępu",
     ssid: "Sieć WiFi", currentIp: "Aktualne IP", installed: "Zainstalowana", available: "Dostępna",
+    bCapacity: "Pojemność baterii", bCapRated: "z danych katalogowych", bCapMeasured: "z Twojego testu rozładowania", bUsable: "użyteczne",
+    bCapHint: "Pojemność z etykiety jest pomniejszona o odcięcie 3,0 V, zimno przy gazomierzu, starzenie i różnicę między etykietą a prawdziwymi ogniwami. Typ ogniw i ich liczbę ustawisz w zakładce Konfiguracja apki.",
+    bTestCapTitle: "Pojemność Twojego ogniwa (z testu)", bTestMa: "Prąd pobierany w teście (mA)", bTestCells: "Ogniw w teście",
+    bTestCapEst: "Pojemność jednego ogniwa", bTestCapFinal: "zmierzona (test zakończony)", bTestCapRunning: "szacunek (test trwa)",
+    bTestCapHint: "Zmierz prąd multimetrem szeregowo z baterią (przy FAST_DISCHARGE 1 powinno wyjść ok. 120-150 mA) i wpisz tutaj. Pojemność = prąd × czas do rozładowania. Gdy test dojdzie do 3,0 V, wynik się zapisze i zostanie użyty w prognozie.",
     tabBattery: "Bateria", bTitle: "Bateria teraz", bSource: "Źródło", bMeter: "Gazomierz", bTest: "Test rozładowania",
     bVolts: "Napięcie", bSoc: "Naładowanie (szacunek)", bCurveGeneric: "Ogólna krzywa Li-ion", bCurveLearned: "Krzywa nauczona z Twojego testu rozładowania",
     bPredTitle: "Prognoza żywotności", bModel: "Model zużycia", bTrend: "Trend napięcia", bToWarn: "Do napięcia zatrzymania WiFi", bToCut: "Do napięcia odcięcia",
@@ -735,6 +745,7 @@ const battery = { source: "meter", days: 90, data: null, hover: null, built: fal
 function fmtLife(days) {
   if (days === null || days === undefined || !Number.isFinite(days)) return "—";
   if (days > 3650) return "> 10 " + (lang === "pl" ? "lat" : "years");
+  if (days < 1 / 48) return "0 " + (lang === "pl" ? "godz." : "h");
   if (days < 2) return Math.max(1, Math.round(days * 24)) + " " + (lang === "pl" ? "godz." : "h");
   if (days >= 90) return (days / 30.4).toFixed(1) + " " + t("bMonths");
   return Math.round(days) + " " + t("bDays");
@@ -764,9 +775,29 @@ function buildBattery() {
     el("div", { class: "kv" }, [
       el("span", { "data-i18n": "bSoc" }), el("span", { class: "v", id: "bSoc" }),
       el("span", { text: "" }), el("span", { class: "v small muted", id: "bCurve" }),
+      el("span", { "data-i18n": "bCapacity" }), el("span", { class: "v", id: "bCap" }),
+      el("span", { text: "" }), el("span", { class: "v small muted", id: "bCapNote" }),
     ]),
+    el("p", { class: "hint", "data-i18n": "bCapHint" }),
     el("p", { class: "hint", id: "bTestNote", "data-i18n": "bTestNote" }),
   ]);
+
+
+  const saved = (k, d) => { try { return localStorage.getItem(k) || d; } catch (e) { return d; } };
+  const mkInput = (id, key, def, step) => {
+    const input = el("input", { type: "number", id, min: "0", step });
+    input.value = saved(key, def);
+    input.addEventListener("change", () => { try { localStorage.setItem(key, input.value); } catch (e) { /* ignore */ } loadBattery(); });
+    return input;
+  };
+  card([
+    el("h2", { "data-i18n": "bTestCapTitle" }),
+    el("div", { class: "row" }, [el("label", { for: "bTestMa", "data-i18n": "bTestMa" }), el("div", { class: "field" }, [mkInput("bTestMa", "gasMeterTestMa", "", "1")])]),
+    el("div", { class: "row" }, [el("label", { for: "bTestCells", "data-i18n": "bTestCells" }), el("div", { class: "field" }, [mkInput("bTestCells", "gasMeterTestCells", "1", "1")])]),
+    el("div", { class: "kv" }, [el("span", { "data-i18n": "bTestCapEst" }), el("span", { class: "v", id: "bTestCapVal" }),
+                                el("span", { text: "" }), el("span", { class: "v small muted", id: "bTestCapNote" })]),
+    el("p", { class: "hint", "data-i18n": "bTestCapHint" }),
+  ]).id = "bTestCard";
 
   card([
     el("h2", { "data-i18n": "bPredTitle" }),
@@ -820,7 +851,9 @@ async function loadBattery() {
   document.querySelectorAll("#bRangeTabs button").forEach((b) => b.classList.toggle("active", Number(b.dataset.days) === battery.days));
   try {
     const factor = Number(($("#btFactor") || {}).value) || 2.044;
-    battery.data = await api("battery?source=" + battery.source + "&days=" + battery.days + "&factor=" + factor);
+    const ma = Number(($("#bTestMa") || {}).value) || 0, cells = Number(($("#bTestCells") || {}).value) || 1;
+    battery.data = await api("battery?source=" + battery.source + "&days=" + battery.days + "&factor=" + factor +
+                             "&test_ma=" + ma + "&test_cells=" + cells);
   } catch (e) { battery.data = null; }
   renderBattery();
 }
@@ -830,6 +863,18 @@ function renderBattery() {
   if (!d || !battery.built) return;
   const isTest = d.source === "bt";
   $("#bTestNote").hidden = !isTest;
+  $("#bTestCard").hidden = !isTest;
+  const cap = d.capacity;
+  if (cap) {
+    $("#bCap").textContent = Math.round(cap.total_mah) + " mAh";
+    $("#bCapNote").textContent = cap.cells + " × " + Math.round(cap.per_cell_mah) + " mAh × " + Math.round(cap.usable_pct) + " % " + t("bUsable") +
+      " (" + (cap.source === "measured" ? t("bCapMeasured") : (cap.preset !== "custom" ? cap.preset + ", " : "") + t("bCapRated")) + ")";
+  }
+  if (isTest) {
+    const tc = d.test_capacity;
+    $("#bTestCapVal").textContent = tc ? Math.round(tc.per_cell_mah) + " mAh" : "—";
+    $("#bTestCapNote").textContent = tc ? t(tc.final ? "bTestCapFinal" : "bTestCapRunning") : "";
+  }
   $("#bBudgetCard").hidden = isTest;
   $("#bVolt").textContent = d.volts === undefined ? "—" : num(d.volts, 3) + " V";
   $("#bSoc").textContent = d.soc === undefined ? "—" : d.soc.toFixed(0) + " %";

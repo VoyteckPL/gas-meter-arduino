@@ -127,23 +127,35 @@ class Store:
             with open(CURVE_FILE, encoding="utf-8") as handle:
                 data = json.load(handle)
             self.curve = [tuple(p) for p in data["curve"]]
-            self.curve_info = {"learned_at": data.get("learned_at")}
+            self.curve_info = {k: data.get(k) for k in ("learned_at", "hours", "test_ma", "test_cells", "measured_mah")}
         except (OSError, ValueError, KeyError):
             self.curve, self.curve_info = None, None
 
-    def learn_curve(self, factor):
-        """Called while the discharge test is listed: store a curve as soon as one run has finished."""
-        pins = self.history.get("bt/pin_mv", [])
-        volts = [[ts, mv / 1000.0 * factor] for ts, mv in pins]
-        curve = battery.learn_curve(volts)
-        if not curve or curve == self.curve:
-            return
-        self.curve, self.curve_info = curve, {"learned_at": time.time()}
+    def save_curve(self):
         try:
             with open(CURVE_FILE, "w", encoding="utf-8") as handle:
-                json.dump({"curve": curve, "learned_at": self.curve_info["learned_at"]}, handle)
+                json.dump(dict(self.curve_info, curve=self.curve), handle)
         except OSError as error:
             log.warning("could not save curve: %s", error)
+
+    def learn_curve(self, factor, test_ma=None, test_cells=1):
+        """Called while the discharge test is shown: store the curve (and the measured capacity of one
+        cell, when the test current is known) as soon as one run has finished."""
+        pins = self.history.get("bt/pin_mv", [])
+        volts = [[ts, mv / 1000.0 * factor] for ts, mv in pins]
+        learned = battery.learn_curve(volts)
+        changed = False
+        if learned and learned[0] != self.curve:
+            curve, hours = learned
+            self.curve, self.curve_info = curve, {"learned_at": time.time(), "hours": hours}
+            changed = True
+        if self.curve and test_ma and self.curve_info and self.curve_info.get("hours"):
+            measured = test_ma * self.curve_info["hours"] / max(1, test_cells)
+            if self.curve_info.get("measured_mah") != round(measured):
+                self.curve_info.update({"test_ma": test_ma, "test_cells": test_cells, "measured_mah": round(measured)})
+                changed = True
+        if changed:
+            self.save_curve()
 
     # ---- persistence ----
     def load(self):
@@ -500,13 +512,15 @@ async def api_battery(request):
     try:
         factor = float(request.query.get("factor", "2.044"))
         days = max(1, min(int(request.query.get("days", "30")), 400))
+        test_ma = float(request.query.get("test_ma", "0")) or None
+        test_cells = max(1, int(request.query.get("test_cells", "1")))
     except ValueError:
-        factor, days = 2.044, 30
+        factor, days, test_ma, test_cells = 2.044, 30, None, 1
     now = time.time()
     with store.lock:
         if source == "bt":
             volts = [[ts, mv / 1000.0 * factor] for ts, mv in store.history.get("bt/pin_mv", [])]
-            store.learn_curve(factor)
+            store.learn_curve(factor, test_ma, test_cells)
         else:
             volts = [list(p) for p in store.history.get("BatteryVoltage", [])]
         series = {
@@ -521,13 +535,23 @@ async def api_battery(request):
         cfg_ppm = store.number("cfg/pulses_per_m3")
         warn_v, cut_v = store.number("cfg/battery_warn_v"), store.number("cfg/battery_cutoff_v")
         static_ip = store.values.get("cfg/static_ip") == "ON"
-    opts = {"capacity_mah": float(options.get("battery_capacity_mah") or battery.DEFAULTS["capacity_mah"]),
+    measured = (curve_info or {}).get("measured_mah")
+    cap = battery.capacity(options, measured)
+    opts = {"capacity_mah": cap["total_mah"],
             "pulses_per_m3": cfg_ppm, "static_ip": static_ip,
             "warn_v": warn_v if warn_v else None, "cutoff_v": cut_v if cut_v else None, "window_days": 7}
     if source == "bt":
         series = {}   # the test sketch does not run the meter logic
     result = battery.analyze(volts, series, opts, curve=curve, now=now)
     result["curve_info"] = curve_info
+    result["capacity"] = cap
+    # capacity of one cell: measured when a run has finished, otherwise estimated from the running test
+    if source == "bt" and measured:
+        result["test_capacity"] = {"per_cell_mah": measured, "final": True}
+    elif source == "bt" and test_ma and result.get("trend", {}).get("days_to_cutoff") is not None and volts:
+        run_hours = (volts[-1][0] - volts[0][0]) / 3600.0
+        remaining = result["trend"]["days_to_cutoff"] * 24.0
+        result["test_capacity"] = {"per_cell_mah": test_ma * (run_hours + remaining) / test_cells, "final": False}
     result["source"] = source
     cut = now - days * 86400
     history = [p for p in volts if p[0] >= cut]
