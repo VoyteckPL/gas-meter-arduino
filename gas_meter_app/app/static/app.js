@@ -50,7 +50,10 @@ const TEXT = {
     bConnect: "WiFi connect time (min / avg / max)", bRssi: "WiFi signal (min / avg / max)", bSamples: "Battery samples", bHistorySince: "History since",
     bTestNote: "Discharge test: the prediction comes from the voltage trend. When the test reaches 3.0 V the panel learns the real curve of your cells and uses it for the gas meter.",
     bDays: "days", bMonths: "months", bOn: "on", bUnknown: "unknown",
-    tabPanel: "Panel", tabDemo: "Demo (simulator)", histHint: "Click a value to see its history.", close: "Close", range1h: "1 h", range6h: "6 h", range24h: "24 h",
+    tabPanel: "Overview", tabSettings: "Settings", tabNetwork: "Network", tabService: "Service", tabDemo: "Demo (simulator)",
+    settingsNote: "Changes are stored on the MQTT broker and the meter picks them up at its next WiFi session (gas flowing). Turn on service mode in the Service tab to have them applied at once. Note: reading the settings in the meter firmware is still in preparation; today 'Set meter reading' works with the current firmware.",
+    networkNote: "Network changes are applied tentatively: the meter returns to the previous settings if it cannot connect. Needs the meter firmware stage 2.",
+    serviceNote: "Service mode keeps the meter awake so that settings, restart and updates are applied at once. It uses the battery, so switch it off when done.", histHint: "Click a value to see its history.", close: "Close", range1h: "1 h", range6h: "6 h", range24h: "24 h",
     range7d: "7 days", range14d: "14 days", hMeter: "Meter reading", hFlow: "Flow", hHourly: "Consumption per hour",
     hBattery: "Battery voltage", hPercent: "Battery level", hRssi: "WiFi signal", hBtPin: "Pin voltage (test)",
     hBtVolt: "Battery voltage (test)", sMin: "Min", sMax: "Max", sAvg: "Average", sLast: "Last", sChange: "Change",
@@ -104,7 +107,10 @@ const TEXT = {
     bConnect: "Czas łączenia z WiFi (min / śr. / maks)", bRssi: "Sygnał WiFi (min / śr. / maks)", bSamples: "Próbek baterii", bHistorySince: "Historia od",
     bTestNote: "Test rozładowania: prognoza wynika z trendu napięcia. Gdy test dojdzie do 3,0 V, panel nauczy się prawdziwej krzywej Twoich ogniw i użyje jej dla gazomierza.",
     bDays: "dni", bMonths: "mies.", bOn: "włączone", bUnknown: "nieznane",
-    tabPanel: "Panel", tabDemo: "Demo (symulator)", histHint: "Kliknij wartość, żeby zobaczyć jej historię.", close: "Zamknij", range1h: "1 godz.", range6h: "6 godz.",
+    tabPanel: "Przegląd", tabSettings: "Ustawienia", tabNetwork: "Sieć", tabService: "Serwis", tabDemo: "Demo (symulator)",
+    settingsNote: "Zmiany są zapisywane na brokerze MQTT, a gazomierz odbierze je przy najbliższym połączeniu z WiFi (gdy płynie gaz). Włącz tryb serwisowy w zakładce Serwis, żeby zastosował je od razu. Uwaga: odczyt ustawień w firmware gazomierza jest jeszcze w przygotowaniu; dziś działa „Ustaw stan licznika” z obecnym firmware.",
+    networkNote: "Zmiany sieci są próbne: gazomierz wraca do poprzednich ustawień, jeśli nie może się połączyć. Wymaga firmware etapu 2.",
+    serviceNote: "Tryb serwisowy utrzymuje gazomierz w stanie czuwania, żeby ustawienia, restart i aktualizacje zadziałały od razu. Zużywa baterię, więc wyłącz go po skończeniu.", histHint: "Kliknij wartość, żeby zobaczyć jej historię.", close: "Zamknij", range1h: "1 godz.", range6h: "6 godz.",
     range24h: "24 godz.", range7d: "7 dni", range14d: "14 dni", hMeter: "Stan licznika", hFlow: "Przepływ",
     hHourly: "Zużycie na godzinę", hBattery: "Napięcie baterii", hPercent: "Poziom baterii", hRssi: "Sygnał WiFi",
     hBtPin: "Napięcie na pinie (test)", hBtVolt: "Napięcie baterii (test)", sMin: "Min", sMax: "Maks", sAvg: "Średnia",
@@ -226,8 +232,13 @@ function actionButton(name, labelKey) {
 }
 
 function build() {
-  const root = $("#root");
+  const root = $("#root");                 // Overview
   root.textContent = "";
+  const views = {
+    battery: $("#batteryView"), settings: $("#settingsView"), network: $("#networkView"), service: $("#serviceView"),
+  };
+  for (const node of Object.values(views)) node.textContent = "";
+  const note = (key) => el("section", { class: "card wide" }, [el("p", { class: "muted small", style: "margin:0", "data-i18n": key })]);
   const schema = state.schema;
 
   // notice shown while the meter has not published anything yet
@@ -242,7 +253,7 @@ function build() {
     try { localStorage.setItem("gasMeterBtFactor", factorInput.value); } catch (e) { /* ignore */ }
     update(); drawChart();
   });
-  root.append(el("section", { class: "card", id: "btCard", hidden: "" }, [
+  views.battery.append(el("section", { class: "card", id: "btCard", hidden: "" }, [
     el("h2", { "data-i18n": "btTitle" }),
     el("div", { class: "big", id: "btVolt" }),
     el("div", { class: "muted small", "data-i18n": "btVoltage" }),
@@ -286,7 +297,7 @@ function build() {
 
   // charts
   const tabs = el("div", { class: "tabs" });
-  for (const [kind, key] of [["hourly", "hourly"], ["battery", "batteryChart"], ["bt", "chartBt"]]) {
+  for (const [kind, key] of [["hourly", "hourly"], ["battery", "batteryChart"]]) {
     const tab = el("button", { class: "secondary", "data-i18n": key, "data-kind": kind });
     if (kind === "bt") tab.hidden = true;
     tab.addEventListener("click", () => { chartKind = kind; drawChart(); });
@@ -297,7 +308,8 @@ function build() {
   ]));
 
   // service
-  root.append(el("section", { class: "card" }, [
+  views.service.append(note("serviceNote"));
+  views.service.append(el("section", { class: "card" }, [
     el("h2", { "data-i18n": "service" }),
     switchRow("service_mode", "serviceMode"),
     el("div", { class: "muted small", id: "serviceState" }),
@@ -313,7 +325,8 @@ function build() {
   for (const [name, spec] of Object.entries(schema)) {
     if (spec.group === "settings") settings.append(numberRow(name, spec));
   }
-  root.append(settings);
+  views.settings.append(note("settingsNote"));
+  views.settings.append(settings);
 
   // counter
   const counterInput = el("input", { type: "number", id: "in-counter", min: 0, step: "0.01" });
@@ -323,7 +336,7 @@ function build() {
     const perM3 = Number(cfg("pulses_per_m3")) || 100;
     send("counter", Math.round(Number(counterInput.value) * perM3));
   });
-  root.append(el("section", { class: "card" }, [
+  views.settings.append(el("section", { class: "card" }, [
     el("h2", { "data-i18n": "counterTitle" }),
     el("div", { class: "row", id: "row-counter" }, [
       el("label", { for: "in-counter", "data-i18n": "counterLabel" }),
@@ -349,10 +362,11 @@ function build() {
     }
   }
   network.append(el("p", { class: "hint", "data-i18n": "networkHint" }));
-  root.append(network);
+  views.network.append(note("networkNote"));
+  views.network.append(network);
 
   // diagnostics
-  root.append(el("section", { class: "card" }, [
+  views.service.append(el("section", { class: "card" }, [
     el("h2", { "data-i18n": "diagnostics" }),
     el("div", { class: "kv", id: "diag" }),
   ]));
@@ -366,9 +380,9 @@ function applyLanguage() {
   document.documentElement.lang = lang;
   document.title = t("title");
   $("#title").textContent = t("title");
-  $("#tabPanel").textContent = t("tabPanel");
-  $("#tabDemo").textContent = t("tabDemo");
-  $("#tabBattery").textContent = t("tabBattery");
+  document.querySelectorAll("#viewTabs button").forEach((b) => {
+    b.textContent = t("tab" + b.dataset.view.charAt(0).toUpperCase() + b.dataset.view.slice(1));
+  });
   const demo = $("#demoView iframe");
   if (demo && demo.contentWindow && demo.contentWindow.setLang) demo.contentWindow.setLang(lang);
   document.querySelectorAll("[data-i18n]").forEach((node) => { node.textContent = t(node.dataset.i18n); });
@@ -492,6 +506,18 @@ function update() {
   document.querySelectorAll(".tabs button[data-kind]").forEach((button) => {
     button.classList.toggle("active", button.dataset.kind === chartKind);
   });
+
+  // number of commands waiting for the meter, shown on the tab where they belong
+  const counts = { settings: 0, network: 0, service: 0 };
+  for (const name of Object.keys(state.pending || {})) {
+    const group = (state.schema[name] || {}).group;
+    const tab = group === "counter" || group === "settings" ? "settings" : group;
+    if (tab in counts) counts[tab]++;
+  }
+  for (const [tab, count] of Object.entries(counts)) {
+    const button = document.querySelector('#viewTabs button[data-view="' + tab + '"]');
+    if (button) { if (count) button.dataset.pending = count; else delete button.dataset.pending; }
+  }
 }
 
 // ----------------------------------------------------------------------- chart
@@ -759,7 +785,6 @@ function fmtDate(days) {
 
 function buildBattery() {
   const root = $("#batteryView");
-  root.textContent = "";
   const card = (children, wide) => { const c = el("section", { class: "card" + (wide ? " wide" : "") }, children); root.append(c); return c; };
 
   const srcTabs = el("div", { class: "tabs", id: "bSrcTabs" });
@@ -1024,7 +1049,12 @@ function drawBattery() {
 async function refresh() {
   try {
     state = await api("state");
-    if (!built) { lang = pickLanguage(state.language); build(); drawChart(); }
+    if (!built) {
+      lang = pickLanguage(state.language); build(); drawChart();
+      let saved = "panel";
+      try { saved = localStorage.getItem("gasMeterView") || "panel"; } catch (e) { /* ignore */ }
+      showView(saved);
+    }
     update();
   } catch (error) {
     const conn = $("#conn");
@@ -1041,11 +1071,15 @@ $("#langBtn").addEventListener("click", () => {
 window.addEventListener("resize", () => { if (built) { drawChart(); if ($("#histDialog")) renderHistory(); if (!$("#batteryView").hidden) drawBattery(); } });
 
 // ---------------------------------------------------------------- panel / demo tabs
+const VIEW_NODES = { panel: "#root", battery: "#batteryView", settings: "#settingsView", network: "#networkView",
+                     service: "#serviceView", demo: "#demoView" };
 function showView(view) {
-  $("#root").hidden = view !== "panel";
-  $("#batteryView").hidden = view !== "battery";
-  $("#demoView").hidden = view !== "demo";
-  document.querySelectorAll("#viewTabs button").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
+  if (!VIEW_NODES[view]) view = "panel";
+  for (const [name, selector] of Object.entries(VIEW_NODES)) $(selector).hidden = name !== view;
+  document.querySelectorAll("#viewTabs button").forEach((b) => {
+    b.classList.toggle("active", b.dataset.view === view);
+    if (b.dataset.view === view) b.scrollIntoView({ block: "nearest", inline: "nearest" });
+  });
   if (view === "battery") loadBattery();
   if (view === "demo" && !$("#demoView iframe")) {
     const frame = el("iframe", { src: "static/simulator.html?lang=" + lang, title: "simulator" });

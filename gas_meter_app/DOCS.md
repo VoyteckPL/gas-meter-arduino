@@ -21,11 +21,19 @@ battery, WiFi signal) so the gas meter can be used in the Energy dashboard.
 
 The credentials are stored by Home Assistant, not in this repository.
 
-## Panel and Demo
+## Tabs
 
-The **Panel** tab shows the readings, charts and settings. Click a reading (meter, flow, today,
-battery, WiFi signal) to see its history. The **Demo** tab is a simulator of the meter and the
-ESP32 that runs in the browser and needs no data from the meter.
+| Tab | Content |
+|---|---|
+| **Overview** | meter reading, flow, consumption today, battery, WiFi signal, consumption chart. Click a value to see its history |
+| **Battery** | battery voltage history with forecast, life prediction, capacity, discharge test, nerd statistics |
+| **Settings** | meter settings (send interval, debounce, pulses per m³, battery calibration and limits) and **Set meter reading** |
+| **Network** | current IP, MAC, WiFi network and access point; static IP and WiFi settings |
+| **Service** | service mode, restart, firmware update, diagnostics (counters, wake-ups, uptime, reset reason) |
+| **Demo** | simulator of the meter and the ESP32, runs in the browser and needs no data from the meter |
+
+A small orange number on a tab means that many commands are waiting for the meter to pick them up.
+The last tab you used is remembered.
 
 ## Battery tab
 

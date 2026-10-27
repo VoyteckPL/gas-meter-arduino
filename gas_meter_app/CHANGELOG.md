@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.0
+
+* The panel is split into tabs: **Overview**, **Battery**, **Settings**, **Network**, **Service**, **Demo**.
+  The discharge test card moved to the Battery tab, diagnostics to Service.
+* A number on a tab shows how many commands wait for the meter. The last used tab is remembered.
+* Short explanation at the top of Settings, Network and Service.
+
 ## 0.5.0
 
 * Battery settings: cell type (NCR18650GA, NCR18650B, NCR18650PF, 35E, 30Q, MJ1, 25R or custom),
