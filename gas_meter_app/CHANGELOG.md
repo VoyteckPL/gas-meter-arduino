@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.0
+
+* Choose who gets the battery notifications in the panel (Battery tab): the people of your Home Assistant
+  with their phones, plus other phones with the Companion app. Several people or phones can be ticked.
+  The option `notify_service` is now only an optional extra target.
+
 ## 0.7.1
 
 * Notifications: the test button and the list of recent messages now say why a message was not delivered

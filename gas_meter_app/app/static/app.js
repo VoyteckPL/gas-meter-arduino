@@ -38,8 +38,10 @@ const TEXT = {
     nTitle: "Notifications", nTarget: "Phone (notify service)", nPersistent: "Notification in Home Assistant", nReport: "Battery report",
     nNext: "Next report", nLevel: "Battery state", nTest: "Send a test", nNow: "Send the report now", nLog: "Recent notifications",
     nOff: "off", nWeekly: "every week", nMonthly: "every month", nNone: "none (only the notification in Home Assistant)", nOk: "ok", nWarn: "charge soon (plan it)", nCrit: "charge now",
-    nHint: "You get a report with the charge and the estimated life, a warning when the battery has to be charged (default 45 days before the WiFi stop voltage, a reminder every week, every 2 days when critical at 14 days), a note when it was charged and an alert when the meter is silent for 48 hours. Set the phone service (for example notify.mobile_app_yourphone), the report interval and the limits in the app Configuration tab.",
+    nHint: "You get a report with the charge and the estimated life, a warning when the battery has to be charged (default 45 days before the WiFi stop voltage, a reminder every week, every 2 days when critical at 14 days), a note when it was charged and an alert when the meter is silent for 48 hours. You choose the recipients below, the report interval and the limits are in the app Configuration tab.",
     nSent: "sent", nFailed: "not delivered", nNotHa: "Not running inside Home Assistant, messages are only written to the log.",
+    nRecipients: "Who gets the messages (phones with the Home Assistant app)", nOther: "Other phones", nNoPhones: "No phone with the Home Assistant app found. Install the app on the phone and log in, then press Refresh.",
+    nRefresh: "Refresh", nNoneSelected: "Nobody selected: you only get the notification in Home Assistant.", nManual: "Also set in the app options",
     tabBattery: "Battery", bTitle: "Battery now", bSource: "Source", bMeter: "Gas meter", bTest: "Discharge test",
     bVolts: "Voltage", bSoc: "Charge (estimated)", bCurveGeneric: "Generic Li-ion curve", bCurveLearned: "Curve learned from your discharge test",
     bPredTitle: "Life prediction", bModel: "Usage model", bTrend: "Voltage trend", bToWarn: "To the WiFi stop voltage", bToCut: "To the cut-off voltage",
@@ -100,8 +102,10 @@ const TEXT = {
     nTitle: "Powiadomienia", nTarget: "Telefon (usługa notify)", nPersistent: "Powiadomienie w Home Assistant", nReport: "Raport o baterii",
     nNext: "Następny raport", nLevel: "Stan baterii", nTest: "Wyślij test", nNow: "Wyślij raport teraz", nLog: "Ostatnie powiadomienia",
     nOff: "wyłączony", nWeekly: "co tydzień", nMonthly: "co miesiąc", nNone: "brak (tylko powiadomienie w Home Assistant)", nOk: "w porządku", nWarn: "wkrótce ładować (zaplanuj)", nCrit: "ładuj teraz",
-    nHint: "Dostajesz raport z naładowaniem i szacunkową żywotnością, ostrzeżenie gdy trzeba naładować baterię (domyślnie 45 dni przed napięciem zatrzymania WiFi, przypomnienie co tydzień, a przy stanie krytycznym 14 dni co 2 dni), informację o naładowaniu i alarm, gdy gazomierz milczy 48 godzin. Usługę telefonu (np. notify.mobile_app_twoj_telefon), częstotliwość raportu i limity ustawisz w zakładce Konfiguracja apki.",
+    nHint: "Dostajesz raport z naładowaniem i szacunkową żywotnością, ostrzeżenie gdy trzeba naładować baterię (domyślnie 45 dni przed napięciem zatrzymania WiFi, przypomnienie co tydzień, a przy stanie krytycznym 14 dni co 2 dni), informację o naładowaniu i alarm, gdy gazomierz milczy 48 godzin. Odbiorców wybierasz poniżej, a częstotliwość raportu i limity ustawisz w zakładce Konfiguracja apki.",
     nSent: "wysłano", nFailed: "nie dostarczono", nNotHa: "Apka nie działa w Home Assistant, komunikaty trafiają tylko do logu.",
+    nRecipients: "Kto dostaje wiadomości (telefony z aplikacją Home Assistant)", nOther: "Inne telefony", nNoPhones: "Nie znaleziono telefonu z aplikacją Home Assistant. Zainstaluj aplikację na telefonie i zaloguj się, potem kliknij Odśwież.",
+    nRefresh: "Odśwież", nNoneSelected: "Nikt nie jest wybrany: dostajesz tylko powiadomienie w Home Assistant.", nManual: "Dodatkowo ustawione w opcjach apki",
     tabBattery: "Bateria", bTitle: "Bateria teraz", bSource: "Źródło", bMeter: "Gazomierz", bTest: "Test rozładowania",
     bVolts: "Napięcie", bSoc: "Naładowanie (szacunek)", bCurveGeneric: "Ogólna krzywa Li-ion", bCurveLearned: "Krzywa nauczona z Twojego testu rozładowania",
     bPredTitle: "Prognoza żywotności", bModel: "Model zużycia", bTrend: "Trend napięcia", bToWarn: "Do napięcia zatrzymania WiFi", bToCut: "Do napięcia odcięcia",
@@ -885,8 +889,9 @@ function buildBattery() {
       el("span", { "data-i18n": "nNext" }), el("span", { class: "v", id: "nNext" }),
       el("span", { "data-i18n": "nLevel" }), el("span", { class: "v", id: "nLevel" }),
       el("span", { "data-i18n": "nPersistent" }), el("span", { class: "v", id: "nPersistent" }),
-      el("span", { "data-i18n": "nTarget" }), el("span", { class: "v", id: "nTarget" }),
     ]),
+    el("div", { class: "muted small", style: "margin-top:12px", "data-i18n": "nRecipients" }),
+    el("div", { id: "nTargets", style: "margin-top:6px" }),
     el("div", { class: "field", style: "gap:8px;flex-wrap:wrap;margin-top:12px" }, [testBtn, reportBtn]),
     el("p", { class: "hint", id: "nNotHa", hidden: "" }),
     el("div", { class: "muted small", style: "margin-top:12px", "data-i18n": "nLog" }),
@@ -898,6 +903,43 @@ function buildBattery() {
   applyLanguage();
 }
 
+
+
+let targetsLoaded = false;
+async function postTargets(selected) {
+  try {
+    await api("notify_targets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ selected }) });
+  } catch (error) { toast(t("error") + ": " + error.message, true); }
+  loadTargets();
+}
+async function loadTargets() {
+  let d;
+  try { d = await api("notify_targets"); } catch (e) { return; }
+  targetsLoaded = true;
+  const box = $("#nTargets"); box.textContent = "";
+  const selected = new Set(d.selected);
+  const row = (label, services) => {
+    const input = el("input", { type: "checkbox", style: "width:auto;margin-right:8px" });
+    input.checked = services.every((s) => selected.has(s));
+    input.addEventListener("change", () => {
+      for (const s of services) { if (input.checked) selected.add(s); else selected.delete(s); }
+      postTargets([...selected]);
+    });
+    box.append(el("label", { style: "display:flex;align-items:center;padding:4px 0;color:var(--text);font-size:14px" }, [input, label]));
+  };
+  const pretty = (s) => s.replace(/^mobile_app_/, "").replace(/_/g, " ");
+  for (const p of d.people) row(p.name + " (" + p.services.map(pretty).join(", ") + ")", p.services);
+  if (d.other.length) {
+    if (d.people.length) box.append(el("div", { class: "muted small", style: "margin-top:6px", text: t("nOther") }));
+    for (const s of d.other) row(pretty(s), [s]);
+  }
+  if (!d.found) box.append(el("p", { class: "hint", text: t("nNoPhones") }));
+  else if (!d.selected.length && !d.manual) box.append(el("p", { class: "hint", text: t("nNoneSelected") }));
+  if (d.manual) box.append(el("p", { class: "hint", text: t("nManual") + ": " + d.manual }));
+  const refresh = el("button", { class: "ghost", text: t("nRefresh"), style: "margin-top:6px" });
+  refresh.addEventListener("click", loadTargets);
+  box.append(refresh);
+}
 
 async function notifyAction(action) {
   try {
@@ -917,9 +959,9 @@ async function loadNotify() {
   $("#nNext").textContent = n.config.report === "off" ? "—" : when(n.next_report);
   $("#nLevel").textContent = t({ ok: "nOk", warn: "nWarn", crit: "nCrit" }[n.level] || "nOk");
   $("#nPersistent").textContent = n.persistent ? "✔" : "—";
-  $("#nTarget").textContent = n.target || t("nNone");
   $("#nNotHa").hidden = n.in_ha;
   $("#nNotHa").textContent = t("nNotHa");
+  if (!targetsLoaded) loadTargets();
   const log = $("#nLog"); log.textContent = "";
   for (const entry of n.log.slice(0, 6)) {
     const problems = Object.entries(entry.sent).filter(([, r]) => r && r.ok === false)

@@ -65,6 +65,11 @@ The app watches the battery and sends messages through Home Assistant (a notific
 * **Charged** note when the voltage rose by 0.25 V after a warning, which also clears the warning.
 * **Silent meter** alert when no data arrives for `silent_alert_hours` hours (an empty battery or lost WiFi).
 
+**Choosing who gets the messages:** in the **Battery** tab, card *Notifications*, the panel lists the people of your
+Home Assistant with their phones (phones with the Home Assistant Companion app), plus other phones that do not belong to a
+person. Tick the ones that should get the messages. The choice is saved by the app. If your phone is missing, install the
+Companion app, log in and press *Refresh*.
+
 Use the buttons in the **Battery** tab to send a test message or a report at once. The app needs access to the Home
 Assistant API (`homeassistant_api`); Home Assistant grants it on update.
 
@@ -79,7 +84,7 @@ Assistant API (`homeassistant_api`); Home Assistant grants it on update.
 | `battery_cells` | `2` | number of cells **in parallel** |
 | `battery_cell_mah` | `3000` | capacity of one cell, used only with `custom` |
 | `battery_usable_pct` | `85` | usable part of the label capacity (3.0 V cut-off, cold, ageing, real cells below the label) |
-| `notify_service` | empty | phone notification service, for example `notify.mobile_app_yourphone` (Developer tools → Actions lists them). Empty = only the notification inside Home Assistant |
+| `notify_service` | empty | optional: one more notification service, for example `notify.mobile_app_yourphone`. Normally you choose the phones in the **Battery** tab instead |
 | `notify_persistent` | `true` | also create a notification in the Home Assistant bell |
 | `battery_report` | `monthly` | report with the charge and the estimated life: `off`, `weekly` or `monthly` |
 | `battery_warn_days` | `45` | warn when fewer days than this are left before the WiFi stop voltage |

@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import threading
 import time
 from datetime import datetime
@@ -31,6 +32,7 @@ LONG_SERIES = {"BatteryVoltage": (900, 40000), "BatteryPercent": (900, 40000), "
                "Wakes": (1800, 20000), "WifiSessions": (1800, 20000), "wifi_connect_ms": (1800, 20000)}
 CURVE_FILE = os.path.join(DATA_DIR, "curve.json")
 NOTIFY_FILE = os.path.join(DATA_DIR, "notify.json")
+TARGETS_FILE = os.path.join(DATA_DIR, "notify_targets.json")
 CORE_API = os.environ.get("CORE_API", "http://supervisor/core/api")
 
 import battery
@@ -619,6 +621,81 @@ async def language_of(app):
     return "en"
 
 
+async def core_get(path):
+    token = core_token()
+    if not token:
+        return None
+    try:
+        async with ClientSession() as session:
+            async with session.get(CORE_API + path, timeout=20, headers={"Authorization": "Bearer " + token}) as response:
+                if response.status < 300:
+                    return await response.json()
+                log.warning("GET %s answered %s", path, response.status)
+    except Exception as error:  # pragma: no cover
+        log.warning("GET %s failed: %s", path, error)
+    return None
+
+
+async def list_targets(app):
+    """Phones with the Home Assistant app (notify.mobile_app_*), grouped by the person they belong to."""
+    services = await core_get("/services") or []
+    phones = sorted(name for entry in services if entry.get("domain") == "notify"
+                    for name in entry.get("services", {}) if name.startswith("mobile_app_"))
+    states = await core_get("/states") or []
+    people, used = [], set()
+    for state in states:
+        entity = state.get("entity_id", "")
+        if not entity.startswith("person."):
+            continue
+        attrs = state.get("attributes", {})
+        mine = [c for c in ("mobile_app_" + t.split(".", 1)[1] for t in attrs.get("device_trackers") or [] if "." in t)
+                if c in phones]
+        if mine:
+            people.append({"name": attrs.get("friendly_name") or entity, "entity_id": entity, "services": mine})
+            used.update(mine)
+    return {"people": people, "other": [p for p in phones if p not in used], "found": bool(phones),
+            "in_ha": bool(core_token())}
+
+
+def load_targets():
+    try:
+        with open(TARGETS_FILE, encoding="utf-8") as handle:
+            return [str(x) for x in json.load(handle)]
+    except (OSError, ValueError):
+        return []
+
+
+def selected_services(app):
+    """Phones chosen in the panel plus the optional notify_service from the app options."""
+    names = list(app["notify_targets"])
+    manual = (app["options"].get("notify_service") or "").strip()
+    if manual:
+        names.append(manual.split(".", 1)[1] if manual.startswith("notify.") else manual)
+    return sorted(set(names))
+
+
+async def api_notify_targets(request):
+    app = request.app
+    if request.method == "POST":
+        try:
+            chosen = (await request.json()).get("selected", [])
+            names = [str(n) for n in chosen]
+            if not all(re.fullmatch(r"[a-z0-9_]{1,80}", n) for n in names):
+                raise ValueError("bad name")
+        except (ValueError, TypeError, AttributeError):
+            return web.json_response({"error": "bad request"}, status=400)
+        app["notify_targets"] = sorted(set(names))
+        try:
+            with open(TARGETS_FILE, "w", encoding="utf-8") as handle:
+                json.dump(app["notify_targets"], handle)
+        except OSError as error:
+            log.warning("could not save recipients: %s", error)
+    data = await list_targets(app)
+    data["selected"] = app["notify_targets"]
+    data["manual"] = (app["options"].get("notify_service") or "").strip()
+    return web.json_response(data)
+
+
 async def send_event(app, event):
     """Persistent notification in Home Assistant and, when configured, a notify service (phone)."""
     options = app["options"]
@@ -627,12 +704,15 @@ async def send_event(app, event):
     if options.get("notify_persistent", True):
         sent["persistent"] = await call_service("persistent_notification/create", {
             "title": event["title"], "message": event["message"], "notification_id": "gas_meter_" + group})
-    target = (options.get("notify_service") or "").strip()
-    if target:
-        name = target.split(".", 1)[1] if target.startswith("notify.") else target
+    names = selected_services(app)
+    if names:
         payload = {"title": event["title"], "message": event["message"],
                    "data": {"tag": "gas_meter_" + group, "ttl": 0, "priority": "high"}}
-        sent["notify"] = await call_service("notify/" + name, payload)
+        results = {}
+        for name in names:
+            results[name] = await call_service("notify/" + name, payload)
+        sent["notify"] = {"ok": all(r["ok"] for r in results.values()),
+                          "detail": "; ".join("%s: %s" % (n, r["detail"]) for n, r in results.items() if not r["ok"])}
     app["notify_log"].append({"ts": time.time(), "kind": event["kind"], "level": event["level"],
                               "message": event["message"], "sent": sent})
     event["sent"] = sent
@@ -711,7 +791,7 @@ async def api_notify(request):
     period = {"weekly": 7, "monthly": 30}.get(cfg["report"], 0)
     next_report = (state.get("last_report") or time.time()) + period * 86400 if period else None
     return web.json_response({
-        "config": cfg, "target": (options.get("notify_service") or "").strip(),
+        "config": cfg, "targets": selected_services(app),
         "persistent": bool(options.get("notify_persistent", True)),
         "in_ha": bool(core_token()), "level": state.get("level", "ok"), "last_report": state.get("last_report"),
         "next_report": next_report, "log": list(reversed(app["notify_log"])),
@@ -785,6 +865,7 @@ def create_app(options):
     app["options"] = options
     app["notify_state"] = load_notify_state()
     app["notify_log"] = []
+    app["notify_targets"] = load_targets()
     app["store"] = Store(options.get("root_topic") or "Gaz/Gazomierz",
                          options.get("battery_test_topic", "Gaz/BatteryTest"))
     app.router.add_get("/", index)
@@ -793,6 +874,8 @@ def create_app(options):
     app.router.add_get("/api/battery", api_battery)
     app.router.add_get("/api/notify", api_notify)
     app.router.add_post("/api/notify", api_notify)
+    app.router.add_get("/api/notify_targets", api_notify_targets)
+    app.router.add_post("/api/notify_targets", api_notify_targets)
     app.router.add_post("/api/set", api_set)
     app.router.add_post("/api/cancel", api_cancel)
     app.router.add_static("/static/", STATIC_DIR)
