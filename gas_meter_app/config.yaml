@@ -1,0 +1,35 @@
+name: "Gas Meter"
+version: "0.1.0"
+slug: "gas_meter"
+description: "Dashboard and settings panel for the battery powered ESP32 gas meter (MQTT). / Panel i ustawienia gazomierza na baterii (MQTT)."
+url: "https://github.com/VoyteckPL/gas-meter-arduino"
+arch:
+  - amd64
+  - aarch64
+  - armv7
+startup: application
+boot: auto
+init: false
+ingress: true
+ingress_port: 8099
+panel_icon: "mdi:meter-gas"
+panel_title: "Gas meter"
+panel_admin: false
+services:
+  - mqtt:want
+options:
+  mqtt_host: ""
+  mqtt_port: 1883
+  mqtt_user: ""
+  mqtt_password: ""
+  root_topic: "Gaz/Gazomierz"
+  publish_discovery: true
+  language: "auto"
+schema:
+  mqtt_host: "str?"
+  mqtt_port: "port"
+  mqtt_user: "str?"
+  mqtt_password: "password?"
+  root_topic: "str"
+  publish_discovery: "bool"
+  language: "list(auto|pl|en)"

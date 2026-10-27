@@ -16,8 +16,8 @@ Based on [Torxgewinde/Firebeetle-2-ESP32-E](https://github.com/Torxgewinde/Fireb
 |---|---|
 | `firmware/gas_meter/` | the gas meter sketch (Arduino IDE) |
 | `firmware/battery_test/` | discharge logger used to calibrate the battery measurement |
-| `home-assistant/packages/gas_meter.yaml` | all MQTT entities (sensors, settings, service mode, update) |
-| `home-assistant/dashboards/gas_meter.yaml` | ready made dashboard |
+| `gas_meter_app/` | **Home Assistant app (add-on)**: sidebar panel with readings, charts and settings |
+| `home-assistant/` | alternative without the app: plain YAML package and dashboard (do not use together with the app) |
 | `docs/mqtt-topics.md` | MQTT topic contract between firmware and Home Assistant |
 | `docs/images/` | wiring diagram, reed pull-up explanation, HA panel mockup |
 
@@ -54,17 +54,26 @@ is empty (3.0 V). Compare it with a multimeter. With the 2 × 100 kΩ divider th
 on battery power was about **2.04** (voltage at the battery = voltage at GPIO36 × 2.04).
 Do the calibration on battery power only, with USB disconnected.
 
-## Home Assistant
+## Home Assistant app (nothing to copy)
 
-1. Copy `home-assistant/packages/gas_meter.yaml` to `/config/packages/` and enable packages
-   (`homeassistant: packages: !include_dir_named packages`). Restart Home Assistant.
-2. Create a dashboard and paste `home-assistant/dashboards/gas_meter.yaml` in the raw configuration editor.
-3. Set the initial counter: publish the meter reading in pulses (e.g. 7282.35 m³ → 728235)
-   to `Gaz/Gazomierz/config/counter` (entity "Set counter"), then power-cycle the board.
+1. Home Assistant: **Settings → Add-ons → Add-on store → ⋮ → Repositories**, add
+   `https://github.com/VoyteckPL/gas-meter-arduino`.
+2. Install **Gas Meter**, start it, switch on **Show in sidebar**.
+3. Open **Gas meter** in the sidebar. With the Mosquitto add-on the MQTT connection is automatic,
+   otherwise fill in the broker in the app configuration (see `gas_meter_app/DOCS.md`).
+
+The app creates the entities for the meter reading (m³), battery and WiFi signal itself, so the
+meter works in the Energy dashboard.
+
+Set the initial counter in the panel (**Set meter reading**, value from the dial of the gas meter),
+then power-cycle the board.
+
+The plain YAML alternative is in `home-assistant/` (package + dashboard, see the comments in the files).
 
 ## Status
 
 * Stage 1 (done): pulse counting, batched WiFi/MQTT sessions, battery measurement, counter restore.
-* Stage 2 (planned): settings from Home Assistant, service mode, OTA update with rollback,
-  network settings with automatic revert. The Home Assistant entities for it already exist
-  and show "unknown" until the firmware supports them.
+* App (done, v0.1.0): sidebar panel, charts, settings, service mode, set meter reading.
+* Stage 2 (planned): the firmware side of the settings, service mode, OTA update with rollback,
+  network settings with automatic revert. The panel already has the controls, they stay
+  "waiting for the meter" until the firmware supports them.
