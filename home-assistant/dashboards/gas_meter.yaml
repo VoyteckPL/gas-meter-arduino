@@ -1,0 +1,128 @@
+# Dashboard for the gas meter (standard cards only, no custom cards needed).
+#
+# Install: Settings -> Dashboards -> Add dashboard -> (open it) -> three dots ->
+# "Raw configuration editor" -> paste this whole file.
+#
+# The entity ids below are the ones Home Assistant creates for the entities in
+# home-assistant/packages/gas_meter.yaml. If one of them is shown as
+# "Entity not available", open Settings -> Devices -> Gas meter and use the id
+# shown there.
+
+title: Gas meter
+views:
+  - title: Gas meter
+    path: gas-meter
+    icon: mdi:meter-gas
+    cards:
+      - type: glance
+        title: Readings
+        columns: 4
+        entities:
+          - entity: sensor.gas_meter_cubic_meters
+            name: Meter
+          - entity: sensor.gas_meter_flow
+            name: Flow
+          - entity: sensor.gas_daily
+            name: Today
+          - entity: sensor.gas_monthly
+            name: This month
+
+      - type: horizontal-stack
+        cards:
+          - type: gauge
+            entity: sensor.gas_meter_battery
+            name: Battery
+            min: 0
+            max: 100
+            severity:
+              green: 40
+              yellow: 15
+              red: 0
+          - type: gauge
+            entity: sensor.gas_meter_battery_voltage
+            name: Battery voltage
+            min: 3.0
+            max: 4.2
+            severity:
+              green: 3.6
+              yellow: 3.3
+              red: 3.0
+          - type: gauge
+            entity: sensor.gas_meter_wifi_signal
+            name: WiFi
+            min: -100
+            max: -30
+            severity:
+              green: -70
+              yellow: -80
+              red: -100
+
+      - type: history-graph
+        title: Gas consumption (last 24 h)
+        hours_to_show: 24
+        entities:
+          - entity: sensor.gas_meter_flow
+          - entity: sensor.gas_meter_cubic_meters
+
+      - type: history-graph
+        title: Battery (last 7 days)
+        hours_to_show: 168
+        entities:
+          - entity: sensor.gas_meter_battery_voltage
+
+      - type: entities
+        title: Service mode
+        show_header_toggle: false
+        entities:
+          - entity: switch.gas_meter_service_mode
+          - entity: sensor.gas_meter_service_state
+          - entity: button.gas_meter_restart
+          - entity: update.gas_meter_firmware
+          - entity: sensor.gas_meter_firmware_version
+            name: Installed firmware
+          - type: section
+            label: "Service mode is picked up at the next WiFi session (a pulse, i.e. heating or hot water running)."
+
+      - type: entities
+        title: Settings
+        show_header_toggle: false
+        entities:
+          - entity: number.gas_meter_send_interval
+          - entity: number.gas_meter_status_interval
+          - entity: number.gas_meter_debounce
+          - entity: number.gas_meter_pulses_per_cubic_meter
+          - entity: number.gas_meter_battery_calibration
+          - entity: number.gas_meter_battery_warning_voltage
+          - entity: number.gas_meter_battery_cutoff_voltage
+          - entity: number.gas_meter_set_counter
+
+      - type: entities
+        title: Network
+        show_header_toggle: false
+        entities:
+          - entity: sensor.gas_meter_ip_address
+          - entity: sensor.gas_meter_mac_address
+          - entity: sensor.gas_meter_wifi_network
+          - entity: sensor.gas_meter_access_point
+          - type: section
+            label: "Change network settings (applied tentatively, the meter reverts if it cannot connect)"
+          - entity: switch.gas_meter_static_ip
+          - entity: text.gas_meter_static_ip_address
+          - entity: text.gas_meter_gateway
+          - entity: text.gas_meter_subnet_mask
+          - entity: text.gas_meter_dns_server
+          - entity: text.gas_meter_wifi_ssid
+          - entity: text.gas_meter_wifi_password
+
+      - type: entities
+        title: Diagnostics
+        show_header_toggle: false
+        entities:
+          - entity: sensor.gas_meter_pulse_counter
+          - entity: sensor.gas_meter_pending_pulses
+          - entity: sensor.gas_meter_wake_ups
+          - entity: sensor.gas_meter_wake_ups_per_pulse
+          - entity: sensor.gas_meter_wifi_sessions
+          - entity: sensor.gas_meter_wifi_connect_time
+          - entity: sensor.gas_meter_uptime
+          - entity: sensor.gas_meter_reset_reason

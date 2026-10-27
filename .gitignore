@@ -1,0 +1,10 @@
+# credentials, never commit
+secrets.h
+**/secrets.h
+
+# Arduino / editor leftovers
+build/
+*.bin
+*.elf
+.vscode/
+.DS_Store
