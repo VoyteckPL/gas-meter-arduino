@@ -8,6 +8,9 @@ const TEXT = {
     signal: "WiFi signal", lastData: "Last data", never: "no data yet", ago: "ago",
     consumption: "Consumption", hourly: "Per hour (48 h)", batteryChart: "Battery (7 days)",
     noData: "No data yet",
+    chartBt: "Battery test", btTitle: "Battery discharge test", btVoltage: "Battery voltage",
+    btPin: "Voltage at the pin", btUptime: "Test running for", btState: "State", btFactor: "Divider factor",
+    btHint: "Voltage = pin voltage x divider factor. Compare with a multimeter and adjust the factor.",
     noMeterTitle: "No data from the meter yet",
     noMeterText: "The panel is waiting for the topics of the new gas meter sketch ({root}/cubic_meters, BatteryVoltage, BatteryPercent, RSSI). Flash firmware/gas_meter from the repository, or publish them once by hand in MQTT (retained) to see the panel with data.",
     service: "Service mode", serviceMode: "Service mode",
@@ -34,6 +37,9 @@ const TEXT = {
     signal: "Sygnał WiFi", lastData: "Ostatnie dane", never: "brak danych", ago: "temu",
     consumption: "Zużycie", hourly: "Na godzinę (48 h)", batteryChart: "Bateria (7 dni)",
     noData: "Brak danych",
+    chartBt: "Test baterii", btTitle: "Test rozładowania baterii", btVoltage: "Napięcie baterii",
+    btPin: "Napięcie na pinie", btUptime: "Test trwa", btState: "Stan", btFactor: "Współczynnik dzielnika",
+    btHint: "Napięcie = napięcie na pinie x współczynnik. Porównaj z miernikiem i popraw współczynnik.",
     noMeterTitle: "Brak danych z gazomierza",
     noMeterText: "Panel czeka na tematy nowego szkicu gazomierza ({root}/cubic_meters, BatteryVoltage, BatteryPercent, RSSI). Wgraj szkic firmware/gas_meter z repozytorium albo opublikuj je raz r\u0119cznie w MQTT (retained), \u017ceby zobaczy\u0107 panel z danymi.",
     service: "Tryb serwisowy", serviceMode: "Tryb serwisowy",
@@ -179,6 +185,30 @@ function build() {
     el("h2", { "data-i18n": "noMeterTitle" }), el("p", { class: "muted", id: "noticeText" }),
   ]));
 
+  // battery discharge test (visible only while the test sketch publishes)
+  const factorInput = el("input", { type: "number", id: "btFactor", step: "0.001", min: "1", max: "3" });
+  try { factorInput.value = localStorage.getItem("gasMeterBtFactor") || "2.044"; } catch (e) { factorInput.value = "2.044"; }
+  factorInput.addEventListener("change", () => {
+    try { localStorage.setItem("gasMeterBtFactor", factorInput.value); } catch (e) { /* ignore */ }
+    update(); drawChart();
+  });
+  root.append(el("section", { class: "card", id: "btCard", hidden: "" }, [
+    el("h2", { "data-i18n": "btTitle" }),
+    el("div", { class: "big", id: "btVolt" }),
+    el("div", { class: "muted small", "data-i18n": "btVoltage" }),
+    el("div", { class: "kv" }, [
+      el("span", { "data-i18n": "btPin" }), el("span", { class: "v", id: "btPinMv" }),
+      el("span", { "data-i18n": "btUptime" }), el("span", { class: "v", id: "btTime" }),
+      el("span", { "data-i18n": "btState" }), el("span", { class: "v", id: "btState" }),
+      el("span", { "data-i18n": "signal" }), el("span", { class: "v", id: "btRssi" }),
+    ]),
+    el("div", { class: "row", style: "margin-top:12px" }, [
+      el("label", { for: "btFactor", "data-i18n": "btFactor" }),
+      el("div", { class: "field" }, [factorInput]),
+    ]),
+    el("p", { class: "hint", "data-i18n": "btHint" }),
+  ]));
+
   // readings
   root.append(el("section", { class: "card" }, [
     el("h2", { "data-i18n": "readings" }),
@@ -198,8 +228,9 @@ function build() {
 
   // charts
   const tabs = el("div", { class: "tabs" });
-  for (const [kind, key] of [["hourly", "hourly"], ["battery", "batteryChart"]]) {
+  for (const [kind, key] of [["hourly", "hourly"], ["battery", "batteryChart"], ["bt", "chartBt"]]) {
     const tab = el("button", { class: "secondary", "data-i18n": key, "data-kind": kind });
+    if (kind === "bt") tab.hidden = true;
     tab.addEventListener("click", () => { chartKind = kind; drawChart(); });
     tabs.append(tab);
   }
@@ -326,6 +357,21 @@ function update() {
   const newest = Math.max(0, ...Object.entries(state.updated).filter(([k]) => !k.startsWith("cfg/")).map(([, ts]) => ts));
   $("#lastData").textContent = newest ? ago(now - newest) + " " + t("ago") : t("never");
 
+  // battery discharge test
+  const hasTest = v["bt/pin_mv"] !== undefined;
+  $("#btCard").hidden = !hasTest;
+  const btTab = document.querySelector('.tabs button[data-kind="bt"]');
+  if (btTab) btTab.hidden = !hasTest;
+  if (hasTest) {
+    const factor = Number($("#btFactor").value) || 2.044;
+    $("#btVolt").textContent = num(Number(v["bt/pin_mv"]) / 1000 * factor, 3) + " V";
+    $("#btPinMv").textContent = v["bt/pin_mv"] + " mV";
+    const minutes = Number(v["bt/uptime_min"]);
+    $("#btTime").textContent = Number.isFinite(minutes) ? Math.floor(minutes / 60) + " h " + (minutes % 60) + " min" : "\u2014";
+    $("#btState").textContent = v["bt/state"] || "\u2014";
+    $("#btRssi").textContent = v["bt/rssi"] !== undefined ? v["bt/rssi"] + " dBm" : "\u2014";
+  }
+
   // service
   $("#serviceState").textContent = v.service_state ? v.service_state : "";
   $("#firmware").textContent = "";
@@ -394,7 +440,12 @@ async function drawChart() {
   });
   let points = [];
   try {
-    points = await api("series?kind=" + chartKind + "&hours=" + (chartKind === "hourly" ? 48 : 168));
+    if (chartKind === "bt") {
+      const factor = Number(($("#btFactor") || {}).value) || 2.044;
+      points = await api("series?kind=bt&hours=336&factor=" + factor);
+    } else {
+      points = await api("series?kind=" + chartKind + "&hours=" + (chartKind === "hourly" ? 48 : 168));
+    }
   } catch (e) { /* leave empty */ }
 
   const ratio = window.devicePixelRatio || 1;

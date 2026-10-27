@@ -24,7 +24,7 @@ PORT = int(os.environ.get("PORT", "8099"))
 HISTORY_FILE = os.path.join(DATA_DIR, "history.json")
 INGRESS_GATEWAY = "172.30.32.2"
 MAX_POINTS = 20000
-HISTORY_TOPICS = ("cubic_meters", "BatteryVoltage", "BatteryPercent", "RSSI", "flow_m3h")
+HISTORY_TOPICS = ("cubic_meters", "BatteryVoltage", "BatteryPercent", "RSSI", "flow_m3h", "bt/pin_mv", "bt/voltage")
 
 log = logging.getLogger("gas_meter")
 
@@ -100,8 +100,9 @@ def validate(name, value):
 class Store:
     """Latest values, pending commands and history. Written by the MQTT thread."""
 
-    def __init__(self, root):
+    def __init__(self, root, test_root=""):
         self.root = root.strip("/")
+        self.test_root = (test_root or "").strip("/")   # battery discharge test sketch
         self.lock = threading.Lock()
         self.connected = False
         self.values = {}        # topic suffix -> payload
@@ -139,11 +140,22 @@ class Store:
 
     # ---- MQTT messages ----
     def on_message(self, topic, payload):
+        now = time.time()
+        if self.test_root and topic.startswith(self.test_root + "/"):
+            key = "bt/" + topic[len(self.test_root) + 1:]
+            with self.lock:
+                if payload == "":
+                    self.values.pop(key, None)
+                else:
+                    self.values[key] = payload
+                    self.updated[key] = now
+                    if key in HISTORY_TOPICS:
+                        self.record(key, now, payload)
+            return
         prefix = self.root + "/"
         if not topic.startswith(prefix):
             return
         suffix = topic[len(prefix):]
-        now = time.time()
         with self.lock:
             if suffix.startswith("set/") or suffix == "config/counter":
                 name = "counter" if suffix == "config/counter" else suffix[4:]
@@ -275,6 +287,8 @@ class Bridge:
         log.info("MQTT connected to %s:%s", self.host, self.port)
         self.store.connected = True
         client.subscribe(self.store.root + "/#")
+        if self.store.test_root:
+            client.subscribe(self.store.test_root + "/#")
         if self.discovery:
             self.publish_discovery()
 
@@ -393,6 +407,16 @@ async def api_series(request):
     if kind == "hourly":
         with store.lock:
             return web.json_response(store.hourly(hours))
+    if kind == "bt":
+        # discharge test: raw pin voltage (mV) converted with the divider factor given by the UI
+        try:
+            factor = float(request.query.get("factor", "2.044"))
+        except ValueError:
+            factor = 2.044
+        since = time.time() - hours * 3600
+        with store.lock:
+            raw = [p for p in store.history.get("bt/pin_mv", []) if p[0] >= since]
+        return web.json_response([[ts, round(mv / 1000.0 * factor, 3)] for ts, mv in raw])
     name = {"battery": "BatteryVoltage", "percent": "BatteryPercent", "meter": "cubic_meters"}.get(kind)
     if name is None:
         return web.json_response({"error": "unknown series"}, status=400)
@@ -465,7 +489,8 @@ async def on_cleanup(app):
 def create_app(options):
     app = web.Application(middlewares=[ingress_only])
     app["options"] = options
-    app["store"] = Store(options.get("root_topic") or "Gaz/Gazomierz")
+    app["store"] = Store(options.get("root_topic") or "Gaz/Gazomierz",
+                         options.get("battery_test_topic", "Gaz/BatteryTest"))
     app.router.add_get("/", index)
     app.router.add_get("/api/state", api_state)
     app.router.add_get("/api/series", api_series)

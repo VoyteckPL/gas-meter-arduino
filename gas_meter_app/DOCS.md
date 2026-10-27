@@ -27,6 +27,7 @@ The credentials are stored by Home Assistant, not in this repository.
 |---|---|---|
 | `mqtt_host`, `mqtt_port`, `mqtt_user`, `mqtt_password` | empty | broker, leave empty to use the Mosquitto add-on |
 | `root_topic` | `Gaz/Gazomierz` | must be the same as `ROOT_TOPIC` in the firmware |
+| `battery_test_topic` | `Gaz/BatteryTest` | topic of the `battery_test` sketch, shows a discharge test card and chart (empty = off) |
 | `publish_discovery` | `true` | create the Home Assistant entities (meter, battery, signal) |
 | `language` | `auto` | `auto` (browser language), `pl` or `en`. The PL / EN button in the panel overrides it |
 

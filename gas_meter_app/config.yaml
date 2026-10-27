@@ -1,5 +1,5 @@
 name: "Gas Meter"
-version: "0.1.1"
+version: "0.2.0"
 slug: "gas_meter"
 description: "Dashboard and settings panel for the battery powered ESP32 gas meter (MQTT). / Panel i ustawienia gazomierza na baterii (MQTT)."
 url: "https://github.com/VoyteckPL/gas-meter-arduino"
@@ -23,6 +23,7 @@ options:
   mqtt_user: ""
   mqtt_password: ""
   root_topic: "Gaz/Gazomierz"
+  battery_test_topic: "Gaz/BatteryTest"
   publish_discovery: true
   language: "auto"
 schema:
@@ -31,5 +32,6 @@ schema:
   mqtt_user: "str?"
   mqtt_password: "password?"
   root_topic: "str"
+  battery_test_topic: "str?"
   publish_discovery: "bool"
   language: "list(auto|pl|en)"
