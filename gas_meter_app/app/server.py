@@ -579,21 +579,27 @@ def core_token():
 
 
 async def call_service(path, data):
-    """Calls a Home Assistant service through the Supervisor proxy. Returns True when accepted."""
+    """Calls a Home Assistant service through the Supervisor proxy.
+    Returns {"ok": bool, "detail": text explaining a failure}."""
     token = core_token()
     if not token:
         log.info("notification (not running inside Home Assistant): %s", data)
-        return False
+        return {"ok": False, "detail": "not running inside Home Assistant"}
     try:
         async with ClientSession() as session:
             async with session.post(CORE_API + "/services/" + path, json=data, timeout=15,
                                     headers={"Authorization": "Bearer " + token}) as response:
-                if response.status >= 300:
-                    log.warning("service %s answered %s", path, response.status)
-                return response.status < 300
+                if response.status < 300:
+                    return {"ok": True, "detail": ""}
+                text = (await response.text())[:200]
+                log.warning("service %s answered %s: %s", path, response.status, text)
+                hint = {401: "no permission for the Home Assistant API (restart the app after the update)",
+                        403: "no permission for the Home Assistant API (restart the app after the update)",
+                        404: "service not found: check the name of notify_service (Developer tools > Actions)"}
+                return {"ok": False, "detail": "%s (HTTP %s)" % (hint.get(response.status, text), response.status)}
     except Exception as error:  # pragma: no cover
         log.warning("service %s failed: %s", path, error)
-        return False
+        return {"ok": False, "detail": str(error)}
 
 
 async def language_of(app):
@@ -629,6 +635,7 @@ async def send_event(app, event):
         sent["notify"] = await call_service("notify/" + name, payload)
     app["notify_log"].append({"ts": time.time(), "kind": event["kind"], "level": event["level"],
                               "message": event["message"], "sent": sent})
+    event["sent"] = sent
     del app["notify_log"][:-20]
     log.info("notification %s/%s: %s", event["kind"], event["level"], event["message"])
 

@@ -901,8 +901,11 @@ function buildBattery() {
 
 async function notifyAction(action) {
   try {
-    await api("notify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) });
-    toast(t("nSent"));
+    const result = await api("notify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) });
+    const last = result.log && result.log[0];
+    const failed = last && Object.values(last.sent).some((r) => r && r.ok === false);
+    if (failed) toast(t("nFailed") + ": " + Object.values(last.sent).filter((r) => r && r.ok === false).map((r) => r.detail).join("; "), true);
+    else toast(t("nSent"));
   } catch (error) { toast(t("error") + ": " + error.message, true); }
   loadNotify();
 }
@@ -919,10 +922,12 @@ async function loadNotify() {
   $("#nNotHa").textContent = t("nNotHa");
   const log = $("#nLog"); log.textContent = "";
   for (const entry of n.log.slice(0, 6)) {
-    const ok = entry.sent.persistent !== false && entry.sent.notify !== false;
+    const problems = Object.entries(entry.sent).filter(([, r]) => r && r.ok === false)
+      .map(([name, r]) => (name === "notify" ? t("nTarget") : t("nPersistent")) + ": " + r.detail);
     log.append(el("div", { style: "margin-bottom:6px" }, [
-      el("span", { class: "muted", text: new Date(entry.ts * 1000).toLocaleString(lang === "pl" ? "pl-PL" : "en-GB") + (ok ? "" : " (" + t("nFailed") + ")") + " — " }),
+      el("span", { class: "muted", text: new Date(entry.ts * 1000).toLocaleString(lang === "pl" ? "pl-PL" : "en-GB") + " — " }),
       el("span", { text: entry.message }),
+      ...(problems.length ? [el("div", { style: "color:var(--bad)", text: t("nFailed") + " — " + problems.join("; ") })] : []),
     ]));
   }
 }

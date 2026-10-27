@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.1
+
+* Notifications: the test button and the list of recent messages now say why a message was not delivered
+  (wrong `notify_service` name, no permission for the Home Assistant API, ...) instead of always showing "sent".
+
 ## 0.7.0
 
 * Battery notifications through Home Assistant: periodic report (charge and estimated life, charge-by date),
