@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.0
+
+* Battery notifications through Home Assistant: periodic report (charge and estimated life, charge-by date),
+  warnings when the battery has to be charged (with reminders), a note when it was charged and an alert when
+  the meter is silent. A notification in Home Assistant and optionally a push to the phone (`notify_service`).
+* New options: `notify_service`, `notify_persistent`, `battery_report`, `battery_warn_days`,
+  `battery_critical_days`, `silent_alert_hours`.
+* Battery tab: notification status, test and "send the report now" buttons, list of recent messages.
+* The forecast now always runs to the thresholds the firmware really uses (3.10 V, 3.00 V).
+
 ## 0.6.0
 
 * The panel is split into tabs: **Overview**, **Battery**, **Settings**, **Network**, **Service**, **Demo**.

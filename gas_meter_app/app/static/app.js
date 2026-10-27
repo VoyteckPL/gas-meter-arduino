@@ -35,6 +35,11 @@ const TEXT = {
     bTestCapTitle: "Capacity of your cell (from the test)", bTestMa: "Current drawn during the test (mA)", bTestCells: "Cells in the test",
     bTestCapEst: "Capacity of one cell", bTestCapFinal: "measured (test finished)", bTestCapRunning: "estimate (test running)",
     bTestCapHint: "Measure the current with a multimeter in series with the battery (it should be about 120-150 mA with FAST_DISCHARGE 1) and type it here. Capacity = current x time to empty. When the test reaches 3.0 V the result is saved and used for the life prediction.",
+    nTitle: "Notifications", nTarget: "Phone (notify service)", nPersistent: "Notification in Home Assistant", nReport: "Battery report",
+    nNext: "Next report", nLevel: "Battery state", nTest: "Send a test", nNow: "Send the report now", nLog: "Recent notifications",
+    nOff: "off", nWeekly: "every week", nMonthly: "every month", nNone: "none (only the notification in Home Assistant)", nOk: "ok", nWarn: "charge soon (plan it)", nCrit: "charge now",
+    nHint: "You get a report with the charge and the estimated life, a warning when the battery has to be charged (default 45 days before the WiFi stop voltage, a reminder every week, every 2 days when critical at 14 days), a note when it was charged and an alert when the meter is silent for 48 hours. Set the phone service (for example notify.mobile_app_yourphone), the report interval and the limits in the app Configuration tab.",
+    nSent: "sent", nFailed: "not delivered", nNotHa: "Not running inside Home Assistant, messages are only written to the log.",
     tabBattery: "Battery", bTitle: "Battery now", bSource: "Source", bMeter: "Gas meter", bTest: "Discharge test",
     bVolts: "Voltage", bSoc: "Charge (estimated)", bCurveGeneric: "Generic Li-ion curve", bCurveLearned: "Curve learned from your discharge test",
     bPredTitle: "Life prediction", bModel: "Usage model", bTrend: "Voltage trend", bToWarn: "To the WiFi stop voltage", bToCut: "To the cut-off voltage",
@@ -92,6 +97,11 @@ const TEXT = {
     bTestCapTitle: "Pojemność Twojego ogniwa (z testu)", bTestMa: "Prąd pobierany w teście (mA)", bTestCells: "Ogniw w teście",
     bTestCapEst: "Pojemność jednego ogniwa", bTestCapFinal: "zmierzona (test zakończony)", bTestCapRunning: "szacunek (test trwa)",
     bTestCapHint: "Zmierz prąd multimetrem szeregowo z baterią (przy FAST_DISCHARGE 1 powinno wyjść ok. 120-150 mA) i wpisz tutaj. Pojemność = prąd × czas do rozładowania. Gdy test dojdzie do 3,0 V, wynik się zapisze i zostanie użyty w prognozie.",
+    nTitle: "Powiadomienia", nTarget: "Telefon (usługa notify)", nPersistent: "Powiadomienie w Home Assistant", nReport: "Raport o baterii",
+    nNext: "Następny raport", nLevel: "Stan baterii", nTest: "Wyślij test", nNow: "Wyślij raport teraz", nLog: "Ostatnie powiadomienia",
+    nOff: "wyłączony", nWeekly: "co tydzień", nMonthly: "co miesiąc", nNone: "brak (tylko powiadomienie w Home Assistant)", nOk: "w porządku", nWarn: "wkrótce ładować (zaplanuj)", nCrit: "ładuj teraz",
+    nHint: "Dostajesz raport z naładowaniem i szacunkową żywotnością, ostrzeżenie gdy trzeba naładować baterię (domyślnie 45 dni przed napięciem zatrzymania WiFi, przypomnienie co tydzień, a przy stanie krytycznym 14 dni co 2 dni), informację o naładowaniu i alarm, gdy gazomierz milczy 48 godzin. Usługę telefonu (np. notify.mobile_app_twoj_telefon), częstotliwość raportu i limity ustawisz w zakładce Konfiguracja apki.",
+    nSent: "wysłano", nFailed: "nie dostarczono", nNotHa: "Apka nie działa w Home Assistant, komunikaty trafiają tylko do logu.",
     tabBattery: "Bateria", bTitle: "Bateria teraz", bSource: "Źródło", bMeter: "Gazomierz", bTest: "Test rozładowania",
     bVolts: "Napięcie", bSoc: "Naładowanie (szacunek)", bCurveGeneric: "Ogólna krzywa Li-ion", bCurveLearned: "Krzywa nauczona z Twojego testu rozładowania",
     bPredTitle: "Prognoza żywotności", bModel: "Model zużycia", bTrend: "Trend napięcia", bToWarn: "Do napięcia zatrzymania WiFi", bToCut: "Do napięcia odcięcia",
@@ -863,8 +873,58 @@ function buildBattery() {
   ]).id = "bBudgetCard";
 
   card([el("h2", { "data-i18n": "bStatsTitle" }), el("div", { class: "kv", id: "bStats" })]);
+
+  const testBtn = el("button", { class: "secondary", "data-i18n": "nTest" });
+  testBtn.addEventListener("click", () => notifyAction("test"));
+  const reportBtn = el("button", { class: "secondary", "data-i18n": "nNow" });
+  reportBtn.addEventListener("click", () => notifyAction("report"));
+  card([
+    el("h2", { "data-i18n": "nTitle" }),
+    el("div", { class: "kv" }, [
+      el("span", { "data-i18n": "nReport" }), el("span", { class: "v", id: "nReport" }),
+      el("span", { "data-i18n": "nNext" }), el("span", { class: "v", id: "nNext" }),
+      el("span", { "data-i18n": "nLevel" }), el("span", { class: "v", id: "nLevel" }),
+      el("span", { "data-i18n": "nPersistent" }), el("span", { class: "v", id: "nPersistent" }),
+      el("span", { "data-i18n": "nTarget" }), el("span", { class: "v", id: "nTarget" }),
+    ]),
+    el("div", { class: "field", style: "gap:8px;flex-wrap:wrap;margin-top:12px" }, [testBtn, reportBtn]),
+    el("p", { class: "hint", id: "nNotHa", hidden: "" }),
+    el("div", { class: "muted small", style: "margin-top:12px", "data-i18n": "nLog" }),
+    el("div", { id: "nLog", class: "small" }),
+    el("p", { class: "hint", "data-i18n": "nHint" }),
+  ]);
+
   battery.built = true;
   applyLanguage();
+}
+
+
+async function notifyAction(action) {
+  try {
+    await api("notify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) });
+    toast(t("nSent"));
+  } catch (error) { toast(t("error") + ": " + error.message, true); }
+  loadNotify();
+}
+async function loadNotify() {
+  let n;
+  try { n = await api("notify"); } catch (e) { return; }
+  const when = (ts) => ts ? new Date(ts * 1000).toLocaleDateString(lang === "pl" ? "pl-PL" : "en-GB") : "—";
+  $("#nReport").textContent = t({ off: "nOff", weekly: "nWeekly", monthly: "nMonthly" }[n.config.report] || "nOff");
+  $("#nNext").textContent = n.config.report === "off" ? "—" : when(n.next_report);
+  $("#nLevel").textContent = t({ ok: "nOk", warn: "nWarn", crit: "nCrit" }[n.level] || "nOk");
+  $("#nPersistent").textContent = n.persistent ? "✔" : "—";
+  $("#nTarget").textContent = n.target || t("nNone");
+  $("#nNotHa").hidden = n.in_ha;
+  $("#nNotHa").textContent = t("nNotHa");
+  const log = $("#nLog"); log.textContent = "";
+  for (const entry of n.log.slice(0, 6)) {
+    const ok = entry.sent.persistent !== false && entry.sent.notify !== false;
+    log.append(el("div", { style: "margin-bottom:6px" }, [
+      el("span", { class: "muted", text: new Date(entry.ts * 1000).toLocaleString(lang === "pl" ? "pl-PL" : "en-GB") + (ok ? "" : " (" + t("nFailed") + ")") + " — " }),
+      el("span", { text: entry.message }),
+    ]));
+  }
 }
 
 async function loadBattery() {
@@ -881,6 +941,7 @@ async function loadBattery() {
                              "&test_ma=" + ma + "&test_cells=" + cells);
   } catch (e) { battery.data = null; }
   renderBattery();
+  loadNotify();
 }
 
 function renderBattery() {

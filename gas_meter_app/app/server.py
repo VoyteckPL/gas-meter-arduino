@@ -30,8 +30,11 @@ HISTORY_TOPICS = ("cubic_meters", "BatteryVoltage", "BatteryPercent", "RSSI", "f
 LONG_SERIES = {"BatteryVoltage": (900, 40000), "BatteryPercent": (900, 40000), "RSSI": (900, 40000),
                "Wakes": (1800, 20000), "WifiSessions": (1800, 20000), "wifi_connect_ms": (1800, 20000)}
 CURVE_FILE = os.path.join(DATA_DIR, "curve.json")
+NOTIFY_FILE = os.path.join(DATA_DIR, "notify.json")
+CORE_API = os.environ.get("CORE_API", "http://supervisor/core/api")
 
 import battery
+import notifier
 
 log = logging.getLogger("gas_meter")
 
@@ -504,18 +507,9 @@ async def api_series(request):
     return web.json_response(thin(points))
 
 
-async def api_battery(request):
-    """Statistics and predictions for the battery: kind=meter (the gas meter) or kind=bt (discharge test)."""
-    app = request.app
+def compute_battery(app, source="meter", days=30, factor=2.044, test_ma=None, test_cells=1):
+    """Statistics and predictions for the battery: source meter (the gas meter) or bt (discharge test)."""
     store, options = app["store"], app["options"]
-    source = request.query.get("source", "meter")
-    try:
-        factor = float(request.query.get("factor", "2.044"))
-        days = max(1, min(int(request.query.get("days", "30")), 400))
-        test_ma = float(request.query.get("test_ma", "0")) or None
-        test_cells = max(1, int(request.query.get("test_cells", "1")))
-    except ValueError:
-        factor, days, test_ma, test_cells = 2.044, 30, None, 1
     now = time.time()
     with store.lock:
         if source == "bt":
@@ -533,13 +527,12 @@ async def api_battery(request):
         curve = store.curve
         curve_info = store.curve_info
         cfg_ppm = store.number("cfg/pulses_per_m3")
-        warn_v, cut_v = store.number("cfg/battery_warn_v"), store.number("cfg/battery_cutoff_v")
         static_ip = store.values.get("cfg/static_ip") == "ON"
     measured = (curve_info or {}).get("measured_mah")
     cap = battery.capacity(options, measured)
     opts = {"capacity_mah": cap["total_mah"],
-            "pulses_per_m3": cfg_ppm, "static_ip": static_ip,
-            "warn_v": warn_v if warn_v else None, "cutoff_v": cut_v if cut_v else None, "window_days": 7}
+            "pulses_per_m3": cfg_ppm, "static_ip": static_ip, "window_days": 7}
+    # the forecast runs to the thresholds the firmware really uses (3.10 V: no WiFi, 3.00 V: hibernate)
     if source == "bt":
         series = {}   # the test sketch does not run the meter logic
     result = battery.analyze(volts, series, opts, curve=curve, now=now)
@@ -563,7 +556,159 @@ async def api_battery(request):
         values = [v for t, v in series.get(key, []) if t >= since]
         if values:
             result[name] = {"min": min(values), "max": max(values), "avg": sum(values) / len(values)}
-    return web.json_response(result)
+    return result
+
+
+
+
+async def api_battery(request):
+    try:
+        factor = float(request.query.get("factor", "2.044"))
+        days = max(1, min(int(request.query.get("days", "30")), 400))
+        test_ma = float(request.query.get("test_ma", "0")) or None
+        test_cells = max(1, int(request.query.get("test_cells", "1")))
+    except ValueError:
+        factor, days, test_ma, test_cells = 2.044, 30, None, 1
+    source = request.query.get("source", "meter")
+    return web.json_response(compute_battery(request.app, source, days, factor, test_ma, test_cells))
+
+
+# ------------------------------- notifications -------------------------------
+def core_token():
+    return os.environ.get("SUPERVISOR_TOKEN") or os.environ.get("CORE_TOKEN")
+
+
+async def call_service(path, data):
+    """Calls a Home Assistant service through the Supervisor proxy. Returns True when accepted."""
+    token = core_token()
+    if not token:
+        log.info("notification (not running inside Home Assistant): %s", data)
+        return False
+    try:
+        async with ClientSession() as session:
+            async with session.post(CORE_API + "/services/" + path, json=data, timeout=15,
+                                    headers={"Authorization": "Bearer " + token}) as response:
+                if response.status >= 300:
+                    log.warning("service %s answered %s", path, response.status)
+                return response.status < 300
+    except Exception as error:  # pragma: no cover
+        log.warning("service %s failed: %s", path, error)
+        return False
+
+
+async def language_of(app):
+    option = app["options"].get("language", "auto")
+    if option in ("pl", "en"):
+        return option
+    token = core_token()
+    if token:
+        try:
+            async with ClientSession() as session:
+                async with session.get(CORE_API + "/config", timeout=10,
+                                       headers={"Authorization": "Bearer " + token}) as response:
+                    code = (await response.json()).get("language", "en")
+                    return "pl" if str(code).startswith("pl") else "en"
+        except Exception:  # pragma: no cover
+            pass
+    return "en"
+
+
+async def send_event(app, event):
+    """Persistent notification in Home Assistant and, when configured, a notify service (phone)."""
+    options = app["options"]
+    group = "silent" if event["kind"] in ("silent", "back") else "battery"
+    sent = {"persistent": None, "notify": None}
+    if options.get("notify_persistent", True):
+        sent["persistent"] = await call_service("persistent_notification/create", {
+            "title": event["title"], "message": event["message"], "notification_id": "gas_meter_" + group})
+    target = (options.get("notify_service") or "").strip()
+    if target:
+        name = target.split(".", 1)[1] if target.startswith("notify.") else target
+        payload = {"title": event["title"], "message": event["message"],
+                   "data": {"tag": "gas_meter_" + group, "ttl": 0, "priority": "high"}}
+        sent["notify"] = await call_service("notify/" + name, payload)
+    app["notify_log"].append({"ts": time.time(), "kind": event["kind"], "level": event["level"],
+                              "message": event["message"], "sent": sent})
+    del app["notify_log"][:-20]
+    log.info("notification %s/%s: %s", event["kind"], event["level"], event["message"])
+
+
+def notify_config(options):
+    return {"report": options.get("battery_report", "monthly"),
+            "warn_days": int(options.get("battery_warn_days") or 45),
+            "critical_days": int(options.get("battery_critical_days") or 14),
+            "silent_hours": int(options.get("silent_alert_hours") if options.get("silent_alert_hours") is not None else 48)}
+
+
+def load_notify_state():
+    try:
+        with open(NOTIFY_FILE, encoding="utf-8") as handle:
+            return json.load(handle)
+    except (OSError, ValueError):
+        return {}
+
+
+def save_notify_state(state):
+    try:
+        with open(NOTIFY_FILE, "w", encoding="utf-8") as handle:
+            json.dump(state, handle)
+    except OSError as error:
+        log.warning("could not save notification state: %s", error)
+
+
+async def run_notifications(app, force_report=False):
+    store = app["store"]
+    analysis = compute_battery(app, "meter", 30)
+    with store.lock:
+        stamps = [ts for key, ts in store.updated.items() if not key.startswith(("cfg/", "bt/"))]
+    last_data = max(stamps) if stamps else None
+    if analysis.get("volts") is None:
+        analysis = None
+    events, state = notifier.decide(app["notify_state"], analysis, time.time(), notify_config(app["options"]),
+                                    last_data, await language_of(app), force_report=force_report)
+    app["notify_state"] = state
+    for event in events:
+        await send_event(app, event)
+    if events or force_report:
+        save_notify_state(state)
+    return events
+
+
+async def notifier_loop(app):
+    await asyncio.sleep(90)          # let the history and the first MQTT values arrive
+    while True:
+        try:
+            await run_notifications(app)
+        except Exception:  # pragma: no cover
+            log.exception("notification check failed")
+        await asyncio.sleep(900)
+
+
+async def api_notify(request):
+    app = request.app
+    if request.method == "POST":
+        try:
+            action = (await request.json()).get("action")
+        except ValueError:
+            action = None
+        if action == "test":
+            await send_event(app, {"kind": "test", "level": "info", "title": notifier.TEXT[await language_of(app)]["title"],
+                                   "message": notifier.TEXT[await language_of(app)]["test"]})
+        elif action == "report":
+            if not await run_notifications(app, force_report=True):
+                return web.json_response({"error": "no battery data yet"}, status=409)
+        else:
+            return web.json_response({"error": "unknown action"}, status=400)
+    options, state = app["options"], app["notify_state"]
+    cfg = notify_config(options)
+    period = {"weekly": 7, "monthly": 30}.get(cfg["report"], 0)
+    next_report = (state.get("last_report") or time.time()) + period * 86400 if period else None
+    return web.json_response({
+        "config": cfg, "target": (options.get("notify_service") or "").strip(),
+        "persistent": bool(options.get("notify_persistent", True)),
+        "in_ha": bool(core_token()), "level": state.get("level", "ok"), "last_report": state.get("last_report"),
+        "next_report": next_report, "log": list(reversed(app["notify_log"])),
+    })
 
 
 async def api_set(request):
@@ -617,10 +762,12 @@ async def on_startup(app):
     bridge.start()
     app["bridge"] = bridge
     app["saver"] = asyncio.create_task(saver(app))
+    app["notifier"] = asyncio.create_task(notifier_loop(app))
 
 
 async def on_cleanup(app):
     app["saver"].cancel()
+    app["notifier"].cancel()
     app["store"].save()
     app["bridge"].client.loop_stop()
     app["bridge"].client.disconnect()
@@ -629,12 +776,16 @@ async def on_cleanup(app):
 def create_app(options):
     app = web.Application(middlewares=[ingress_only])
     app["options"] = options
+    app["notify_state"] = load_notify_state()
+    app["notify_log"] = []
     app["store"] = Store(options.get("root_topic") or "Gaz/Gazomierz",
                          options.get("battery_test_topic", "Gaz/BatteryTest"))
     app.router.add_get("/", index)
     app.router.add_get("/api/state", api_state)
     app.router.add_get("/api/series", api_series)
     app.router.add_get("/api/battery", api_battery)
+    app.router.add_get("/api/notify", api_notify)
+    app.router.add_post("/api/notify", api_notify)
     app.router.add_post("/api/set", api_set)
     app.router.add_post("/api/cancel", api_cancel)
     app.router.add_static("/static/", STATIC_DIR)

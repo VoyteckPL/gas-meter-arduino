@@ -52,6 +52,22 @@ the panel calculates the real capacity of your cell (current x time to empty), s
 When both agree, trust the result. With the discharge test running (`firmware/battery_test`) the tab
 can also show the test; when a run reaches 3.0 V the real curve of your cells is learned and used for the gas meter.
 
+## Notifications
+
+The app watches the battery and sends messages through Home Assistant (a notification in the bell and, when
+`notify_service` is set, a push to the phone):
+
+* **Report** (weekly or monthly, the first one right after the first data): charge, voltage, estimated life from
+  the usage model and the voltage trend, and the date by which to charge. The date uses the more cautious of the two.
+* **Warning** when fewer than `battery_warn_days` days are left before the WiFi stop voltage (3.10 V), repeated every
+  7 days. Below `battery_critical_days` the message is stronger and repeated every 2 days. A voltage of 3.50 V / 3.30 V
+  triggers the same warnings even if the prediction is missing.
+* **Charged** note when the voltage rose by 0.25 V after a warning, which also clears the warning.
+* **Silent meter** alert when no data arrives for `silent_alert_hours` hours (an empty battery or lost WiFi).
+
+Use the buttons in the **Battery** tab to send a test message or a report at once. The app needs access to the Home
+Assistant API (`homeassistant_api`); Home Assistant grants it on update.
+
 ## Options
 
 | Option | Default | Meaning |
@@ -63,6 +79,12 @@ can also show the test; when a run reaches 3.0 V the real curve of your cells is
 | `battery_cells` | `2` | number of cells **in parallel** |
 | `battery_cell_mah` | `3000` | capacity of one cell, used only with `custom` |
 | `battery_usable_pct` | `85` | usable part of the label capacity (3.0 V cut-off, cold, ageing, real cells below the label) |
+| `notify_service` | empty | phone notification service, for example `notify.mobile_app_yourphone` (Developer tools → Actions lists them). Empty = only the notification inside Home Assistant |
+| `notify_persistent` | `true` | also create a notification in the Home Assistant bell |
+| `battery_report` | `monthly` | report with the charge and the estimated life: `off`, `weekly` or `monthly` |
+| `battery_warn_days` | `45` | warn when fewer days than this are left before the WiFi stop voltage |
+| `battery_critical_days` | `14` | stronger warning below this many days |
+| `silent_alert_hours` | `48` | alert when the meter sends nothing for this many hours (0 = off) |
 | `publish_discovery` | `true` | create the Home Assistant entities (meter, battery, signal) |
 | `language` | `auto` | `auto` (browser language), `pl` or `en`. The PL / EN button in the panel overrides it |
 
