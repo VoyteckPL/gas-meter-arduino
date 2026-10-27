@@ -14,7 +14,11 @@
  *    during heating the chart in Home Assistant is nearly live, while the
  *    battery is not drained by a WiFi session for every single pulse.
  *  - A status message (battery, RSSI, diagnostics) is sent every
- *    STATUS_INTERVAL_S seconds.
+ *    STATUS_INTERVAL_S seconds with its own WiFi session. When a WiFi session
+ *    happens anyway (a pulse) and the last status is older than
+ *    STATUS_PIGGYBACK_S, the status is added to that session, which costs
+ *    almost nothing. During heating the status is therefore refreshed every
+ *    few minutes.
  *  - The counter is kept in the chip. After a power loss it is restored from
  *    the retained MQTT topic <root>/counter.
  ******************************************************************************/
@@ -53,7 +57,8 @@ IPAddress DNS_SERVER(192, 168, 1, 1);
 #define PULSES_PER_M3         100       // 1 pulse = 0.01 m3
 #define DEBOUNCE_MS           100       // reed level must be stable this long
 #define MIN_SEND_INTERVAL_S   20        // 0 = send every single pulse
-#define STATUS_INTERVAL_S     (6UL * 60UL * 60UL)
+#define STATUS_INTERVAL_S     (6UL * 60UL * 60UL)   // status with its own WiFi session
+#define STATUS_PIGGYBACK_S    (5UL * 60UL)          // status added to a session that happens anyway
 
 // battery: voltage at the battery = voltage at GPIO36 * BATTERY_DIVIDER
 #define BATTERY_DIVIDER       1.887f    // calibrated against a multimeter
@@ -372,6 +377,8 @@ void setup() {
     interval = (cache.failCount >= 4) ? 900UL : (60UL << (cache.failCount - 1));
   }
   bool statusDue = coldStart || (now - cache.lastStatusS >= STATUS_INTERVAL_S);
+  // include the status in a session that happens anyway when the last one is a few minutes old
+  bool statusWanted = statusDue || (now - cache.lastStatusS >= STATUS_PIGGYBACK_S);
   bool want      = coldStart || cache.pending > 0 || statusDue;
   bool canTry    = coldStart || (now - cache.lastTryS >= interval);
 
@@ -379,7 +386,7 @@ void setup() {
     cache.lastTryS = now;
     bool ok = false;
     if (wifiUp((coldStart && !cache.baseKnown) ? WIFI_TIMEOUT_FIRST_MS : WIFI_TIMEOUT_MS)) {
-      ok = publishAll(statusDue);
+      ok = publishAll(statusWanted);
     }
     WiFi.disconnect(true);
     now = nowSeconds();
@@ -388,7 +395,7 @@ void setup() {
       cache.failCount = 0;
       interval = MIN_SEND_INTERVAL_S;
       cache.sends++;
-      if (statusDue) cache.lastStatusS = now;
+      if (statusWanted) cache.lastStatusS = now;
     } else if (cache.failCount < 255) {
       cache.failCount++;
       interval = (cache.failCount >= 4) ? 900UL : (60UL << (cache.failCount - 1));

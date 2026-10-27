@@ -45,7 +45,8 @@ Wiring: `docs/images/wiring.png`.
    If it does not connect: connect pin `0/D5` to GND, press RST, upload, remove the wire, press RST.
 
 Settings (top of `gas_meter.ino`): `MIN_SEND_INTERVAL_S` (0 = every pulse, 20 = nearly live),
-`DEBOUNCE_MS`, `STATUS_INTERVAL_S`, `BATTERY_DIVIDER`, `USE_STATIC_IP`, `DEBUG_SERIAL`.
+`DEBOUNCE_MS`, `STATUS_INTERVAL_S` (status with its own WiFi session, 6 h) and `STATUS_PIGGYBACK_S`
+(status added to a session that happens anyway, 5 min), `BATTERY_DIVIDER`, `USE_STATIC_IP`, `DEBUG_SERIAL`.
 
 ## Battery calibration
 
