@@ -24,7 +24,14 @@ PORT = int(os.environ.get("PORT", "8099"))
 HISTORY_FILE = os.path.join(DATA_DIR, "history.json")
 INGRESS_GATEWAY = "172.30.32.2"
 MAX_POINTS = 20000
-HISTORY_TOPICS = ("cubic_meters", "BatteryVoltage", "BatteryPercent", "RSSI", "flow_m3h", "bt/pin_mv", "bt/voltage")
+HISTORY_TOPICS = ("cubic_meters", "BatteryVoltage", "BatteryPercent", "RSSI", "flow_m3h", "bt/pin_mv", "bt/voltage",
+                  "Wakes", "WifiSessions", "wifi_connect_ms")
+# slowly changing series are kept for about a year: minimum spacing (s) and number of points
+LONG_SERIES = {"BatteryVoltage": (900, 40000), "BatteryPercent": (900, 40000), "RSSI": (900, 40000),
+               "Wakes": (1800, 20000), "WifiSessions": (1800, 20000), "wifi_connect_ms": (1800, 20000)}
+CURVE_FILE = os.path.join(DATA_DIR, "curve.json")
+
+import battery
 
 log = logging.getLogger("gas_meter")
 
@@ -111,10 +118,36 @@ class Store:
         self.history = {}       # topic suffix -> [[ts, value], ...]
         self.day_start = {}     # "YYYY-MM-DD" -> meter reading at the start of that day
         self.last_meter = None
+        self.curve, self.curve_info = None, None
         self.load()
+
+    # ---- battery curve learned from the discharge test ----
+    def load_curve(self):
+        try:
+            with open(CURVE_FILE, encoding="utf-8") as handle:
+                data = json.load(handle)
+            self.curve = [tuple(p) for p in data["curve"]]
+            self.curve_info = {"learned_at": data.get("learned_at")}
+        except (OSError, ValueError, KeyError):
+            self.curve, self.curve_info = None, None
+
+    def learn_curve(self, factor):
+        """Called while the discharge test is listed: store a curve as soon as one run has finished."""
+        pins = self.history.get("bt/pin_mv", [])
+        volts = [[ts, mv / 1000.0 * factor] for ts, mv in pins]
+        curve = battery.learn_curve(volts)
+        if not curve or curve == self.curve:
+            return
+        self.curve, self.curve_info = curve, {"learned_at": time.time()}
+        try:
+            with open(CURVE_FILE, "w", encoding="utf-8") as handle:
+                json.dump({"curve": curve, "learned_at": self.curve_info["learned_at"]}, handle)
+        except OSError as error:
+            log.warning("could not save curve: %s", error)
 
     # ---- persistence ----
     def load(self):
+        self.load_curve()
         try:
             with open(HISTORY_FILE, encoding="utf-8") as handle:
                 data = json.load(handle)
@@ -180,11 +213,14 @@ class Store:
         series = self.history.setdefault(suffix, [])
         if series and series[-1][1] == number and now - series[-1][0] < 300:
             return
-        if series and now - series[-1][0] < 30 and suffix != "cubic_meters":
+        spacing, limit = LONG_SERIES.get(suffix, (30, MAX_POINTS))
+        if suffix == "cubic_meters":
+            spacing = 0
+        if series and now - series[-1][0] < spacing:
             return
         series.append([round(now, 1), number])
-        if len(series) > MAX_POINTS:
-            del series[: len(series) - MAX_POINTS]
+        if len(series) > limit:
+            del series[: len(series) - limit]
         if suffix == "cubic_meters":
             today = datetime.fromtimestamp(now).strftime("%Y-%m-%d")
             if today not in self.day_start:
@@ -427,7 +463,7 @@ async def api_series(request):
     store = request.app["store"]
     kind = request.query.get("kind", "hourly")
     try:
-        hours = max(1, min(int(request.query.get("hours", "48")), 24 * 14))
+        hours = max(1, min(int(request.query.get("hours", "48")), 24 * 400))
     except ValueError:
         hours = 48
     if kind == "hourly":
@@ -454,6 +490,56 @@ async def api_series(request):
     with store.lock:
         points = [p for p in store.history.get(name, []) if p[0] >= since]
     return web.json_response(thin(points))
+
+
+async def api_battery(request):
+    """Statistics and predictions for the battery: kind=meter (the gas meter) or kind=bt (discharge test)."""
+    app = request.app
+    store, options = app["store"], app["options"]
+    source = request.query.get("source", "meter")
+    try:
+        factor = float(request.query.get("factor", "2.044"))
+        days = max(1, min(int(request.query.get("days", "30")), 400))
+    except ValueError:
+        factor, days = 2.044, 30
+    now = time.time()
+    with store.lock:
+        if source == "bt":
+            volts = [[ts, mv / 1000.0 * factor] for ts, mv in store.history.get("bt/pin_mv", [])]
+            store.learn_curve(factor)
+        else:
+            volts = [list(p) for p in store.history.get("BatteryVoltage", [])]
+        series = {
+            "sessions": [list(p) for p in store.history.get("WifiSessions", [])],
+            "wakes": [list(p) for p in store.history.get("Wakes", [])],
+            "meter": [list(p) for p in store.history.get("cubic_meters", [])],
+            "connect": [list(p) for p in store.history.get("wifi_connect_ms", [])],
+            "rssi": [list(p) for p in store.history.get("RSSI", [])],
+        }
+        curve = store.curve
+        curve_info = store.curve_info
+        cfg_ppm = store.number("cfg/pulses_per_m3")
+        warn_v, cut_v = store.number("cfg/battery_warn_v"), store.number("cfg/battery_cutoff_v")
+        static_ip = store.values.get("cfg/static_ip") == "ON"
+    opts = {"capacity_mah": float(options.get("battery_capacity_mah") or battery.DEFAULTS["capacity_mah"]),
+            "pulses_per_m3": cfg_ppm, "static_ip": static_ip,
+            "warn_v": warn_v if warn_v else None, "cutoff_v": cut_v if cut_v else None, "window_days": 7}
+    if source == "bt":
+        series = {}   # the test sketch does not run the meter logic
+    result = battery.analyze(volts, series, opts, curve=curve, now=now)
+    result["curve_info"] = curve_info
+    result["source"] = source
+    cut = now - days * 86400
+    history = [p for p in volts if p[0] >= cut]
+    result["history"] = [[round(t, 1), round(v, 3)] for t, v in thin(history, 700)]
+    result["curve_table"] = [list(p) for p in (curve or battery.GENERIC_CURVE)]
+    # statistics of the WiFi link, over the same days
+    since = now - days * 86400
+    for key, name in (("rssi", "rssi"), ("connect", "connect_ms")):
+        values = [v for t, v in series.get(key, []) if t >= since]
+        if values:
+            result[name] = {"min": min(values), "max": max(values), "avg": sum(values) / len(values)}
+    return web.json_response(result)
 
 
 async def api_set(request):
@@ -524,6 +610,7 @@ def create_app(options):
     app.router.add_get("/", index)
     app.router.add_get("/api/state", api_state)
     app.router.add_get("/api/series", api_series)
+    app.router.add_get("/api/battery", api_battery)
     app.router.add_post("/api/set", api_set)
     app.router.add_post("/api/cancel", api_cancel)
     app.router.add_static("/static/", STATIC_DIR)

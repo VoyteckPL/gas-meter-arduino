@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.0
+
+* New **Battery** tab: voltage history with a forecast to the WiFi stop voltage and the cut-off
+  voltage, two independent life predictions (usage model and voltage trend, with a confidence level),
+  where the energy goes (sleep, self-discharge, WiFi sessions), a "what if" slider (battery life for a
+  different gas use) and nerd statistics (pulses, sessions and wake-ups per day, average current,
+  mAh per m³ of gas, WiFi connect time and signal).
+* The panel learns the real discharge curve of your cells from the discharge test
+  (`firmware/battery_test`) when a run reaches 3.0 V and uses it instead of the generic curve.
+* Battery, signal and session history is kept for about a year (one sample per 15 minutes).
+* New option `battery_capacity_mah` (default 5900, two 18650 cells with a reserve for cold).
+* Fix: the active tab highlight of the history window and chart tabs no longer disappears.
+
 ## 0.3.0
 
 * History of every value: click the meter reading, flow, today, battery, WiFi signal (or the battery

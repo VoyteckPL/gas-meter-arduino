@@ -30,6 +30,21 @@ const TEXT = {
     wifi_sessions: "WiFi sessions", wakes_per_pulse: "Wake-ups per pulse", wifi_connect_ms: "WiFi connect time",
     uptime: "Uptime", reset_reason: "Reset reason", firmware: "Firmware", mac: "MAC address", bssid: "Access point",
     ssid: "WiFi network", currentIp: "Current IP", installed: "Installed", available: "Available",
+    tabBattery: "Battery", bTitle: "Battery now", bSource: "Source", bMeter: "Gas meter", bTest: "Discharge test",
+    bVolts: "Voltage", bSoc: "Charge (estimated)", bCurveGeneric: "Generic Li-ion curve", bCurveLearned: "Curve learned from your discharge test",
+    bPredTitle: "Life prediction", bModel: "Usage model", bTrend: "Voltage trend", bToWarn: "To the WiFi stop voltage", bToCut: "To the cut-off voltage",
+    bConf: "Confidence", bLow: "low (too little data yet)", bMedium: "medium", bHigh: "high", bNoTrend: "not enough data yet (needs about a day)",
+    bNoModel: "no data about WiFi sessions yet", bPredHint: "The model works from day one but relies on assumed costs. The trend is measured but slow to settle: a Li-ion cell has a flat voltage curve at the top, so the first months look like almost no discharge. When both agree, trust it.",
+    bChartTitle: "Voltage history and forecast", bDays30: "30 days", bDays90: "90 days", bDays365: "1 year", bForecastModel: "forecast (model)",
+    bForecastTrend: "forecast (trend)", bWarnLine: "WiFi stop", bCutLine: "cut-off", bNoHistory: "No battery history yet",
+    bBudgetTitle: "Where the energy goes", bSleep: "Deep sleep", bSelf: "Self-discharge of the cells", bSessions: "WiFi sessions", bTotal: "Total average current",
+    bWhatIf: "What if the gas use was different?", bPulsesDay: "Pulses per day", bWhatIfOut: "battery life", bAvgDay: "your yearly average: about 266 pulses/day (970 m³)",
+    bStatsTitle: "Nerd statistics", bPulsesPerDay: "Pulses per day (7 d)", bSessionsPerDay: "WiFi sessions per day (7 d)", bWakesPerDay: "Wake-ups per day (7 d)",
+    bSessPerPulse: "WiFi sessions per pulse", bImplied: "Average current from the voltage trend", bModelCur: "Average current from the model",
+    bMvDay: "Voltage change", bMinMax: "Voltage min / max", bUsed: "Charge used since first record", bPerM3: "Battery cost of 1 m³ of gas",
+    bConnect: "WiFi connect time (min / avg / max)", bRssi: "WiFi signal (min / avg / max)", bSamples: "Battery samples", bHistorySince: "History since",
+    bTestNote: "Discharge test: the prediction comes from the voltage trend. When the test reaches 3.0 V the panel learns the real curve of your cells and uses it for the gas meter.",
+    bDays: "days", bMonths: "months", bOn: "on", bUnknown: "unknown",
     tabPanel: "Panel", tabDemo: "Demo (simulator)", histHint: "Click a value to see its history.", close: "Close", range1h: "1 h", range6h: "6 h", range24h: "24 h",
     range7d: "7 days", range14d: "14 days", hMeter: "Meter reading", hFlow: "Flow", hHourly: "Consumption per hour",
     hBattery: "Battery voltage", hPercent: "Battery level", hRssi: "WiFi signal", hBtPin: "Pin voltage (test)",
@@ -64,6 +79,21 @@ const TEXT = {
     wifi_sessions: "Sesje WiFi", wakes_per_pulse: "Obudzenia na impuls", wifi_connect_ms: "Czas łączenia z WiFi",
     uptime: "Czas pracy", reset_reason: "Powód restartu", firmware: "Firmware", mac: "Adres MAC", bssid: "Punkt dostępu",
     ssid: "Sieć WiFi", currentIp: "Aktualne IP", installed: "Zainstalowana", available: "Dostępna",
+    tabBattery: "Bateria", bTitle: "Bateria teraz", bSource: "Źródło", bMeter: "Gazomierz", bTest: "Test rozładowania",
+    bVolts: "Napięcie", bSoc: "Naładowanie (szacunek)", bCurveGeneric: "Ogólna krzywa Li-ion", bCurveLearned: "Krzywa nauczona z Twojego testu rozładowania",
+    bPredTitle: "Prognoza żywotności", bModel: "Model zużycia", bTrend: "Trend napięcia", bToWarn: "Do napięcia zatrzymania WiFi", bToCut: "Do napięcia odcięcia",
+    bConf: "Pewność", bLow: "niska (za mało danych)", bMedium: "średnia", bHigh: "wysoka", bNoTrend: "za mało danych (potrzeba ok. doby)",
+    bNoModel: "brak jeszcze danych o sesjach WiFi", bPredHint: "Model działa od pierwszego dnia, ale opiera się na założonych kosztach. Trend jest zmierzony, ale ustala się wolno: ogniwo Li-ion ma płaską krzywą napięcia na górze, więc pierwsze miesiące wyglądają, jakby prawie się nie rozładowywało. Gdy oba się zgadzają, można im ufać.",
+    bChartTitle: "Historia napięcia i prognoza", bDays30: "30 dni", bDays90: "90 dni", bDays365: "1 rok", bForecastModel: "prognoza (model)",
+    bForecastTrend: "prognoza (trend)", bWarnLine: "stop WiFi", bCutLine: "odcięcie", bNoHistory: "Brak jeszcze historii baterii",
+    bBudgetTitle: "Na co idzie energia", bSleep: "Głęboki sen", bSelf: "Samorozładowanie ogniw", bSessions: "Sesje WiFi", bTotal: "Średni prąd razem",
+    bWhatIf: "A gdyby zużycie gazu było inne?", bPulsesDay: "Impulsów na dobę", bWhatIfOut: "żywotność baterii", bAvgDay: "Twoja średnia roczna: ok. 266 impulsów na dobę (970 m³)",
+    bStatsTitle: "Statystyki dla nerdów", bPulsesPerDay: "Impulsy na dobę (7 dni)", bSessionsPerDay: "Sesje WiFi na dobę (7 dni)", bWakesPerDay: "Obudzenia na dobę (7 dni)",
+    bSessPerPulse: "Sesji WiFi na impuls", bImplied: "Średni prąd z trendu napięcia", bModelCur: "Średni prąd z modelu",
+    bMvDay: "Zmiana napięcia", bMinMax: "Napięcie min / maks", bUsed: "Zużyty ładunek od pierwszego zapisu", bPerM3: "Koszt baterii 1 m³ gazu",
+    bConnect: "Czas łączenia z WiFi (min / śr. / maks)", bRssi: "Sygnał WiFi (min / śr. / maks)", bSamples: "Próbek baterii", bHistorySince: "Historia od",
+    bTestNote: "Test rozładowania: prognoza wynika z trendu napięcia. Gdy test dojdzie do 3,0 V, panel nauczy się prawdziwej krzywej Twoich ogniw i użyje jej dla gazomierza.",
+    bDays: "dni", bMonths: "mies.", bOn: "włączone", bUnknown: "nieznane",
     tabPanel: "Panel", tabDemo: "Demo (symulator)", histHint: "Kliknij wartość, żeby zobaczyć jej historię.", close: "Zamknij", range1h: "1 godz.", range6h: "6 godz.",
     range24h: "24 godz.", range7d: "7 dni", range14d: "14 dni", hMeter: "Stan licznika", hFlow: "Przepływ",
     hHourly: "Zużycie na godzinę", hBattery: "Napięcie baterii", hPercent: "Poziom baterii", hRssi: "Sygnał WiFi",
@@ -328,6 +358,7 @@ function applyLanguage() {
   $("#title").textContent = t("title");
   $("#tabPanel").textContent = t("tabPanel");
   $("#tabDemo").textContent = t("tabDemo");
+  $("#tabBattery").textContent = t("tabBattery");
   const demo = $("#demoView iframe");
   if (demo && demo.contentWindow && demo.contentWindow.setLang) demo.contentWindow.setLang(lang);
   document.querySelectorAll("[data-i18n]").forEach((node) => { node.textContent = t(node.dataset.i18n); });
@@ -448,7 +479,7 @@ function update() {
     diag.append(el("span", { text: t(key) }), el("span", { class: "v", text: value === undefined ? "—" : String(value) }));
   }
 
-  document.querySelectorAll(".tabs button").forEach((button) => {
+  document.querySelectorAll(".tabs button[data-kind]").forEach((button) => {
     button.classList.toggle("active", button.dataset.kind === chartKind);
   });
 }
@@ -457,7 +488,7 @@ function update() {
 async function drawChart() {
   const canvas = $("#chart");
   if (!canvas) return;
-  document.querySelectorAll(".tabs button").forEach((button) => {
+  document.querySelectorAll(".tabs button[data-kind]").forEach((button) => {
     button.classList.toggle("active", button.dataset.kind === chartKind);
   });
   let points = [];
@@ -697,6 +728,253 @@ function renderHistory() {
   row("sLast", f(ys[ys.length - 1])); row("sPoints", String(ys.length));
 }
 
+
+// ------------------------------------------------------------------- battery view
+const battery = { source: "meter", days: 90, data: null, hover: null, built: false };
+
+function fmtLife(days) {
+  if (days === null || days === undefined || !Number.isFinite(days)) return "—";
+  if (days > 3650) return "> 10 " + (lang === "pl" ? "lat" : "years");
+  if (days < 2) return Math.max(1, Math.round(days * 24)) + " " + (lang === "pl" ? "godz." : "h");
+  if (days >= 90) return (days / 30.4).toFixed(1) + " " + t("bMonths");
+  return Math.round(days) + " " + t("bDays");
+}
+function fmtDate(days) {
+  if (days === null || days === undefined || !Number.isFinite(days) || days > 3650) return "";
+  const when = new Date(Date.now() + days * 86400000), loc = lang === "pl" ? "pl-PL" : "en-GB";
+  return days < 2 ? when.toLocaleString(loc, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
+                  : when.toLocaleDateString(loc, { year: "numeric", month: "short", day: "numeric" });
+}
+
+function buildBattery() {
+  const root = $("#batteryView");
+  root.textContent = "";
+  const card = (children, wide) => { const c = el("section", { class: "card" + (wide ? " wide" : "") }, children); root.append(c); return c; };
+
+  const srcTabs = el("div", { class: "tabs", id: "bSrcTabs" });
+  for (const [src, key] of [["meter", "bMeter"], ["bt", "bTest"]]) {
+    const b = el("button", { class: "secondary", "data-src": src, "data-i18n": key });
+    b.addEventListener("click", () => { battery.source = src; loadBattery(); });
+    srcTabs.append(b);
+  }
+  card([
+    el("h2", { "data-i18n": "bTitle" }), srcTabs,
+    el("div", { class: "big", id: "bVolt" }), el("div", { class: "muted small", "data-i18n": "bVolts" }),
+    el("div", { class: "bar" }, [el("div", { id: "bSocBar" })]),
+    el("div", { class: "kv" }, [
+      el("span", { "data-i18n": "bSoc" }), el("span", { class: "v", id: "bSoc" }),
+      el("span", { text: "" }), el("span", { class: "v small muted", id: "bCurve" }),
+    ]),
+    el("p", { class: "hint", id: "bTestNote", "data-i18n": "bTestNote" }),
+  ]);
+
+  card([
+    el("h2", { "data-i18n": "bPredTitle" }),
+    el("div", { class: "muted small", "data-i18n": "bModel" }),
+    el("div", { class: "pred", id: "bModelCut" }),
+    el("div", { class: "muted small", id: "bModelDates" }),
+    el("div", { class: "muted small", style: "margin-top:12px", "data-i18n": "bTrend" }),
+    el("div", { class: "pred", id: "bTrendCut" }),
+    el("div", { class: "muted small", id: "bTrendDates" }),
+    el("p", { class: "hint", "data-i18n": "bPredHint" }),
+  ]);
+
+  const rangeTabs = el("div", { class: "tabs", id: "bRangeTabs" });
+  for (const [days, key] of [[30, "bDays30"], [90, "bDays90"], [365, "bDays365"]]) {
+    const b = el("button", { class: "secondary", "data-days": days, "data-i18n": key });
+    b.addEventListener("click", () => { battery.days = days; loadBattery(); });
+    rangeTabs.append(b);
+  }
+  const canvas = el("canvas", { id: "bCanvas" });
+  canvas.addEventListener("pointermove", (e) => { battery.hover = e.clientX - canvas.getBoundingClientRect().left; drawBattery(); });
+  canvas.addEventListener("pointerleave", () => { battery.hover = null; drawBattery(); });
+  card([
+    el("h2", { "data-i18n": "bChartTitle" }), rangeTabs, el("div", { class: "readout", id: "bReadout" }), canvas,
+    el("div", { class: "legend", id: "bLegend" }),
+  ], true);
+
+  const slider = el("input", { type: "range", id: "bSlider", min: "0", max: "1000", step: "10", value: "266" });
+  slider.addEventListener("input", renderBattery);
+  card([
+    el("h2", { "data-i18n": "bBudgetTitle" }),
+    el("div", { class: "stack", id: "bStack" }),
+    el("div", { class: "kv", id: "bBudget" }),
+    el("h2", { style: "margin-top:18px", "data-i18n": "bWhatIf" }),
+    el("div", { class: "kv" }, [el("span", { "data-i18n": "bPulsesDay" }), el("span", { class: "v", id: "bSliderVal" })]),
+    slider,
+    el("div", { class: "kv" }, [el("span", { "data-i18n": "bWhatIfOut" }), el("span", { class: "v", id: "bSliderOut" })]),
+    el("p", { class: "hint", "data-i18n": "bAvgDay" }),
+  ]).id = "bBudgetCard";
+
+  card([el("h2", { "data-i18n": "bStatsTitle" }), el("div", { class: "kv", id: "bStats" })]);
+  battery.built = true;
+  applyLanguage();
+}
+
+async function loadBattery() {
+  if (!battery.built) buildBattery();
+  const hasTest = state && state.values["bt/pin_mv"] !== undefined;
+  if (!hasTest) battery.source = "meter";
+  document.querySelectorAll("#bSrcTabs button").forEach((b) => { b.hidden = b.dataset.src === "bt" && !hasTest; });
+  document.querySelectorAll("#bSrcTabs button").forEach((b) => b.classList.toggle("active", b.dataset.src === battery.source));
+  document.querySelectorAll("#bRangeTabs button").forEach((b) => b.classList.toggle("active", Number(b.dataset.days) === battery.days));
+  try {
+    const factor = Number(($("#btFactor") || {}).value) || 2.044;
+    battery.data = await api("battery?source=" + battery.source + "&days=" + battery.days + "&factor=" + factor);
+  } catch (e) { battery.data = null; }
+  renderBattery();
+}
+
+function renderBattery() {
+  const d = battery.data;
+  if (!d || !battery.built) return;
+  const isTest = d.source === "bt";
+  $("#bTestNote").hidden = !isTest;
+  $("#bBudgetCard").hidden = isTest;
+  $("#bVolt").textContent = d.volts === undefined ? "—" : num(d.volts, 3) + " V";
+  $("#bSoc").textContent = d.soc === undefined ? "—" : d.soc.toFixed(0) + " %";
+  const bar = $("#bSocBar");
+  bar.style.width = (d.soc || 0) + "%";
+  bar.style.background = d.soc < 15 ? "var(--bad)" : d.soc < 40 ? "var(--warn)" : "var(--ok)";
+  $("#bCurve").textContent = d.curve === "learned" ? t("bCurveLearned") : t("bCurveGeneric");
+
+  // predictions
+  const model = d.model, trend = d.trend;
+  const dates = (p) => p ? t("bToWarn") + ": " + fmtLife(p.days_to_warn) + " (" + fmtDate(p.days_to_warn) + ")\n" +
+                           t("bToCut") + ": " + fmtLife(p.days_to_cutoff) + " (" + fmtDate(p.days_to_cutoff) + ")" : "";
+  $("#bModelCut").textContent = model ? fmtLife(model.days_to_cutoff) : "—";
+  $("#bModelDates").textContent = model ? dates(model) : t("bNoModel");
+  $("#bModelDates").style.whiteSpace = "pre-line";
+  $("#bTrendCut").textContent = trend && trend.days_to_cutoff !== undefined ? fmtLife(trend.days_to_cutoff) : "—";
+  $("#bTrendDates").style.whiteSpace = "pre-line";
+  $("#bTrendDates").textContent = trend
+    ? (trend.days_to_cutoff !== undefined ? dates(trend) + "\n" : "") + t("bConf") + ": " + t({ low: "bLow", medium: "bMedium", high: "bHigh" }[trend.confidence]) +
+      " (R² " + trend.r2.toFixed(2) + ")"
+    : t("bNoTrend");
+
+  // budget + what if
+  if (!isTest && d.budget_ma) {
+    const b = d.budget_ma, total = b.total || 1;
+    const parts = [["bSleep", b.sleep, "var(--muted)"], ["bSelf", b.self, "var(--warn)"], ["bSessions", b.sessions, "var(--accent)"]];
+    const stack = $("#bStack"); stack.textContent = "";
+    const kv = $("#bBudget"); kv.textContent = "";
+    for (const [key, value, color] of parts) {
+      stack.append(el("div", { style: "width:" + (value / total * 100) + "%;background:" + color }));
+      kv.append(el("span", {}, [el("i", { class: "swatch", style: "background:" + color }), t(key)]),
+                el("span", { class: "v", text: (value * 1000).toFixed(0) + " µA (" + (value / total * 100).toFixed(0) + " %)" }));
+    }
+    kv.append(el("span", { text: t("bTotal") }), el("span", { class: "v", text: (total * 1000).toFixed(0) + " µA" }));
+  } else if (!isTest) {
+    $("#bStack").textContent = ""; $("#bBudget").textContent = "";
+  }
+  const p = d.model_params;
+  const ppd = Number($("#bSlider").value);
+  $("#bSliderVal").textContent = ppd + " (" + (ppd / 100).toFixed(1) + " m³)";
+  if (p) {
+    const ma = p.sleep_ma + p.self_ma + (p.status_sessions_per_day + ppd * p.spp) * p.session_mah / 24;
+    $("#bSliderOut").textContent = fmtLife(p.capacity_mah / (ma * 24)) + " (" + (ma * 1000).toFixed(0) + " µA)";
+  }
+
+  // statistics
+  const stats = $("#bStats"); stats.textContent = "";
+  const add = (key, value) => { if (value !== null && value !== undefined && value !== "") stats.append(el("span", { text: t(key) }), el("span", { class: "v", text: String(value) })); };
+  const f = (v, n) => (v === null || v === undefined ? null : Number(v).toFixed(n));
+  add("bPulsesPerDay", f(d.pulses_day, 0));
+  add("bSessionsPerDay", f(d.sessions_day, 0));
+  add("bWakesPerDay", f(d.wakes_day, 0));
+  add("bSessPerPulse", f(d.sessions_per_pulse, 2));
+  if (trend) {
+    add("bMvDay", trend.mv_per_day.toFixed(1) + " mV / " + (lang === "pl" ? "dobę" : "day"));
+    if (!isTest) add("bImplied", (trend.implied_ma * 1000).toFixed(0) + " µA");
+  }
+  if (model) add("bModelCur", (model.current_ma * 1000).toFixed(0) + " µA");
+  add("bMinMax", d.min_v !== undefined ? d.min_v.toFixed(3) + " / " + d.max_v.toFixed(3) + " V" : null);
+  if (p && d.history && d.history.length) {
+    const first = d.history[0][1];
+    const curve = d.curve_table.map((x) => x.slice());
+    const socOf = (v) => { let r = 100; for (let i = 1; i < curve.length; i++) if (v <= curve[i][0]) { r = curve[i - 1][1] + (curve[i][1] - curve[i - 1][1]) * (v - curve[i - 1][0]) / (curve[i][0] - curve[i - 1][0]); break; } return v <= curve[0][0] ? 0 : r; };
+    const used = Math.max(0, (socOf(first) - d.soc) / 100 * p.capacity_mah);
+    add("bUsed", used.toFixed(0) + " mAh");
+  }
+  if (d.pulses_day && d.model && p) add("bPerM3", ((p.status_sessions_per_day + d.pulses_day * (d.sessions_per_pulse === null || d.sessions_per_pulse === undefined ? p.spp : d.sessions_per_pulse)) * p.session_mah / (d.pulses_day / 100)).toFixed(2) + " mAh");
+  if (d.connect_ms) add("bConnect", d.connect_ms.min.toFixed(0) + " / " + d.connect_ms.avg.toFixed(0) + " / " + d.connect_ms.max.toFixed(0) + " ms");
+  if (d.rssi) add("bRssi", d.rssi.min.toFixed(0) + " / " + d.rssi.avg.toFixed(0) + " / " + d.rssi.max.toFixed(0) + " dBm");
+  add("bSamples", d.points);
+  if (d.first_ts) add("bHistorySince", new Date(d.first_ts * 1000).toLocaleDateString(lang === "pl" ? "pl-PL" : "en-GB"));
+  drawBattery();
+}
+
+function drawBattery() {
+  const d = battery.data, canvas = $("#bCanvas");
+  if (!d || !canvas || $("#batteryView").hidden) return;
+  const ratio = window.devicePixelRatio || 1, width = canvas.clientWidth, height = canvas.clientHeight;
+  canvas.width = width * ratio; canvas.height = height * ratio;
+  const ctx = canvas.getContext("2d"); ctx.scale(ratio, ratio);
+  const css = getComputedStyle(document.documentElement);
+  const color = (name) => css.getPropertyValue(name).trim();
+  ctx.font = "11px sans-serif";
+  const hist = d.history || [], fm = d.forecast_model || [], ft = d.forecast_trend || [];
+  const legend = $("#bLegend"); legend.textContent = "";
+  const addLegend = (c, text) => legend.append(el("span", {}, [el("i", { class: "swatch", style: "background:" + c }), text]));
+  addLegend(color("--accent"), t("bVolts"));
+  if (fm.length) addLegend(color("--ok"), t("bForecastModel"));
+  if (ft.length) addLegend(color("--warn"), t("bForecastTrend"));
+  if (!hist.length) { ctx.fillStyle = color("--muted"); ctx.fillText(t("bNoHistory"), 12, 24); return; }
+  const warnV = (d.model_params && d.model_params.warn_v) || 3.1, cutV = (d.model_params && d.model_params.cutoff_v) || 3.0;
+  const x0 = hist[0][0], now = d.now;
+  const x1 = Math.max(now, ...[fm, ft].map((s) => (s.length ? s[s.length - 1][0] : 0)), x0 + 3600);
+  const lo = Math.min(cutV - 0.05, ...hist.map((p) => p[1])), hi = Math.max(4.25, ...hist.map((p) => p[1]) );
+  const left = 44, right = 10, top = 10, bottom = 22, plotW = width - left - right, plotH = height - top - bottom;
+  const sx = (x) => left + (x - x0) / (x1 - x0) * plotW, sy = (y) => top + plotH - (y - lo) / (hi - lo) * plotH;
+  ctx.lineWidth = 1; ctx.strokeStyle = color("--line"); ctx.fillStyle = color("--muted");
+  for (let i = 0; i <= 5; i++) {
+    const v = lo + (hi - lo) * i / 5, y = sy(v);
+    ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(width - right, y); ctx.stroke();
+    ctx.fillText(v.toFixed(2), 2, y + 4);
+  }
+  const ticks = width < 500 ? 2 : 4;
+  for (let i = 0; i <= ticks; i++) {
+    const ts = x0 + (x1 - x0) * i / ticks;
+    const when = new Date(ts * 1000), loc = lang === "pl" ? "pl-PL" : "en-GB";
+    ctx.fillText(x1 - x0 < 3 * 86400 ? when.toLocaleString(loc, { day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" })
+                                     : when.toLocaleDateString(loc, { month: "short", day: "numeric", year: x1 - x0 > 300 * 86400 ? "2-digit" : undefined }),
+                 Math.min(Math.max(left, sx(ts) - 22), width - 70), height - 6);
+  }
+  ctx.setLineDash([5, 4]); ctx.lineWidth = 1.2;
+  for (const [v, text] of [[warnV, t("bWarnLine")], [cutV, t("bCutLine")]]) {
+    ctx.strokeStyle = color("--bad"); ctx.fillStyle = color("--bad");
+    ctx.beginPath(); ctx.moveTo(left, sy(v)); ctx.lineTo(width - right, sy(v)); ctx.stroke();
+    ctx.fillText(text + " " + v.toFixed(2) + " V", left + 4, sy(v) - 3);
+  }
+  ctx.beginPath(); ctx.strokeStyle = color("--muted"); ctx.moveTo(sx(now), top); ctx.lineTo(sx(now), top + plotH); ctx.stroke();
+  const path = (points, c, dashed) => {
+    ctx.setLineDash(dashed ? [6, 5] : []); ctx.strokeStyle = c; ctx.lineWidth = 2; ctx.beginPath();
+    points.forEach((p, i) => (i ? ctx.lineTo(sx(p[0]), sy(p[1])) : ctx.moveTo(sx(p[0]), sy(p[1]))));
+    ctx.stroke();
+  };
+  path(fm, color("--ok"), true); path(ft, color("--warn"), true); path(hist, color("--accent"), false);
+  ctx.setLineDash([]);
+  let readout = "";
+  const all = [["", hist], [t("bForecastModel"), fm], [t("bForecastTrend"), ft]];
+  if (battery.hover !== null) {
+    let best = null, bestD = Infinity;
+    for (const [label, series] of all) for (const p of series) {
+      const dist = Math.abs(sx(p[0]) - battery.hover);
+      if (dist < bestD) { bestD = dist; best = [label, p]; }
+    }
+    if (best) {
+      const [label, p] = best;
+      ctx.strokeStyle = color("--muted"); ctx.beginPath(); ctx.moveTo(sx(p[0]), top); ctx.lineTo(sx(p[0]), top + plotH); ctx.stroke();
+      ctx.fillStyle = color("--text"); ctx.beginPath(); ctx.arc(sx(p[0]), sy(p[1]), 4, 0, 7); ctx.fill();
+      readout = new Date(p[0] * 1000).toLocaleString(lang === "pl" ? "pl-PL" : "en-GB") + " — " + p[1].toFixed(3) + " V" + (label ? " (" + label + ")" : "");
+    }
+  } else {
+    const last = hist[hist.length - 1];
+    readout = new Date(last[0] * 1000).toLocaleString(lang === "pl" ? "pl-PL" : "en-GB") + " — " + last[1].toFixed(3) + " V";
+  }
+  $("#bReadout").textContent = readout;
+}
+
 // ------------------------------------------------------------------------ main
 async function refresh() {
   try {
@@ -713,17 +991,18 @@ async function refresh() {
 $("#langBtn").addEventListener("click", () => {
   lang = lang === "pl" ? "en" : "pl";
   try { localStorage.setItem("gasMeterLang", lang); } catch (e) { /* ignore */ }
-  if (built) { applyLanguage(); update(); drawChart(); if (!$("#histDialog").hidden) loadHistory(); }
+  if (built) { applyLanguage(); update(); drawChart(); if (!$("#histDialog").hidden) loadHistory(); if (!$("#batteryView").hidden) renderBattery(); }
 });
-window.addEventListener("resize", () => { if (built) { drawChart(); if ($("#histDialog")) renderHistory(); } });
+window.addEventListener("resize", () => { if (built) { drawChart(); if ($("#histDialog")) renderHistory(); if (!$("#batteryView").hidden) drawBattery(); } });
 
 // ---------------------------------------------------------------- panel / demo tabs
 function showView(view) {
-  const demo = view === "demo";
-  $("#root").hidden = demo;
-  $("#demoView").hidden = !demo;
+  $("#root").hidden = view !== "panel";
+  $("#batteryView").hidden = view !== "battery";
+  $("#demoView").hidden = view !== "demo";
   document.querySelectorAll("#viewTabs button").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
-  if (demo && !$("#demoView iframe")) {
+  if (view === "battery") loadBattery();
+  if (view === "demo" && !$("#demoView iframe")) {
     const frame = el("iframe", { src: "static/simulator.html?lang=" + lang, title: "simulator" });
     // same origin, so the frame can be sized to its content (no inner scrollbar)
     const fit = () => {
@@ -738,4 +1017,4 @@ document.querySelectorAll("#viewTabs button").forEach((b) => b.addEventListener(
 
 refresh();
 setInterval(refresh, 3000);
-setInterval(() => { if (built) { drawChart(); const d = $("#histDialog"); if (d && !d.hidden) loadHistory(); } }, 60000);
+setInterval(() => { if (built) { drawChart(); const d = $("#histDialog"); if (d && !d.hidden) loadHistory(); if (!$("#batteryView").hidden) loadBattery(); } }, 60000);
