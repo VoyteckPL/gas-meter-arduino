@@ -23,6 +23,11 @@ The meter sleeps almost all the time, so:
 | `RSSI` | WiFi signal in dBm |
 | `Wakes` | wake-ups since power-on |
 | `WifiSessions` | successful WiFi sessions since power-on |
+| `fw_version`, `reset_reason`, `uptime_s`, `pending`, `wakes_per_pulse`, `wifi_connect_ms` | diagnostics (status message) |
+| `short_pulses` | pulses that were already over when the chip had started (very short closures) |
+| `chatter_events` | times the flutter protection was triggered |
+| `restarts` | restarts that were not a normal wake-up (crash, brownout, power-on) |
+| `ip`, `mac`, `ssid`, `bssid` | network information (status message) |
 
 Manual counter override (HA entity "Set counter"): publish the pulse count (retained) to
 `config/counter`, then reset the board (or power-cycle it). The value is used once and cleared.
@@ -30,9 +35,7 @@ Example: meter reading 7282.35 m3 with 100 pulses per m3 -> 728235.
 
 ## Planned (stage 2, not implemented yet)
 
-State (published every status interval):
-`flow_m3h`, `pending`, `wakes_per_pulse`, `wifi_connect_ms`, `uptime_s`, `reset_reason`,
-`fw_version`, `service_state`, `ip`, `mac`, `ssid`, `bssid`, and `update`
+State: `flow_m3h`, `service_state` and `update`
 (JSON `{"installed_version": "...", "latest_version": "..."}`).
 
 Commands (HA -> meter), applied after each WiFi session, applied value echoed to `cfg/<name>`:
@@ -57,8 +60,13 @@ after the next restart it reverts to the last working settings.
 ## Pulse accounting rules
 
 * One pulse = reed contact closes (pin goes LOW).
-* Implemented: pulses are counted in RTC memory while sleeping; after a power loss the counter
-  is restored from the retained `counter` topic.
-* Planned (see the improvements list in the repository issues/README): counting by interrupt
-  while awake (WiFi session, service mode), a backup of the counter in flash, and handling of
-  pulses shorter than the wake-up time.
+* While sleeping the reed wakes the chip. A pulse that is already over when the chip has started is
+  still counted (`short_pulses`).
+* While awake (WiFi session) an interrupt counts the pulses. Contact chatter when closing and when
+  opening is ignored (a closure counts only after DEBOUNCE_MS of quiet).
+* The counter is kept in RTC memory and backed up in flash after every change, so it survives a
+  battery change. If both are lost it is restored from the retained `counter` topic.
+* The counter is never published before it is known (no wrong small value, no jump in the Energy dashboard).
+* Limit that no software can remove: a pulse shorter than the start-up time of the chip (about 0.3 s)
+  that falls completely into the start-up after a timer wake-up is not seen (about 0.5 % of such
+  very short pulses in the simulation, see `tests/firmware_sim`). Real gas meter pulses are much longer.

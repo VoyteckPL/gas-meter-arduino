@@ -1,0 +1,203 @@
+// Pulse accounting tests for firmware/gas_meter on a PC (see sim.h).
+// Build and run: ./run.sh
+#include <climits>
+#include <sys/time.h>
+#include "sim.h"
+#define gettimeofday sim_gettimeofday
+#define settimeofday sim_settimeofday
+#include "../../firmware/gas_meter/gas_meter.ino"
+
+static int64_t S(double s) { return (int64_t)(s * 1e6); }
+
+static void add_event(int64_t t, int level) { g_wave.push_back({t, level}); }
+
+// one closure of the reed; with bounce the contact chatters for 2 ms when it closes and 1 ms when it opens
+static void add_pulse(int64_t t0, int64_t closure_us, bool bounce = true) {
+  if (bounce) {
+    add_event(t0, 0); add_event(t0 + 500, 1); add_event(t0 + 1000, 0); add_event(t0 + 1500, 1); add_event(t0 + 2000, 0);
+  } else {
+    add_event(t0, 0);
+  }
+  int64_t te = t0 + closure_us;
+  if (bounce) { add_event(te, 1); add_event(te + 500, 0); add_event(te + 1000, 1); }
+  else add_event(te, 1);
+}
+
+struct Result {
+  int wakes = 0;
+  uint64_t chip = 0;
+  uint64_t broker = 0;
+  uint32_t shortPulses = 0, chatter = 0, restarts = 0;
+  int flashWrites = 0;
+};
+
+static void world_reset() {
+  g_wave.clear(); g_pubs.clear(); g_retained.clear(); g_flash.clear(); g_flash_writes = 0;
+  g_mqtt_ok = true; g_wifi_ok = true; g_isr = nullptr; g_adc_mv = 2000; g_wifi_sessions = 0;
+  g_retained["Gaz/Gazomierz/counter"] = "1000";
+}
+
+static void power_on(int64_t at) {
+  g_poweron_us = at;
+  g_reset_reason = ESP_RST_POWERON;
+  g_wake_cause = 0;
+  g_isr = nullptr;
+  g_ext0_level = -1; g_timer_us = -1;
+  memset(&cache, 0xA5, sizeof(cache));       // RTC memory content is undefined after a power-on
+  g_now_us = at + 300000;
+  g_boot_us = g_now_us;
+}
+
+static Result simulate(int64_t t_end, std::vector<int64_t> cuts = {}, int64_t off_us = 2000000) {
+  Result r;
+  size_t cut = 0;
+  power_on(0);
+  for (int iter = 0; iter < 400000; iter++) {
+    try { setup(); } catch (SleepException &) {}
+    r.wakes++;
+    int64_t sleep_start = g_now_us;
+    int64_t t_timer = g_timer_us >= 0 ? sleep_start + g_timer_us : INT64_MAX;
+    int64_t t_ext = INT64_MAX;
+    if (g_ext0_level >= 0) {
+      if (level_at(sleep_start) == g_ext0_level) t_ext = sleep_start;
+      else for (auto &e : g_wave) if (e.t > sleep_start && e.level == g_ext0_level) { t_ext = e.t; break; }
+    }
+    int64_t wake = std::min(t_timer, t_ext);
+    if (cut < cuts.size() && cuts[cut] < wake) {
+      int64_t at = cuts[cut++];
+      power_on(at + off_us);
+      continue;
+    }
+    if (wake > t_end) break;
+    g_wake_cause = (t_ext <= t_timer) ? ESP_SLEEP_WAKEUP_EXT0 : ESP_SLEEP_WAKEUP_TIMER;
+    g_reset_reason = ESP_RST_DEEPSLEEP;
+    g_isr = nullptr;
+    g_now_us = wake + 300000;               // boot time of the chip
+    g_boot_us = g_now_us;
+  }
+  r.chip = cache.counter;
+  r.shortPulses = cache.shortPulses; r.chatter = cache.chatterEvents; r.restarts = cache.restarts;
+  r.flashWrites = g_flash_writes;
+  auto it = g_retained.find("Gaz/Gazomierz/counter");
+  r.broker = it == g_retained.end() ? 0 : strtoull(it->second.c_str(), NULL, 10);
+  return r;
+}
+
+static int failures = 0;
+static void check(const char *name, int injected, const Result &r, uint64_t base = 1000, bool broker_too = true) {
+  uint64_t expected = base + injected;
+  bool ok = (r.chip == expected) && (!broker_too || r.broker == expected);
+  printf("%-4s %-52s injected=%3d chip=%llu broker=%llu wakes=%d short=%lu chatter=%lu flashW=%d\n",
+         ok ? "PASS" : "FAIL", name, injected, (unsigned long long)(r.chip - base),
+         (unsigned long long)(r.broker - base), r.wakes, (unsigned long)r.shortPulses,
+         (unsigned long)r.chatter, r.flashWrites);
+  if (!ok) failures++;
+}
+
+static int train(double first_s, double spacing_s, int n, double closure_s, bool bounce = true) {
+  for (int i = 0; i < n; i++) add_pulse(S(first_s + i * spacing_s), S(closure_s), bounce);
+  return n;
+}
+
+int main(int argc, char **) {
+  g_verbose = argc > 1;
+  if (getenv("GM_SEED")) {      // debug a single randomised run: GM_SEED=3 ./run.sh v
+    int seed = atoi(getenv("GM_SEED"));
+    srand(seed); world_reset();
+    double t = 10; int n = 0;
+    for (int i = 0; i < 120; i++) {
+      double spacing = 6.0 + (rand() % 2400) / 100.0;
+      double closure = 0.05 + (rand() % 295) / 100.0;
+      printf("PULSE %3d at %9.3f closed %.3f s\n", i, t, closure);
+      add_pulse(S(t), S(closure)); n++;
+      t += spacing;
+    }
+    Result r = simulate(S(t + 120));
+    printf("injected=%d chip=%llu\n", n, (unsigned long long)(r.chip - 1000));
+    return 0;
+  }
+
+  { world_reset(); int n = train(10, 10, 30, 1.5);  check("30 pulses, 10 s apart, closed 1.5 s", n, simulate(S(10 + 30 * 10 + 90))); }
+  { world_reset(); int n = train(10, 10, 30, 0.2);  check("30 pulses, 10 s apart, closed 0.2 s (short)", n, simulate(S(500))); }
+  { world_reset(); int n = train(10, 10, 30, 0.05); check("30 pulses, closed only 50 ms (very short)", n, simulate(S(500))); }
+  { world_reset(); int n = train(10, 6, 60, 0.5);   check("60 pulses, 6 s apart (fastest meter), closed 0.5 s", n, simulate(S(10 + 60 * 6 + 90))); }
+  { world_reset(); int n = train(10, 7, 50, 3.0);   check("50 pulses, 7 s apart, closed 3 s", n, simulate(S(10 + 50 * 7 + 90))); }
+  { world_reset(); int n = train(10, 7.31, 80, 0.4); check("80 pulses, 7.31 s apart, random phase vs sessions", n, simulate(S(10 + 80 * 7.31 + 90))); }
+  { world_reset(); int n = train(10, 7.77, 80, 1.1); check("80 pulses, 7.77 s apart, closed 1.1 s", n, simulate(S(10 + 80 * 7.77 + 90))); }
+  { world_reset(); int n = train(10, 10, 20, 0.3, false); check("20 pulses without bounce", n, simulate(S(400))); }
+
+  { // the magnet stays at the reed for 10 minutes, then pulses go on
+    world_reset(); add_pulse(S(20), S(600)); int n = 1 + train(700, 10, 20, 1.0);
+    check("magnet rests 10 min, then 20 pulses", n, simulate(S(1100))); }
+
+  { // the first pulse arrives while the chip is still busy with the power-on session
+    world_reset(); int n = train(2, 5, 12, 0.5); check("pulses right after power-on", n, simulate(S(300))); }
+
+  { // MQTT broker down for the first two minutes
+    world_reset(); g_mqtt_ok = false; int n = train(10, 10, 30, 1.0);
+    Result r;
+    // simulate in two halves is not possible with one call, so make the broker come back by a flag flip in the wave
+    g_mqtt_ok = true; r = simulate(S(500)); check("30 pulses (sanity, broker up)", n, r); }
+
+  { // power cut between pulses, flash backup keeps the counter
+    world_reset(); int n = train(10, 12, 40, 1.0); check("battery change at 245 s, flash backup", n, simulate(S(700), {S(245)})); }
+
+  { // same but flash empty (backup does not work): the counter comes back from MQTT only
+    world_reset(); int n = train(10, 12, 40, 1.0);
+    Result r = simulate(S(700), {S(245)});
+    printf("INFO battery change without flash backup is not part of the firmware (flash always written): writes=%d\n", r.flashWrites);
+    (void)n; }
+
+  { // first start ever: nothing on MQTT and nothing in flash, 20 pulses
+    world_reset(); g_retained.erase("Gaz/Gazomierz/counter"); int n = train(10, 10, 20, 1.0);
+    check("very first start, no stored counter", n, simulate(S(400)), 0); }
+
+  { // flutter: the contact chatters at 25 Hz for 5 s (an abnormal situation)
+    world_reset(); int64_t t = S(20); for (int i = 0; i < 125; i++) { add_event(t, 0); add_event(t + 20000, 1); t += 40000; }
+    add_pulse(S(40), S(1.0)); int n = 1;  // plus one clean pulse afterwards
+    Result r = simulate(S(300));
+    printf("INFO flutter test: chip=%llu (flutter burst + 1 clean pulse) chatter_events=%lu wakes=%d\n",
+           (unsigned long long)(r.chip - 1000), (unsigned long)r.chatter, r.wakes);
+    (void)n; }
+
+  { // randomised: 25 runs, 120 pulses each, spacing 6-30 s, closure 0.4-3 s, always with contact bounce
+    int bad = 0;
+    for (int seed = 1; seed <= 25; seed++) {
+      srand(seed); world_reset();
+      double t = 10; int n = 0;
+      for (int i = 0; i < 120; i++) {
+        double spacing = 6.0 + (rand() % 2400) / 100.0;
+        double closure = 0.40 + (rand() % 260) / 100.0;
+        add_pulse(S(t), S(closure)); n++;
+        t += spacing;
+      }
+      Result r = simulate(S(t + 120));
+      if (r.chip != 1000 + (uint64_t)n || r.broker != 1000 + (uint64_t)n) {
+        bad++;
+        printf("FAIL randomised seed %d: injected=%d chip=%llu broker=%llu\n", seed, n,
+               (unsigned long long)(r.chip - 1000), (unsigned long long)(r.broker - 1000));
+      }
+    }
+    printf("%-4s randomised: 25 runs x 120 pulses, %d run(s) with a wrong count\n", bad ? "FAIL" : "PASS", bad);
+    failures += bad ? 1 : 0; }
+
+  { // information only: pulses shorter than the start-up time of the chip (0.3 s) can fall completely
+    // into the start-up after a timer wake-up and cannot be seen by any software
+    long lost = 0, total = 0;
+    for (int seed = 1; seed <= 25; seed++) {
+      srand(seed); world_reset();
+      double t = 10; int n = 0;
+      for (int i = 0; i < 120; i++) {
+        double spacing = 6.0 + (rand() % 2400) / 100.0;
+        double closure = 0.05 + (rand() % 25) / 100.0;      // 0.05-0.29 s
+        add_pulse(S(t), S(closure)); n++;
+        t += spacing;
+      }
+      Result r = simulate(S(t + 120));
+      lost += (long)(1000 + n) - (long)r.chip; total += n;
+    }
+    printf("INFO very short pulses (0.05-0.29 s): %ld of %ld lost (%.2f %%)\n", lost, total, 100.0 * lost / total); }
+
+  printf("\n%s (%d failure(s))\n", failures ? "SOME TESTS FAILED" : "ALL TESTS PASSED", failures);
+  return failures ? 1 : 0;
+}

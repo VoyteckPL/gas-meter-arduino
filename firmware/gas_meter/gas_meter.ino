@@ -9,7 +9,13 @@
  *
  * How it works
  *  - The chip sleeps (deep sleep) and wakes only on a reed edge or a timer.
- *  - Every pulse is counted in RTC memory, WiFi stays off while counting.
+ *  - Every pulse is counted, WiFi stays off while counting.
+ *  - No pulse may be lost:
+ *      * while sleeping the reed wakes the chip (a pulse shorter than the wake-up
+ *        time is still counted, see COUNT_SHORT_PULSES),
+ *      * while awake (WiFi session) an interrupt counts the pulses,
+ *      * the counter is kept in RTC memory and backed up in flash, so it survives
+ *        a battery change, and it is restored from MQTT if both are lost.
  *  - WiFi + MQTT is used at most once every MIN_SEND_INTERVAL_S seconds, so
  *    during heating the chart in Home Assistant is nearly live, while the
  *    battery is not drained by a WiFi session for every single pulse.
@@ -17,18 +23,20 @@
  *    STATUS_INTERVAL_S seconds with its own WiFi session. When a WiFi session
  *    happens anyway (a pulse) and the last status is older than
  *    STATUS_PIGGYBACK_S, the status is added to that session, which costs
- *    almost nothing. During heating the status is therefore refreshed every
- *    few minutes.
- *  - The counter is kept in the chip. After a power loss it is restored from
- *    the retained MQTT topic <root>/counter.
+ *    almost nothing.
+ *  - A flutter protection puts the chip to sleep for a while if it wakes up far
+ *    more often than a gas meter can produce pulses.
  ******************************************************************************/
 
 #include <WiFi.h>
 #include <MQTT.h>
+#include <Preferences.h>
 #include <stdlib.h>
 #include <sys/time.h>
 #include "driver/rtc_io.h"
 #include "esp_sleep.h"
+
+#define FW_VERSION "0.2.0"
 
 // ------------------------------- configuration -------------------------------
 // WiFi and MQTT credentials live in secrets.h (copy secrets.example.h, never commit it)
@@ -56,12 +64,25 @@ IPAddress DNS_SERVER(192, 168, 1, 1);
 
 #define PULSES_PER_M3         100       // 1 pulse = 0.01 m3
 #define DEBOUNCE_MS           100       // reed level must be stable this long
+#define DEBOUNCE_MAX_MS       1500      // never wait longer than this for a stable level
 #define MIN_SEND_INTERVAL_S   20        // 0 = send every single pulse
 #define STATUS_INTERVAL_S     (6UL * 60UL * 60UL)   // status with its own WiFi session
 #define STATUS_PIGGYBACK_S    (5UL * 60UL)          // status added to a session that happens anyway
 
+// 1 = a wake-up by the reed counts as a pulse even if the contact is open again when the
+//     chip has started (pulse shorter than ~0.3 s). The status shows how often this happened
+//     (short_pulses). 0 = count only pulses that are still closed when the chip has started.
+#define COUNT_SHORT_PULSES    1
+#define SHORT_PULSE_MIN_MS    10     // closed at least this long (while starting) to count as a pulse
+
+// flutter protection: more than BURST_MAX_WAKES wake-ups within BURST_WINDOW_S seconds is
+// impossible for a gas meter (the fastest pulse is about 6 s) -> sleep CHATTER_LOCKOUT_S seconds
+#define BURST_WINDOW_S        10
+#define BURST_MAX_WAKES       15
+#define CHATTER_LOCKOUT_S     30
+
 // battery: voltage at the battery = voltage at GPIO36 * BATTERY_DIVIDER
-#define BATTERY_DIVIDER       1.887f    // calibrated against a multimeter
+#define BATTERY_DIVIDER       1.887f    // calibrated against a multimeter (about 2.04 on battery power)
 #define BATTERY_STOP_WIFI_V   3.10f     // below: only count pulses, no WiFi
 #define BATTERY_CUTOFF_V      3.00f     // below: hibernate (needs a reset)
 #define BATTERY_RECHECK_S     (60UL * 60UL)
@@ -74,8 +95,13 @@ IPAddress DNS_SERVER(192, 168, 1, 1);
 
 #define DEBUG_SERIAL           1        // set to 0 for the final installation
 
-// 0 = Home Assistant entities come from home-assistant/packages/gas_meter.yaml
-// 1 = the sketch also publishes MQTT discovery messages (creates duplicates if the package is used)
+// 1 = the green LED (GPIO2) is on while the chip is awake, so every pulse and every WiFi session is
+//     visible. Costs about 0.25 mA only while awake (a few mAh per year). 0 = LED never used.
+#define STATUS_LED             1
+#define STATUS_LED_GPIO        2
+
+// 0 = Home Assistant entities come from the Gas Meter app (or home-assistant/packages/gas_meter.yaml)
+// 1 = the sketch also publishes MQTT discovery messages (creates duplicates if the app is used)
 #define PUBLISH_DISCOVERY      0
 
 #if DEBUG_SERIAL
@@ -85,38 +111,98 @@ IPAddress DNS_SERVER(192, 168, 1, 1);
 #endif
 
 // ------------------------------- RTC memory ---------------------------------
-#define CACHE_MAGIC 0x6A5C0DE1UL
+#define CACHE_MAGIC 0x6A5C0DE2UL
 
 struct Cache {
   uint32_t magic;
   uint8_t  bssid[6];
   uint8_t  channel;
-  uint8_t  lastLevel;      // last stable reed level
-  uint8_t  baseKnown;      // 1 once the counter was synchronised with MQTT
+  uint8_t  lastLevel;      // last known reed level
+  uint8_t  baseKnown;      // 1 when "counter" is the absolute meter reading (safe to publish)
+  uint8_t  mqttSynced;     // 1 once the counter was compared with MQTT since power-on
   uint8_t  discoverySent;  // 1 once the Home Assistant discovery was published
   uint8_t  failCount;      // consecutive failed send attempts
-  uint8_t  pad;
+  uint8_t  resetReason;    // last restart that was not a normal wake-up from deep sleep
+  uint8_t  pad[3];
   uint32_t pending;        // pulses counted but not yet published
   uint64_t counter;        // total pulses (relative to the base until baseKnown)
+  uint64_t savedCounter;   // value stored in flash
+  uint32_t pulsesTotal;    // pulses counted since power-on
+  uint32_t shortPulses;    // pulses that were already over when the chip had started
+  uint32_t chatterEvents;  // times the flutter protection was triggered
+  uint32_t restarts;       // restarts that were not a normal wake-up
   uint32_t wakes;          // wake-ups since power-on
   uint32_t sends;          // successful WiFi sessions since power-on
   uint32_t lastTryS;       // time of the last send attempt (seconds)
   uint32_t lastStatusS;    // time of the last status message (seconds)
   uint32_t lastWifiMs;     // duration of the last WiFi connection
+  uint32_t burstCount;     // wake-ups in the current flutter window
+  uint64_t burstStartUs;   // start of the current flutter window
   float    batteryV;       // last valid battery voltage
 };
 
 RTC_NOINIT_ATTR Cache cache;
 
+// ------------------------------- pulse interrupt -----------------------------
+// Counts closures of the reed while the chip is awake (WiFi session). It reacts to every edge:
+// a closure is counted only when the contact had been quiet for DEBOUNCE_MS before, so the
+// chatter of the contact when it closes AND when it opens never counts as a pulse.
+// It is armed only after the wake-up handling has read the reed level, so no pulse is counted twice.
+static volatile bool     isrArmed = false;
+static volatile uint32_t isrPulses = 0;
+static volatile uint32_t isrLastMs = 0;
+
+void IRAM_ATTR reedIsr() {
+  if (!isrArmed) return;
+  uint32_t t = millis();
+  if (t - isrLastMs >= DEBOUNCE_MS && digitalRead(REED_GPIO) == LOW) isrPulses++;
+  isrLastMs = t;
+}
+
+static void countPulses(uint32_t n) {
+  cache.counter += n;
+  cache.pending += n;
+  cache.pulsesTotal += n;
+  LOG("Pulse! counter=%llu pending=%lu\r\n", (unsigned long long)cache.counter,
+      (unsigned long)cache.pending);
+}
+
+// Adds the pulses counted by the interrupt to the counter.
+static void absorbInterruptPulses() {
+  noInterrupts();
+  uint32_t n = isrPulses;
+  isrPulses = 0;
+  interrupts();
+  if (n) countPulses(n);
+}
+
 // ------------------------------- helpers ------------------------------------
-static uint32_t nowSeconds() {
+static uint64_t nowMicros() {
   struct timeval tv;
   gettimeofday(&tv, NULL);
-  return (uint32_t)tv.tv_sec;
+  return (uint64_t)tv.tv_sec * 1000000ULL + (uint64_t)tv.tv_usec;
+}
+
+static uint32_t nowSeconds() {
+  return (uint32_t)(nowMicros() / 1000000ULL);
 }
 
 static String topic(const char *name) {
   return String(ROOT_TOPIC) + "/" + name;
+}
+
+static const char *resetReasonText(uint8_t reason) {
+  switch (reason) {
+    case ESP_RST_POWERON:   return "power-on";
+    case ESP_RST_SW:        return "software";
+    case ESP_RST_PANIC:     return "crash";
+    case ESP_RST_INT_WDT:
+    case ESP_RST_TASK_WDT:
+    case ESP_RST_WDT:       return "watchdog";
+    case ESP_RST_BROWNOUT:  return "brownout";
+    case ESP_RST_DEEPSLEEP: return "deep-sleep";
+    default:                return "other";
+  }
 }
 
 static float readBatteryVoltage() {
@@ -145,23 +231,62 @@ static int batteryPercent(float v) {
   return 100;
 }
 
-// Returns the reed level once it was stable for DEBOUNCE_MS.
-static int readReedStable() {
+// Returns the reed level once it was stable for DEBOUNCE_MS, but waits at most DEBOUNCE_MAX_MS.
+// lowMs is set to the total time the contact was seen closed (LOW) while waiting, so that a pulse
+// that started and ended during this wait (or during the start of the chip) is not overlooked.
+static int readReedStable(unsigned long &lowMs) {
+  lowMs = 0;
   int level = digitalRead(REED_GPIO);
-  unsigned long t0 = millis();
-  while (millis() - t0 < DEBOUNCE_MS) {
+  unsigned long start = millis();
+  unsigned long t0 = start;
+  unsigned long last = start;
+  while (millis() - t0 < DEBOUNCE_MS && millis() - start < DEBOUNCE_MAX_MS) {
     int l = digitalRead(REED_GPIO);
+    unsigned long t = millis();
+    if (l == LOW) lowMs += t - last;
+    last = t;
     if (l != level) {
       level = l;
-      t0 = millis();
+      t0 = t;
     }
     delay(2);
   }
   return level;
 }
 
+// ------------------------------- flash backup -------------------------------
+static void saveCounter() {
+  Preferences prefs;
+  if (prefs.begin("gas", false)) {
+    prefs.putULong64("counter", cache.counter);
+    prefs.end();
+    cache.savedCounter = cache.counter;
+  }
+}
+
+static bool loadCounter(uint64_t &value) {
+  Preferences prefs;
+  bool found = false;
+  if (prefs.begin("gas", true)) {
+    if (prefs.isKey("counter")) {
+      value = prefs.getULong64("counter", 0);
+      found = true;
+    }
+    prefs.end();
+  }
+  return found;
+}
+
+static void ledOff() {
+#if STATUS_LED
+  digitalWrite(STATUS_LED_GPIO, LOW);
+#endif
+}
+
 static void hibernate() {
   LOG("Battery critically low, hibernating until reset\r\n");
+  ledOff();
+  if (cache.baseKnown && cache.counter != cache.savedCounter) saveCounter();
   esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_OFF);
   esp_sleep_pd_config(ESP_PD_DOMAIN_XTAL, ESP_PD_OPTION_OFF);
   esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
@@ -177,6 +302,16 @@ static bool waitForWifi(unsigned long timeoutMs) {
   return false;
 }
 
+#ifdef WIFI_PREFERRED_BSSID
+// MAC address of the access point the meter should use (the outdoor Deco), from secrets.h
+static bool preferredBssid(uint8_t out[6]) {
+  unsigned v[6];
+  if (sscanf(WIFI_PREFERRED_BSSID, "%x:%x:%x:%x:%x:%x", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5]) != 6) return false;
+  for (int i = 0; i < 6; i++) out[i] = (uint8_t)v[i];
+  return true;
+}
+#endif
+
 static bool wifiUp(unsigned long timeoutMs) {
   unsigned long start = millis();
 
@@ -188,6 +323,15 @@ static bool wifiUp(unsigned long timeoutMs) {
 
   bool connected = false;
 
+#ifdef WIFI_PREFERRED_BSSID
+  uint8_t preferred[6];
+  bool havePreferred = preferredBssid(preferred);
+  if (havePreferred && memcmp(cache.bssid, preferred, sizeof(preferred)) != 0) {
+    cache.channel = 0;                       // forget a cached access point that is not the preferred one
+    memcpy(cache.bssid, preferred, sizeof(preferred));
+  }
+#endif
+
   // fast path: reuse the channel and BSSID from the last successful connection
   if (cache.channel > 0) {
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD, cache.channel, cache.bssid);
@@ -195,7 +339,21 @@ static bool wifiUp(unsigned long timeoutMs) {
     if (!connected) WiFi.disconnect();
   }
 
-  // slow path: full scan
+#ifdef WIFI_PREFERRED_BSSID
+  // preferred access point on any channel first, then (if it is not reachable) the best one available
+  if (!connected && havePreferred) {
+    cache.channel = 0;
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD, 0, preferred);
+    connected = waitForWifi(timeoutMs / 2);
+    if (connected) {
+      cache.channel = WiFi.channel();
+    } else {
+      WiFi.disconnect();
+    }
+  }
+#endif
+
+  // slow path: full scan, the strongest access point with this name wins
   if (!connected) {
     cache.channel = 0;
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -227,9 +385,11 @@ static void publishDiscovery(MQTTClient &mqtt, const char *objectId, const char 
   mqtt.publish(String("homeassistant/sensor/gasmeter/") + objectId + "/config", cfg, true, 0);
 }
 
-// Reads the retained counter (or a manual override) and adds it to the pulses
-// counted so far. Returns true when the counter is now synchronised.
-static bool restoreBase(MQTTClient &mqtt) {
+// Compares the counter with the retained MQTT value (and a manual override).
+//  - the counter in the chip is already absolute (backup in flash): the larger value wins
+//  - the counter only has the pulses counted since power-on: the MQTT value is the base
+//  - nothing stored anywhere (very first start): the base is 0
+static void restoreBase(MQTTClient &mqtt) {
   String counterTopic  = topic("counter");
   String overrideTopic = topic("config/counter");
   bool gotCounter = false, gotOverride = false;
@@ -245,28 +405,37 @@ static bool restoreBase(MQTTClient &mqtt) {
 
   mqtt.subscribe(counterTopic);
   mqtt.subscribe(overrideTopic);
-  for (unsigned long t = millis(); millis() - t < 1000;) {
+  // a retained message arrives right after the subscription, wait a bit longer when nothing is known
+  unsigned long waitMs = cache.baseKnown ? 1000 : 2000;
+  for (unsigned long t = millis(); millis() - t < waitMs;) {
     mqtt.loop();
     delay(10);
   }
   mqtt.unsubscribe(counterTopic);
   mqtt.unsubscribe(overrideTopic);
 
-  uint64_t base = 0;
   if (gotOverride) {
-    base = overrideValue;
+    cache.counter = overrideValue;
+    cache.baseKnown = 1;
     // clear the override so that it is used only once
     mqtt.publish(overrideTopic, String(""), true, 0);
-    LOG("Counter override from MQTT: %llu\r\n", (unsigned long long)base);
+    LOG("Counter override from MQTT: %llu\r\n", (unsigned long long)cache.counter);
+  } else if (cache.baseKnown) {
+    if (gotCounter && counterValue > cache.counter) {
+      cache.counter = counterValue;
+      LOG("Counter taken from MQTT (higher than the flash backup): %llu\r\n",
+          (unsigned long long)cache.counter);
+    }
   } else if (gotCounter) {
-    base = counterValue;
-    LOG("Counter restored from MQTT: %llu\r\n", (unsigned long long)base);
+    cache.counter += counterValue;
+    cache.baseKnown = 1;
+    LOG("Counter restored from MQTT: %llu\r\n", (unsigned long long)cache.counter);
   } else {
-    LOG("No stored counter on MQTT, starting from 0\r\n");
+    cache.baseKnown = 1;     // very first start, nothing stored anywhere
+    LOG("No stored counter, starting from the pulses counted so far: %llu\r\n",
+        (unsigned long long)cache.counter);
   }
-  cache.counter += base;
-  cache.baseKnown = 1;
-  return true;
+  cache.mqttSynced = 1;
 }
 
 static bool publishAll(bool sendStatus) {
@@ -280,13 +449,17 @@ static bool publishAll(bool sendStatus) {
     return false;
   }
 
-  if (!cache.baseKnown) restoreBase(mqtt);
+  if (!cache.mqttSynced) restoreBase(mqtt);
+  absorbInterruptPulses();                 // include pulses counted during the session so far
 
   char buf[48];
-  snprintf(buf, sizeof(buf), "%llu", (unsigned long long)cache.counter);
-  mqtt.publish(topic("counter"), String(buf), true, 0);
-  snprintf(buf, sizeof(buf), "%.2f", cache.counter / (double)PULSES_PER_M3);
-  mqtt.publish(topic("cubic_meters"), String(buf), true, 0);
+  // never publish a counter that is only relative (it would be a small, wrong value)
+  if (cache.baseKnown) {
+    snprintf(buf, sizeof(buf), "%llu", (unsigned long long)cache.counter);
+    mqtt.publish(topic("counter"), String(buf), true, 0);
+    snprintf(buf, sizeof(buf), "%.2f", cache.counter / (double)PULSES_PER_M3);
+    mqtt.publish(topic("cubic_meters"), String(buf), true, 0);
+  }
 
   if (sendStatus) {
     snprintf(buf, sizeof(buf), "%.2f", cache.batteryV);
@@ -299,6 +472,28 @@ static bool publishAll(bool sendStatus) {
     mqtt.publish(topic("Wakes"), String(buf), true, 0);
     snprintf(buf, sizeof(buf), "%lu", (unsigned long)cache.sends);
     mqtt.publish(topic("WifiSessions"), String(buf), true, 0);
+    // diagnostics
+    mqtt.publish(topic("fw_version"), String(FW_VERSION), true, 0);
+    mqtt.publish(topic("reset_reason"), String(resetReasonText(cache.resetReason)), true, 0);
+    snprintf(buf, sizeof(buf), "%lu", (unsigned long)nowSeconds());
+    mqtt.publish(topic("uptime_s"), String(buf), true, 0);
+    snprintf(buf, sizeof(buf), "%lu", (unsigned long)cache.pending);
+    mqtt.publish(topic("pending"), String(buf), true, 0);
+    snprintf(buf, sizeof(buf), "%.2f",
+             cache.pulsesTotal ? cache.wakes / (double)cache.pulsesTotal : 0.0);
+    mqtt.publish(topic("wakes_per_pulse"), String(buf), true, 0);
+    snprintf(buf, sizeof(buf), "%lu", (unsigned long)cache.lastWifiMs);
+    mqtt.publish(topic("wifi_connect_ms"), String(buf), true, 0);
+    snprintf(buf, sizeof(buf), "%lu", (unsigned long)cache.shortPulses);
+    mqtt.publish(topic("short_pulses"), String(buf), true, 0);
+    snprintf(buf, sizeof(buf), "%lu", (unsigned long)cache.chatterEvents);
+    mqtt.publish(topic("chatter_events"), String(buf), true, 0);
+    snprintf(buf, sizeof(buf), "%lu", (unsigned long)cache.restarts);
+    mqtt.publish(topic("restarts"), String(buf), true, 0);
+    mqtt.publish(topic("ip"), WiFi.localIP().toString(), true, 0);
+    mqtt.publish(topic("mac"), WiFi.macAddress(), true, 0);
+    mqtt.publish(topic("ssid"), WiFi.SSID(), true, 0);
+    mqtt.publish(topic("bssid"), WiFi.BSSIDstr(), true, 0);
   }
 
 #if PUBLISH_DISCOVERY
@@ -321,10 +516,17 @@ static bool publishAll(bool sendStatus) {
 
 // ------------------------------- main ---------------------------------------
 void setup() {
+#if STATUS_LED
+  pinMode(STATUS_LED_GPIO, OUTPUT);
+  digitalWrite(STATUS_LED_GPIO, HIGH);
+#endif
   setCpuFrequencyMhz(CPU_MHZ);
 #if DEBUG_SERIAL
   Serial.begin(115200);
 #endif
+
+  esp_sleep_wakeup_cause_t wakeCause = esp_sleep_get_wakeup_cause();
+  esp_reset_reason_t resetReason = esp_reset_reason();
 
   bool coldStart = (cache.magic != CACHE_MAGIC);
   if (coldStart) {
@@ -332,20 +534,49 @@ void setup() {
     cache.magic = CACHE_MAGIC;
     struct timeval tv = {0, 0};
     settimeofday(&tv, NULL);
+    // after a battery change the counter is still in flash
+    uint64_t stored = 0;
+    if (loadCounter(stored)) {
+      cache.counter = stored;
+      cache.savedCounter = stored;
+      cache.baseKnown = 1;
+    }
+  }
+  if (resetReason != ESP_RST_DEEPSLEEP) {
+    cache.resetReason = (uint8_t)resetReason;     // power-on, crash, brownout, watchdog...
+    cache.restarts++;
   }
   cache.wakes++;
+
+  // ---- flutter protection ----
+  uint64_t nowUs = nowMicros();
+  if (nowUs - cache.burstStartUs > (uint64_t)BURST_WINDOW_S * 1000000ULL) {
+    cache.burstStartUs = nowUs;
+    cache.burstCount = 0;
+  }
+  if (++cache.burstCount > BURST_MAX_WAKES) {
+    cache.chatterEvents++;
+    cache.burstStartUs = nowUs;
+    cache.burstCount = 0;
+    LOG("Too many wake-ups, flutter protection: sleeping %d s\r\n", CHATTER_LOCKOUT_S);
+    ledOff();
+    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+    esp_sleep_enable_timer_wakeup((uint64_t)CHATTER_LOCKOUT_S * 1000000ULL);
+    esp_deep_sleep_start();
+  }
 
   // reed contact with pull-up, also while sleeping
   pinMode(REED_GPIO, INPUT_PULLUP);
   rtc_gpio_pullup_en(REED_PIN);
   rtc_gpio_pulldown_dis(REED_PIN);
+  attachInterrupt(digitalPinToInterrupt(REED_GPIO), reedIsr, CHANGE);    // still disarmed
 
   // ---- battery ----
   float v = readBatteryVoltage();
   bool batteryValid = v > 1.5f;     // ignore a broken measurement
   if (batteryValid) cache.batteryV = v;
   LOG("\r\n=== wake %lu (%s) battery %.2f V ===\r\n", (unsigned long)cache.wakes,
-      coldStart ? "power-on" : "wake-up", v);
+      coldStart ? "power-on" : (wakeCause == ESP_SLEEP_WAKEUP_EXT0 ? "reed" : "timer"), v);
 
   if (batteryValid && v < BATTERY_CUTOFF_V) {
     delay(200);
@@ -357,17 +588,32 @@ void setup() {
   bool allowWifi = !(batteryValid && v < BATTERY_STOP_WIFI_V);
 
   // ---- reed contact: one pulse = magnet arrives (level goes LOW) ----
-  int level = readReedStable();
+  bool armedForLow = (cache.lastLevel == HIGH);     // the reed woke us on LOW
+  unsigned long lowMs = 0;
+  int level = readReedStable(lowMs);
   if (coldStart) {
     cache.lastLevel = level;
   } else if (level != cache.lastLevel) {
     cache.lastLevel = level;
-    if (level == LOW) {
-      cache.counter++;
-      cache.pending++;
-      LOG("Pulse! counter=%llu pending=%lu\r\n", (unsigned long long)cache.counter,
-          (unsigned long)cache.pending);
-    }
+    if (level == LOW) countPulses(1);
+  } else if (COUNT_SHORT_PULSES && armedForLow && level == HIGH &&
+             (wakeCause == ESP_SLEEP_WAKEUP_EXT0 || lowMs >= SHORT_PULSE_MIN_MS)) {
+    // the reed woke us on LOW (or was seen closed while the chip was starting), but the contact is
+    // open again: a very short pulse
+    countPulses(1);
+    cache.shortPulses++;
+  }
+
+  // start counting by interrupt; read the level once more without a gap (no edge can be missed)
+  noInterrupts();
+  isrPulses = 0;
+  isrLastMs = millis() - DEBOUNCE_MS;     // the level was stable for DEBOUNCE_MS, a closure counts at once
+  isrArmed = true;
+  int recheck = digitalRead(REED_GPIO);
+  interrupts();
+  if (recheck != cache.lastLevel) {
+    cache.lastLevel = recheck;
+    if (recheck == LOW) countPulses(1);
   }
 
   // ---- decide whether a WiFi session is due ----
@@ -379,7 +625,7 @@ void setup() {
   bool statusDue = coldStart || (now - cache.lastStatusS >= STATUS_INTERVAL_S);
   // include the status in a session that happens anyway when the last one is a few minutes old
   bool statusWanted = statusDue || (now - cache.lastStatusS >= STATUS_PIGGYBACK_S);
-  bool want      = coldStart || cache.pending > 0 || statusDue;
+  bool want      = coldStart || cache.pending > 0 || statusDue || !cache.mqttSynced;
   bool canTry    = coldStart || (now - cache.lastTryS >= interval);
 
   if (want && canTry && allowWifi) {
@@ -391,7 +637,7 @@ void setup() {
     WiFi.disconnect(true);
     now = nowSeconds();
     if (ok) {
-      cache.pending = 0;
+      cache.pending = 0;          // pulses counted during the session are added below
       cache.failCount = 0;
       interval = MIN_SEND_INTERVAL_S;
       cache.sends++;
@@ -403,30 +649,51 @@ void setup() {
     cache.lastTryS = now;
   }
 
-  // ---- compute the next timer wake-up ----
-  uint32_t nextTryAt = cache.lastTryS + interval;
-  uint64_t sleepS = BATTERY_RECHECK_S;
-  if (!allowWifi) {
-    sleepS = BATTERY_RECHECK_S;
-  } else {
-    uint32_t statusAt = cache.lastStatusS + STATUS_INTERVAL_S;
-    if (statusAt < nextTryAt) statusAt = nextTryAt;
-    uint32_t dueAt = statusAt;
-    if (cache.pending > 0 && nextTryAt < dueAt) dueAt = nextTryAt;
-    sleepS = (dueAt > now) ? (dueAt - now) : 1;
-  }
-  if (sleepS < 1) sleepS = 1;
+  // ---- finish: nothing may be missed until the chip is really asleep ----
+  // Every round takes the pulses counted by the interrupt and the reed level at the same moment,
+  // saves the counter, arms the wake-up sources and checks once more, with interrupts disabled,
+  // that the reed did not move meanwhile. Only then the chip goes to sleep.
+  for (int round = 0; round < 10; round++) {
+    noInterrupts();
+    uint32_t extra = isrPulses;
+    isrPulses = 0;
+    int endLevel = digitalRead(REED_GPIO);
+    interrupts();
+    if (extra) countPulses(extra);
+    cache.lastLevel = endLevel;
 
-  esp_sleep_enable_timer_wakeup(sleepS * 1000000ULL);
-  // wake on the opposite level of the one the reed has right now
-  esp_sleep_enable_ext0_wakeup(REED_PIN, cache.lastLevel ? 0 : 1);
+    // backup of the counter in flash (survives a battery change)
+    if (cache.baseKnown && cache.counter != cache.savedCounter) saveCounter();
 
-  LOG("counter=%llu pending=%lu, sleeping %llu s\r\n", (unsigned long long)cache.counter,
-      (unsigned long)cache.pending, (unsigned long long)sleepS);
+    // next timer wake-up
+    now = nowSeconds();
+    uint32_t nextTryAt = cache.lastTryS + interval;
+    uint64_t sleepS = BATTERY_RECHECK_S;
+    if (allowWifi) {
+      uint32_t statusAt = cache.lastStatusS + STATUS_INTERVAL_S;
+      if (statusAt < nextTryAt) statusAt = nextTryAt;
+      uint32_t dueAt = statusAt;
+      if ((cache.pending > 0 || !cache.mqttSynced) && nextTryAt < dueAt) dueAt = nextTryAt;
+      sleepS = (dueAt > now) ? (dueAt - now) : 1;
+    }
+    if (sleepS < 1) sleepS = 1;
+    esp_sleep_enable_timer_wakeup(sleepS * 1000000ULL);
+    // wake on the opposite level of the one the reed has right now
+    esp_sleep_enable_ext0_wakeup(REED_PIN, endLevel ? 0 : 1);
+
+    noInterrupts();
+    bool moved = (isrPulses != 0) || (digitalRead(REED_GPIO) != endLevel);
+    if (!moved || round == 9) {
+      LOG("counter=%llu pending=%lu, sleeping %llu s\r\n", (unsigned long long)cache.counter,
+          (unsigned long)cache.pending, (unsigned long long)sleepS);
 #if DEBUG_SERIAL
-  Serial.flush();
+      Serial.flush();
 #endif
-  esp_deep_sleep_start();
+      ledOff();
+      esp_deep_sleep_start();      // interrupts stay disabled, the armed reed level wakes us up
+    }
+    interrupts();
+  }
 }
 
 void loop() {

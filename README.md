@@ -18,6 +18,7 @@ Based on [Torxgewinde/Firebeetle-2-ESP32-E](https://github.com/Torxgewinde/Fireb
 | `firmware/battery_test/` | discharge logger used to calibrate the battery measurement |
 | `gas_meter_app/` | **Home Assistant app (add-on)**: sidebar panel with readings, charts and settings |
 | `home-assistant/` | alternative without the app: plain YAML package and dashboard (do not use together with the app) |
+| `tests/firmware_sim/` | simulator that runs the real firmware code on a PC and checks that no pulse is lost or counted twice (`./run.sh`) |
 | `docs/mqtt-topics.md` | MQTT topic contract between firmware and Home Assistant |
 | `docs/images/` | wiring diagram, reed pull-up explanation, HA panel mockup |
 
@@ -45,7 +46,7 @@ Wiring: `docs/images/wiring.png`.
    If it does not connect: connect pin `0/D5` to GND, press RST, upload, remove the wire, press RST.
 
 Settings (top of `gas_meter.ino`): `MIN_SEND_INTERVAL_S` (0 = every pulse, 20 = nearly live),
-`DEBOUNCE_MS`, `STATUS_INTERVAL_S` (status with its own WiFi session, 6 h) and `STATUS_PIGGYBACK_S`
+`DEBOUNCE_MS`, `COUNT_SHORT_PULSES`, `STATUS_LED`, `STATUS_INTERVAL_S` (status with its own WiFi session, 6 h) and `STATUS_PIGGYBACK_S`
 (status added to a session that happens anyway, 5 min), `BATTERY_DIVIDER`, `USE_STATIC_IP`, `DEBUG_SERIAL`.
 
 ## Battery calibration
@@ -73,7 +74,10 @@ The plain YAML alternative is in `home-assistant/` (package + dashboard, see the
 
 ## Status
 
-* Stage 1 (done): pulse counting, batched WiFi/MQTT sessions, battery measurement, counter restore.
+* Stage 1 (done): pulse counting without losses (reed wake-up, interrupt while awake, short pulses,
+  flash backup of the counter, flutter protection), batched WiFi/MQTT sessions, battery measurement,
+  counter restore, status with diagnostics, optional preferred access point (`WIFI_PREFERRED_BSSID`).
+  The pulse logic is checked by `tests/firmware_sim` (the real code against simulated reed pulses).
 * App (done, v0.1.0): sidebar panel, charts, settings, service mode, set meter reading.
 * Stage 2 (planned): the firmware side of the settings, service mode, OTA update with rollback,
   network settings with automatic revert. The panel already has the controls, they stay
