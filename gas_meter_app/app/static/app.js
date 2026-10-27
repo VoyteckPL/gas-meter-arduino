@@ -8,6 +8,8 @@ const TEXT = {
     signal: "WiFi signal", lastData: "Last data", never: "no data yet", ago: "ago",
     consumption: "Consumption", hourly: "Per hour (48 h)", batteryChart: "Battery (7 days)",
     noData: "No data yet",
+    noMeterTitle: "No data from the meter yet",
+    noMeterText: "The panel is waiting for the topics of the new gas meter sketch ({root}/cubic_meters, BatteryVoltage, BatteryPercent, RSSI). Flash firmware/gas_meter from the repository, or publish them once by hand in MQTT (retained) to see the panel with data.",
     service: "Service mode", serviceMode: "Service mode",
     serviceHint: "The meter sleeps. It picks up service mode at its next WiFi session (a gas pulse, i.e. heating or hot water running) and then stays awake until you switch it off or a timeout.",
     restart: "Restart meter", update: "Install firmware update", confirm: "Are you sure?",
@@ -32,6 +34,8 @@ const TEXT = {
     signal: "Sygnał WiFi", lastData: "Ostatnie dane", never: "brak danych", ago: "temu",
     consumption: "Zużycie", hourly: "Na godzinę (48 h)", batteryChart: "Bateria (7 dni)",
     noData: "Brak danych",
+    noMeterTitle: "Brak danych z gazomierza",
+    noMeterText: "Panel czeka na tematy nowego szkicu gazomierza ({root}/cubic_meters, BatteryVoltage, BatteryPercent, RSSI). Wgraj szkic firmware/gas_meter z repozytorium albo opublikuj je raz r\u0119cznie w MQTT (retained), \u017ceby zobaczy\u0107 panel z danymi.",
     service: "Tryb serwisowy", serviceMode: "Tryb serwisowy",
     serviceHint: "Gazomierz śpi. Tryb serwisowy odbierze przy najbliższym połączeniu z WiFi (impuls gazu, czyli ogrzewanie lub ciepła woda) i zostanie obudzony, aż go wyłączysz lub minie limit czasu.",
     restart: "Restart gazomierza", update: "Zainstaluj aktualizację firmware", confirm: "Na pewno?",
@@ -170,6 +174,11 @@ function build() {
   root.textContent = "";
   const schema = state.schema;
 
+  // notice shown while the meter has not published anything yet
+  root.append(el("section", { class: "card wide", id: "notice", hidden: "" }, [
+    el("h2", { "data-i18n": "noMeterTitle" }), el("p", { class: "muted", id: "noticeText" }),
+  ]));
+
   // readings
   root.append(el("section", { class: "card" }, [
     el("h2", { "data-i18n": "readings" }),
@@ -298,6 +307,10 @@ function update() {
   const conn = $("#conn");
   conn.textContent = state.connected ? t("connected") : t("disconnected");
   conn.className = "badge " + (state.connected ? "on" : "off");
+
+  const notice = $("#notice");
+  notice.hidden = v.cubic_meters !== undefined;
+  $("#noticeText").textContent = t("noMeterText").replace("{root}", state.root);
 
   $("#meter").textContent = v.cubic_meters !== undefined ? num(v.cubic_meters, 2) + " m³" : "—";
   const flow = state.flow_m3h;
