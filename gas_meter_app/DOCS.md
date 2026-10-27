@@ -21,6 +21,12 @@ battery, WiFi signal) so the gas meter can be used in the Energy dashboard.
 
 The credentials are stored by Home Assistant, not in this repository.
 
+## Panel and Demo
+
+The **Panel** tab shows the readings, charts and settings. Click a reading (meter, flow, today,
+battery, WiFi signal) to see its history. The **Demo** tab is a simulator of the meter and the
+ESP32 that runs in the browser and needs no data from the meter.
+
 ## Options
 
 | Option | Default | Meaning |

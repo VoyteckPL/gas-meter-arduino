@@ -30,6 +30,11 @@ const TEXT = {
     wifi_sessions: "WiFi sessions", wakes_per_pulse: "Wake-ups per pulse", wifi_connect_ms: "WiFi connect time",
     uptime: "Uptime", reset_reason: "Reset reason", firmware: "Firmware", mac: "MAC address", bssid: "Access point",
     ssid: "WiFi network", currentIp: "Current IP", installed: "Installed", available: "Available",
+    tabPanel: "Panel", tabDemo: "Demo (simulator)", histHint: "Click a value to see its history.", close: "Close", range1h: "1 h", range6h: "6 h", range24h: "24 h",
+    range7d: "7 days", range14d: "14 days", hMeter: "Meter reading", hFlow: "Flow", hHourly: "Consumption per hour",
+    hBattery: "Battery voltage", hPercent: "Battery level", hRssi: "WiFi signal", hBtPin: "Pin voltage (test)",
+    hBtVolt: "Battery voltage (test)", sMin: "Min", sMax: "Max", sAvg: "Average", sLast: "Last", sChange: "Change",
+    sTotal: "Total", sPoints: "Samples",
   },
   pl: {
     title: "Gazomierz", loading: "Ładowanie...", connected: "MQTT połączony", disconnected: "MQTT offline",
@@ -59,6 +64,11 @@ const TEXT = {
     wifi_sessions: "Sesje WiFi", wakes_per_pulse: "Obudzenia na impuls", wifi_connect_ms: "Czas łączenia z WiFi",
     uptime: "Czas pracy", reset_reason: "Powód restartu", firmware: "Firmware", mac: "Adres MAC", bssid: "Punkt dostępu",
     ssid: "Sieć WiFi", currentIp: "Aktualne IP", installed: "Zainstalowana", available: "Dostępna",
+    tabPanel: "Panel", tabDemo: "Demo (symulator)", histHint: "Kliknij wartość, żeby zobaczyć jej historię.", close: "Zamknij", range1h: "1 godz.", range6h: "6 godz.",
+    range24h: "24 godz.", range7d: "7 dni", range14d: "14 dni", hMeter: "Stan licznika", hFlow: "Przepływ",
+    hHourly: "Zużycie na godzinę", hBattery: "Napięcie baterii", hPercent: "Poziom baterii", hRssi: "Sygnał WiFi",
+    hBtPin: "Napięcie na pinie (test)", hBtVolt: "Napięcie baterii (test)", sMin: "Min", sMax: "Maks", sAvg: "Średnia",
+    sLast: "Ostatnia", sChange: "Zmiana", sTotal: "Razem", sPoints: "Próbek",
   },
 };
 
@@ -226,6 +236,14 @@ function build() {
     ]),
   ]));
 
+  root.lastElementChild.append(el("p", { class: "hint", "data-i18n": "histHint" }));
+  for (const [id, entity] of [["meter", "meter"], ["flow", "flow"], ["today", "hourly"], ["battery", "percent"], ["rssi", "rssi"],
+                              ["btVolt", "btVolt"], ["btPinMv", "btPin"]]) {
+    const node = $("#" + id);
+    node.classList.add("clickable");
+    node.addEventListener("click", () => openHistory(entity));
+  }
+
   // charts
   const tabs = el("div", { class: "tabs" });
   for (const [kind, key] of [["hourly", "hourly"], ["battery", "batteryChart"], ["bt", "chartBt"]]) {
@@ -308,6 +326,10 @@ function applyLanguage() {
   document.documentElement.lang = lang;
   document.title = t("title");
   $("#title").textContent = t("title");
+  $("#tabPanel").textContent = t("tabPanel");
+  $("#tabDemo").textContent = t("tabDemo");
+  const demo = $("#demoView iframe");
+  if (demo && demo.contentWindow && demo.contentWindow.setLang) demo.contentWindow.setLang(lang);
   document.querySelectorAll("[data-i18n]").forEach((node) => { node.textContent = t(node.dataset.i18n); });
   document.querySelectorAll(".row button:not([data-i18n])").forEach((button) => { button.textContent = t("save"); });
 }
@@ -505,6 +527,176 @@ async function drawChart() {
   }
 }
 
+
+// --------------------------------------------------------------- history dialog
+const HIST = {
+  meter:   { key: "hMeter",   kind: "meter",   unit: "m³",   dec: 2, step: true,  stat: "change" },
+  flow:    { key: "hFlow",    kind: "flow",    unit: "m³/h", dec: 2, area: true,  stat: "range" },
+  hourly:  { key: "hHourly",  kind: "hourly",  unit: "m³",   dec: 3, bars: true,  stat: "total", min24: true },
+  battery: { key: "hBattery", kind: "battery", unit: "V",    dec: 2, stat: "range" },
+  percent: { key: "hPercent", kind: "percent", unit: "%",    dec: 0, stat: "range" },
+  rssi:    { key: "hRssi",    kind: "rssi",    unit: "dBm",  dec: 0, stat: "range" },
+  btVolt:  { key: "hBtVolt",  kind: "bt",      unit: "V",    dec: 3, stat: "range", test: true },
+  btPin:   { key: "hBtPin",   kind: "bt_pin",  unit: "mV",   dec: 0, stat: "range", test: true },
+};
+const RANGES = [["range1h", 1], ["range6h", 6], ["range24h", 24], ["range7d", 168], ["range14d", 336]];
+const history = { entity: "meter", hours: 24, points: [], hover: null };
+
+function histTime(ts, long) {
+  const d = new Date(ts * 1000), pad = (n) => String(n).padStart(2, "0");
+  const time = pad(d.getHours()) + ":" + pad(d.getMinutes());
+  return long ? d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + " " + time : time;
+}
+
+function openHistory(entity) {
+  history.entity = entity; history.hover = null;
+  let dialog = $("#histDialog");
+  if (!dialog) {
+    const tabs = el("div", { class: "tabs", id: "histEntities" });
+    const ranges = el("div", { class: "tabs", id: "histRanges" });
+    for (const [key, hours] of RANGES) {
+      const b = el("button", { class: "secondary", "data-hours": hours, "data-i18n": key });
+      b.addEventListener("click", () => { history.hours = hours; loadHistory(); });
+      ranges.append(b);
+    }
+    const canvas = el("canvas", { id: "histCanvas" });
+    canvas.addEventListener("pointermove", (e) => {
+      const rect = canvas.getBoundingClientRect();
+      history.hover = e.clientX - rect.left; renderHistory();
+    });
+    canvas.addEventListener("pointerleave", () => { history.hover = null; renderHistory(); });
+    const close = el("button", { class: "ghost", "data-i18n": "close" });
+    close.addEventListener("click", closeHistory);
+    dialog = el("div", { class: "overlay", id: "histDialog" }, [
+      el("div", { class: "dialog" }, [
+        el("div", { class: "dialog-head" }, [el("h2", { id: "histTitle" }), close]),
+        tabs, ranges,
+        el("div", { class: "readout", id: "histReadout" }),
+        canvas,
+        el("div", { class: "kv", id: "histStats" }),
+      ]),
+    ]);
+    dialog.addEventListener("click", (e) => { if (e.target === dialog) closeHistory(); });
+    document.body.append(dialog);
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeHistory(); });
+  }
+  dialog.hidden = false;
+  document.body.classList.add("noscroll");
+  const hasTest = state.values["bt/pin_mv"] !== undefined;
+  const tabs = $("#histEntities");
+  tabs.textContent = "";
+  for (const [name, spec] of Object.entries(HIST)) {
+    if (spec.test && !hasTest) continue;
+    const b = el("button", { class: "secondary", "data-entity": name, text: t(spec.key) });
+    b.addEventListener("click", () => { history.entity = name; history.hover = null; loadHistory(); });
+    tabs.append(b);
+  }
+  applyLanguage();
+  loadHistory();
+}
+function closeHistory() {
+  const dialog = $("#histDialog");
+  if (dialog) dialog.hidden = true;
+  document.body.classList.remove("noscroll");
+}
+
+async function loadHistory() {
+  const spec = HIST[history.entity];
+  $("#histTitle").textContent = t(spec.key);
+  document.querySelectorAll("#histEntities button").forEach((b) => {
+    b.classList.toggle("active", b.dataset.entity === history.entity); b.textContent = t(HIST[b.dataset.entity].key);
+  });
+  document.querySelectorAll("#histRanges button").forEach((b) => b.classList.toggle("active", Number(b.dataset.hours) === history.hours));
+  const hours = spec.min24 ? Math.max(24, history.hours) : history.hours;
+  let path = "series?kind=" + spec.kind + "&hours=" + hours;
+  if (spec.kind === "bt") path += "&factor=" + (Number(($("#btFactor") || {}).value) || 2.044);
+  try { history.points = await api(path); } catch (e) { history.points = []; }
+  history.span = hours * 3600;
+  renderHistory();
+}
+
+function renderHistory() {
+  const spec = HIST[history.entity], points = history.points;
+  const canvas = $("#histCanvas");
+  if (!canvas || $("#histDialog").hidden) return;
+  const ratio = window.devicePixelRatio || 1;
+  const width = canvas.clientWidth, height = canvas.clientHeight;
+  canvas.width = width * ratio; canvas.height = height * ratio;
+  const ctx = canvas.getContext("2d");
+  ctx.scale(ratio, ratio);
+  const css = getComputedStyle(document.documentElement);
+  const accent = css.getPropertyValue("--accent").trim(), muted = css.getPropertyValue("--muted").trim();
+  const line = css.getPropertyValue("--line").trim(), text = css.getPropertyValue("--text").trim();
+  ctx.font = "11px sans-serif";
+  const stats = $("#histStats"); stats.textContent = "";
+  if (!points.length) {
+    ctx.fillStyle = muted; ctx.fillText(t("noData"), 12, 24);
+    $("#histReadout").textContent = "";
+    return;
+  }
+  const now = Date.now() / 1000, x0 = now - history.span, x1 = now;
+  const ys = points.map((p) => p[1]);
+  let lo = spec.bars || spec.area ? 0 : Math.min(...ys), hi = Math.max(...ys);
+  if (hi - lo < 1e-9) { hi = lo + 1; }
+  const pad = (hi - lo) * 0.08;
+  if (!spec.bars && !spec.area) lo -= pad;
+  hi += pad;
+  const left = 44, right = 10, top = 10, bottom = 22, plotW = width - left - right, plotH = height - top - bottom;
+  const sx = (x) => left + (x - x0) / (x1 - x0) * plotW;
+  const sy = (y) => top + plotH - (y - lo) / (hi - lo) * plotH;
+  ctx.strokeStyle = line; ctx.fillStyle = muted; ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const value = lo + (hi - lo) * i / 4, y = sy(value);
+    ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(width - right, y); ctx.stroke();
+    ctx.fillText(value.toFixed(spec.dec > 0 && hi - lo < 1 ? spec.dec : Math.min(spec.dec, 1) || 0), 2, y + 4);
+  }
+  const long = history.span > 86400 * 1.5;
+  for (let i = 0; i <= 4; i++) {
+    const ts = x0 + (x1 - x0) * i / 4, label = long ? histTime(ts, true).slice(5, 10) + " " + histTime(ts).slice(0, 5) : histTime(ts);
+    ctx.fillText(label, Math.min(Math.max(left, sx(ts) - 24), width - 70), height - 6);
+  }
+  ctx.strokeStyle = accent; ctx.fillStyle = accent; ctx.lineWidth = 2;
+  if (spec.bars) {
+    const barW = Math.max(1.5, plotW / (history.span / 3600) - 1);
+    points.forEach((p) => { const y = sy(p[1]); ctx.fillRect(sx(p[0]) - barW, y, barW, top + plotH - y); });
+  } else {
+    ctx.beginPath();
+    points.forEach((p, i) => {
+      const x = sx(p[0]), y = sy(p[1]);
+      if (!i) ctx.moveTo(x, y);
+      else { if (spec.step) ctx.lineTo(x, sy(points[i - 1][1])); ctx.lineTo(x, y); }
+    });
+    if (spec.step) ctx.lineTo(sx(x1), sy(points[points.length - 1][1]));
+    ctx.stroke();
+    if (spec.area) {
+      ctx.lineTo(sx(points[points.length - 1][0]), sy(0)); ctx.lineTo(sx(points[0][0]), sy(0)); ctx.closePath();
+      ctx.globalAlpha = 0.15; ctx.fill(); ctx.globalAlpha = 1;
+    }
+  }
+  // hover readout
+  let readout = "";
+  if (history.hover !== null) {
+    let best = points[0], bestD = Infinity;
+    for (const p of points) { const d = Math.abs(sx(p[0]) - history.hover); if (d < bestD) { bestD = d; best = p; } }
+    ctx.strokeStyle = muted; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(sx(best[0]), top); ctx.lineTo(sx(best[0]), top + plotH); ctx.stroke();
+    ctx.fillStyle = text; ctx.beginPath(); ctx.arc(sx(best[0]), sy(best[1]), 4, 0, 7); ctx.fill();
+    readout = histTime(best[0], true) + "  —  " + best[1].toFixed(spec.dec) + " " + spec.unit;
+  } else {
+    const last = points[points.length - 1];
+    readout = histTime(last[0], true) + "  —  " + last[1].toFixed(spec.dec) + " " + spec.unit;
+  }
+  $("#histReadout").textContent = readout;
+  // statistics
+  const sum = ys.reduce((a, b) => a + b, 0);
+  const row = (key, value) => stats.append(el("span", { text: t(key) }), el("span", { class: "v", text: value }));
+  const f = (v) => v.toFixed(spec.dec) + " " + spec.unit;
+  if (spec.stat === "change") row("sChange", f(ys[ys.length - 1] - ys[0]));
+  else if (spec.stat === "total") row("sTotal", f(sum));
+  else { row("sMin", f(Math.min(...ys))); row("sMax", f(Math.max(...ys))); row("sAvg", f(sum / ys.length)); }
+  row("sLast", f(ys[ys.length - 1])); row("sPoints", String(ys.length));
+}
+
 // ------------------------------------------------------------------------ main
 async function refresh() {
   try {
@@ -521,10 +713,29 @@ async function refresh() {
 $("#langBtn").addEventListener("click", () => {
   lang = lang === "pl" ? "en" : "pl";
   try { localStorage.setItem("gasMeterLang", lang); } catch (e) { /* ignore */ }
-  if (built) { applyLanguage(); update(); drawChart(); }
+  if (built) { applyLanguage(); update(); drawChart(); if (!$("#histDialog").hidden) loadHistory(); }
 });
-window.addEventListener("resize", () => { if (built) drawChart(); });
+window.addEventListener("resize", () => { if (built) { drawChart(); if ($("#histDialog")) renderHistory(); } });
+
+// ---------------------------------------------------------------- panel / demo tabs
+function showView(view) {
+  const demo = view === "demo";
+  $("#root").hidden = demo;
+  $("#demoView").hidden = !demo;
+  document.querySelectorAll("#viewTabs button").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
+  if (demo && !$("#demoView iframe")) {
+    const frame = el("iframe", { src: "static/simulator.html?lang=" + lang, title: "simulator" });
+    // same origin, so the frame can be sized to its content (no inner scrollbar)
+    const fit = () => {
+      try { frame.style.height = frame.contentDocument.documentElement.scrollHeight + "px"; } catch (e) { /* ignore */ }
+    };
+    frame.addEventListener("load", () => { fit(); setInterval(fit, 1000); });
+    $("#demoView").append(frame);
+  }
+  try { localStorage.setItem("gasMeterView", view); } catch (e) { /* ignore */ }
+}
+document.querySelectorAll("#viewTabs button").forEach((b) => b.addEventListener("click", () => showView(b.dataset.view)));
 
 refresh();
 setInterval(refresh, 3000);
-setInterval(() => { if (built) drawChart(); }, 60000);
+setInterval(() => { if (built) { drawChart(); const d = $("#histDialog"); if (d && !d.hidden) loadHistory(); } }, 60000);

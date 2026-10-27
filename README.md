@@ -19,7 +19,7 @@ Based on [Torxgewinde/Firebeetle-2-ESP32-E](https://github.com/Torxgewinde/Fireb
 | `gas_meter_app/` | **Home Assistant app (add-on)**: sidebar panel with readings, charts and settings |
 | `home-assistant/` | alternative without the app: plain YAML package and dashboard (do not use together with the app) |
 | `tests/firmware_sim/` | simulator that runs the real firmware code on a PC and checks that no pulse is lost or counted twice (`./run.sh`) |
-| `docs/simulator/` | **visual simulator**: spinning gas meter, reed, ESP32 sleep/wake/WiFi timeline, Home Assistant view and battery estimate (open `index.html` in a browser, or via GitHub Pages) |
+| `docs/simulator/` | **visual simulator**: spinning gas meter, reed, ESP32 sleep/wake/WiFi timeline, Home Assistant view and battery estimate (open `index.html` in a browser, or via GitHub Pages; the same page is the **Demo** tab of the app, copy in `gas_meter_app/app/static/simulator.html`, keep both in sync) |
 | `docs/mqtt-topics.md` | MQTT topic contract between firmware and Home Assistant |
 | `docs/images/` | wiring diagram, reed pull-up explanation, HA panel mockup |
 

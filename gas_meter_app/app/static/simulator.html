@@ -1,0 +1,663 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gas meter simulator</title>
+<style>
+:root {
+  --bg:#eef1f5; --card:#fff; --text:#1c2733; --muted:#6b7a8a; --line:#dde3ea; --accent:#1565c0;
+  --ok:#2e7d32; --warn:#ef6c00; --bad:#c62828; --input:#f5f7fa;
+  --c-sleep:#90a4ae; --c-boot:#8e24aa; --c-awake:#fb8c00; --c-wifi:#1e88e5; --c-save:#6d4c41;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#10141a; --card:#1a2028; --text:#e6ebf0; --muted:#8d9aa8; --line:#2b333d; --accent:#4d9cf0;
+          --ok:#66bb6a; --warn:#ffa726; --bad:#ef5350; --input:#232a33; --c-sleep:#546e7a; }
+}
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:14px/1.4 -apple-system,"Segoe UI",Roboto,Arial,sans-serif; }
+header { max-width:1200px; margin:0 auto; padding:14px 16px 4px; display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
+h1 { font-size:21px; margin:0; } h2 { font-size:15px; margin:0 0 10px; }
+main { max-width:1200px; margin:0 auto; padding:8px 16px 40px; display:grid; gap:14px; grid-template-columns:repeat(auto-fit,minmax(330px,1fr)); }
+.card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; min-width:0; }
+.wide { grid-column:1 / -1; }
+.muted { color:var(--muted); } .small { font-size:12px; }
+button, select { font:inherit; color:var(--text); background:var(--input); border:1px solid var(--line); border-radius:8px; padding:6px 10px; cursor:pointer; }
+button.primary { background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600; }
+input[type=range] { width:100%; }
+label { display:block; font-size:12px; color:var(--muted); margin-top:8px; }
+.row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+.kv { display:grid; grid-template-columns:1fr auto; gap:4px 10px; margin-top:8px; }
+.kv .v { font-weight:600; text-align:right; }
+.good { color:var(--ok); } .badc { color:var(--bad); }
+.odo { display:inline-flex; background:#111; padding:6px 8px; border-radius:6px; gap:2px; font:700 24px/1 "Courier New",monospace; }
+.odo span { background:#fff; color:#111; padding:2px 5px; border-radius:3px; }
+.odo span.red { background:#c62828; color:#fff; }
+.odo .dot { background:none; color:#fff; padding:2px 1px; }
+.led { display:inline-block; width:12px; height:12px; border-radius:50%; background:#555; vertical-align:middle; margin-right:6px; }
+.led.on { background:#43d843; box-shadow:0 0 8px #43d843; }
+.led.red.on { background:#ff4d4d; box-shadow:0 0 8px #ff4d4d; }
+canvas { width:100%; display:block; }
+.legend { display:flex; gap:12px; flex-wrap:wrap; font-size:12px; margin-top:6px; }
+.legend i { display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:4px; vertical-align:-2px; }
+#log { font:12px/1.5 ui-monospace,Menlo,Consolas,monospace; max-height:200px; overflow:auto; background:var(--input); border-radius:8px; padding:8px; }
+.big { font-size:30px; font-weight:700; color:var(--accent); line-height:1.1; }
+.bar { height:8px; background:var(--line); border-radius:5px; overflow:hidden; margin-top:4px; } .bar>div { height:100%; background:var(--ok); }
+.tabs { display:flex; gap:6px; flex-wrap:wrap; }
+.state { font-size:20px; font-weight:700; }
+a { color:var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1 data-i="title">Gas meter simulator</h1>
+  <div class="row">
+    <button id="langBtn">PL / EN</button>
+    <a href="https://github.com/VoyteckPL/gas-meter-arduino" target="_blank" rel="noopener">GitHub</a>
+  </div>
+</header>
+<main>
+  <!-- GAS METER -->
+  <section class="card">
+    <h2 data-i="meterTitle">Gas meter</h2>
+    <svg id="meterSvg" viewBox="0 0 360 250" width="100%" role="img" aria-label="gas meter">
+      <rect x="6" y="6" width="348" height="238" rx="18" fill="#cfd8dc" stroke="#78909c" stroke-width="3"/>
+      <circle cx="170" cy="112" r="88" fill="#eceff1" stroke="#546e7a" stroke-width="4"/>
+      <g id="wheel" transform="rotate(0 170 112)">
+        <circle cx="170" cy="112" r="72" fill="#fafafa" stroke="#90a4ae" stroke-width="2"/>
+        <path d="M170 112 L170 40 M170 112 L242 112 M170 112 L170 184 M170 112 L98 112" stroke="#b0bec5" stroke-width="3"/>
+        <circle cx="170" cy="112" r="10" fill="#78909c"/>
+        <rect x="232" y="104" width="22" height="16" rx="3" fill="#d32f2f" stroke="#7f0000" stroke-width="1.5"/>
+        <text x="243" y="116" text-anchor="middle" font-size="9" fill="#fff" font-weight="700">N S</text>
+      </g>
+      <!-- reed switch (glass capsule) at the right edge of the wheel -->
+      <rect x="262" y="94" width="12" height="36" rx="6" fill="#e3f2fd" stroke="#1565c0" stroke-width="2"/>
+      <line x1="268" y1="98" x2="268" y2="126" id="reedBlade" stroke="#1565c0" stroke-width="2"/>
+      <path d="M268 94 L268 80 L300 80" stroke="#f9a825" stroke-width="3" fill="none"/>
+      <path d="M268 130 L268 150 L300 150" stroke="#eceff1" stroke-width="3" fill="none"/>
+      <text x="304" y="84" font-size="10" fill="#37474f">D12</text>
+      <text x="304" y="154" font-size="10" fill="#37474f">GND</text>
+      <circle id="reedLamp" cx="336" cy="116" r="7" fill="#555"/>
+      <text x="336" y="136" text-anchor="middle" font-size="9" fill="#37474f" data-i="reedWord">reed</text>
+      <foreignObject x="20" y="205" width="320" height="34">
+        <div xmlns="http://www.w3.org/1999/xhtml"><div class="odo" id="odo"></div> <span style="color:#37474f;font-size:12px">m³</span></div>
+      </foreignObject>
+    </svg>
+    <div class="kv">
+      <span data-i="trueP">Real pulses (meter)</span><span class="v" id="vTrue">0</span>
+      <span data-i="flowNow">Flow</span><span class="v" id="vFlow">0</span>
+      <span data-i="pulseLen">Reed closed for</span><span class="v" id="vClosed">—</span>
+    </div>
+  </section>
+
+  <!-- ESP32 -->
+  <section class="card">
+    <h2 data-i="espTitle">ESP32 board</h2>
+    <svg id="espSvg" viewBox="0 0 360 210" width="100%" role="img" aria-label="ESP32">
+      <rect x="40" y="30" width="220" height="130" rx="10" fill="#37474f" stroke="#102027" stroke-width="3"/>
+      <rect x="150" y="50" width="90" height="62" rx="4" fill="#cfd8dc"/>
+      <text x="195" y="86" text-anchor="middle" font-size="11" fill="#263238" font-weight="700">ESP32-UE</text>
+      <circle id="espLed" cx="70" cy="60" r="7" fill="#555"/>
+      <text x="82" y="64" font-size="10" fill="#cfd8dc" data-i="ledWord">LED</text>
+      <circle id="chgLed" cx="70" cy="90" r="7" fill="#555"/>
+      <text x="82" y="94" font-size="10" fill="#cfd8dc" data-i="usbWord">USB charging</text>
+      <path d="M260 60 L300 40 M260 100 L300 120" stroke="#90a4ae" stroke-width="3"/>
+      <g id="waves" opacity="0">
+        <path d="M312 70 q14 -22 0 -44" stroke="#1e88e5" stroke-width="3" fill="none"/>
+        <path d="M324 76 q20 -28 0 -56" stroke="#1e88e5" stroke-width="3" fill="none"/>
+        <path d="M336 82 q26 -34 0 -68" stroke="#1e88e5" stroke-width="3" fill="none"/>
+      </g>
+      <text id="espZzz" x="200" y="140" font-size="26" fill="#90a4ae" font-weight="700">z z z</text>
+      <text id="espState" x="180" y="190" text-anchor="middle" font-size="18" font-weight="700" fill="var(--text)">sleep</text>
+    </svg>
+    <div class="kv">
+      <span data-i="counterRtc">Counter (chip)</span><span class="v" id="vCounter">0</span>
+      <span data-i="counterFlash">Counter in flash</span><span class="v" id="vFlash">0</span>
+      <span data-i="pendingP">Pulses not yet sent</span><span class="v" id="vPending">0</span>
+      <span data-i="wakes">Wake-ups</span><span class="v" id="vWakes">0</span>
+      <span data-i="sessions">WiFi sessions</span><span class="v" id="vSessions">0</span>
+      <span data-i="shortP">Short pulses seen</span><span class="v" id="vShort">0</span>
+      <span data-i="current">Current draw</span><span class="v" id="vCur">0</span>
+    </div>
+  </section>
+
+  <!-- HA -->
+  <section class="card">
+    <h2 data-i="haTitle">Home Assistant panel</h2>
+    <div class="big" id="haMeter">—</div>
+    <div class="muted small" data-i="haMeterLbl">Meter reading (as Home Assistant sees it)</div>
+    <div class="kv">
+      <span data-i="haFlow">Flow (from updates)</span><span class="v" id="haFlow">—</span>
+      <span data-i="haToday">Since start</span><span class="v" id="haToday">—</span>
+      <span data-i="haLast">Last update</span><span class="v" id="haLast">—</span>
+      <span data-i="haBat">Battery</span><span class="v" id="haBat">—</span>
+    </div>
+    <div class="bar"><div id="haBatBar" style="width:0"></div></div>
+    <svg id="pktSvg" viewBox="0 0 360 60" width="100%" style="margin-top:10px">
+      <text x="2" y="16" font-size="11" fill="var(--muted)">ESP32</text>
+      <text x="150" y="16" font-size="11" fill="var(--muted)">Deco</text>
+      <text x="300" y="16" font-size="11" fill="var(--muted)">HA</text>
+      <line x1="30" y1="34" x2="320" y2="34" stroke="var(--line)" stroke-width="3" stroke-dasharray="6 5"/>
+      <circle id="pkt" cx="30" cy="34" r="7" fill="var(--accent)" opacity="0"/>
+    </svg>
+    <div class="muted small" data-i="haHint">Home Assistant only sees a pulse when the meter has sent it. The chip counts every pulse, but it sends only every few seconds to save battery.</div>
+  </section>
+
+  <!-- CONTROLS -->
+  <section class="card">
+    <h2 data-i="ctrlTitle">Controls</h2>
+    <label><span data-i="flowLbl">Gas flow</span>: <b id="flowTxt">1.20</b> m³/h</label>
+    <input id="flow" type="range" min="0" max="6" step="0.05" value="1.2">
+    <div class="row" style="margin-top:6px">
+      <button data-flow="0" data-i="pOff">Off</button>
+      <button data-flow="1.2" data-i="pHeat">Heating (1.2)</button>
+      <button data-flow="3.6" data-i="pWater">Hot water (3.6)</button>
+      <button data-flow="6" data-i="pMax">Maximum (6)</button>
+    </div>
+    <label data-i="speedLbl">Simulation speed</label>
+    <select id="speed"><option value="1">1×</option><option value="5">5×</option><option value="20" selected>20×</option><option value="100">100×</option><option value="600">600×</option></select>
+    <label data-i="sendLbl">Minimum interval between WiFi sessions (MIN_SEND_INTERVAL_S)</label>
+    <select id="minSend"><option value="0">0 s (every pulse)</option><option value="20" selected>20 s</option><option value="60">60 s</option><option value="120">120 s</option></select>
+    <label><span data-i="magLbl">Magnet width on the wheel</span>: <b id="magTxt">25</b>°</label>
+    <input id="mag" type="range" min="6" max="60" step="1" value="25">
+    <div class="row" style="margin-top:8px">
+      <label style="margin:0"><input id="bounce" type="checkbox" checked> <span data-i="bounceLbl">contact bounce</span></label>
+      <label style="margin:0"><input id="wifiOk" type="checkbox" checked> <span data-i="wifiLbl">WiFi available</span></label>
+      <label style="margin:0"><input id="usb" type="checkbox"> <span data-i="usbLbl">USB connected</span></label>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button id="btnPark" data-i="park">Park magnet at the reed</button>
+      <button id="btnFlutter" data-i="flutter">Flutter 5 s</button>
+      <button id="btnSwap" data-i="swap">Change battery</button>
+      <button id="btnPause" class="primary" data-i="pause">Pause</button>
+      <button id="btnReset" data-i="reset">Reset</button>
+    </div>
+  </section>
+
+  <!-- STATS -->
+  <section class="card">
+    <h2 data-i="statTitle">Is every pulse counted?</h2>
+    <div class="kv">
+      <span data-i="trueP">Real pulses (meter)</span><span class="v" id="sTrue">0</span>
+      <span data-i="chipP">Counted by the chip</span><span class="v" id="sChip">0</span>
+      <span data-i="haP">Known to Home Assistant</span><span class="v" id="sHa">0</span>
+      <span data-i="verdict">Verdict</span><span class="v" id="sVerdict">—</span>
+    </div>
+    <h2 style="margin-top:14px" data-i="energyTitle">Battery</h2>
+    <div class="kv">
+      <span data-i="simTime">Simulated time</span><span class="v" id="eTime">0</span>
+      <span data-i="avgCur">Average current</span><span class="v" id="eAvg">0</span>
+      <span data-i="used">Charge used</span><span class="v" id="eUsed">0</span>
+      <span data-i="voltage">Battery voltage</span><span class="v" id="eVolt">0</span>
+      <span data-i="life">Life at this rate</span><span class="v" id="eLife">—</span>
+    </div>
+    <div class="muted small" style="margin-top:8px" data-i="energyHint">Current values are estimates: sleep 0.05 mA, start-up 40 mA, awake 25 mA, WiFi 110 mA. Two 3500 mAh cells (about 5900 mAh usable).</div>
+  </section>
+
+  <!-- TIMELINE -->
+  <section class="card wide">
+    <div class="row" style="justify-content:space-between">
+      <h2 style="margin:0" data-i="tlTitle">What the chip does over time</h2>
+      <div class="row"><span class="small muted" data-i="win">Window</span>
+        <select id="win"><option value="30">30 s</option><option value="120" selected>2 min</option><option value="600">10 min</option><option value="3600">1 h</option></select></div>
+    </div>
+    <canvas id="tl" height="210"></canvas>
+    <div class="legend" id="legend"></div>
+  </section>
+
+  <section class="card wide">
+    <h2 data-i="logTitle">Event log</h2>
+    <div id="log"></div>
+  </section>
+</main>
+
+<script>
+(() => {
+'use strict';
+
+// ------------------------------------------------------------------ texts
+const TXT = {
+ en:{title:'Gas meter simulator',meterTitle:'Gas meter (bellows meter with reed contact)',reedWord:'reed',trueP:'Real pulses (meter)',flowNow:'Flow',pulseLen:'Reed closed for',
+  espTitle:'ESP32 board',ledWord:'LED',usbWord:'USB charging',counterRtc:'Counter (chip)',counterFlash:'Counter in flash',pendingP:'Pulses not yet sent',wakes:'Wake-ups',sessions:'WiFi sessions',shortP:'Short pulses seen',current:'Current draw',
+  haTitle:'Home Assistant panel',haMeterLbl:'Meter reading (as Home Assistant sees it)',haFlow:'Flow (from updates)',haToday:'Since start',haLast:'Last update',haBat:'Battery',
+  haHint:'Home Assistant only sees a pulse when the meter has sent it. The chip counts every pulse, but it sends only every few seconds to save battery.',
+  ctrlTitle:'Controls',flowLbl:'Gas flow',pOff:'Off',pHeat:'Heating (1.2)',pWater:'Hot water (3.6)',pMax:'Maximum (6)',speedLbl:'Simulation speed',sendLbl:'Minimum interval between WiFi sessions (MIN_SEND_INTERVAL_S)',
+  magLbl:'Magnet width on the wheel',bounceLbl:'contact bounce',wifiLbl:'WiFi available',usbLbl:'USB connected',park:'Park magnet at the reed',flutter:'Flutter 5 s',swap:'Change battery',pause:'Pause',resume:'Run',reset:'Reset',
+  statTitle:'Is every pulse counted?',chipP:'Counted by the chip',haP:'Known to Home Assistant',verdict:'Verdict',energyTitle:'Battery',simTime:'Simulated time',avgCur:'Average current',used:'Charge used',voltage:'Battery voltage',life:'Life at this rate',
+  energyHint:'Current values are estimates: sleep 0.05 mA, start-up 40 mA, awake 25 mA, WiFi 110 mA. Two 3500 mAh cells (about 5900 mAh usable).',
+  tlTitle:'What the chip does over time',win:'Window',logTitle:'Event log',
+  sleep:'deep sleep',off:'no power',boot:'starting',debounce:'reading the reed',wifi:'connecting to WiFi',mqtt:'sending to MQTT',save:'saving to flash',
+  ok:'all pulses counted',pend:'some are still waiting to be sent',lost:'MISMATCH',
+  lgReed:'reed closed',lgSleep:'sleep',lgBoot:'start-up',lgAwake:'awake',lgWifi:'WiFi / MQTT',lgSave:'flash',lgPulse:'pulse counted',lgSend:'sent to HA',
+  years:'years',months:'months',more:'more than',
+  eWake:'wake-up',ePulse:'pulse counted',ePulseIsr:'pulse counted by interrupt (awake)',eShort:'short pulse counted (already over at start)',eSend:'sent to Home Assistant',eSendFail:'WiFi failed, retry later',
+  eFlutter:'too many wake-ups: flutter protection, sleeping 30 s',eSwap:'battery removed',eRestore:'power on: counter restored from flash',eSync:'counter checked against MQTT',ePark:'magnet parked at the reed',eStatus:'status (battery, signal, diagnostics) added'},
+ pl:{title:'Symulator gazomierza',meterTitle:'Gazomierz (miechowy, z kontaktronem)',reedWord:'kontaktron',trueP:'Prawdziwe impulsy (gazomierz)',flowNow:'Przepływ',pulseLen:'Kontaktron zamknięty przez',
+  espTitle:'Płytka ESP32',ledWord:'LED',usbWord:'ładowanie z USB',counterRtc:'Licznik (w układzie)',counterFlash:'Licznik we flashu',pendingP:'Impulsy jeszcze niewysłane',wakes:'Obudzenia',sessions:'Sesje WiFi',shortP:'Wykryte krótkie impulsy',current:'Pobór prądu',
+  haTitle:'Panel Home Assistant',haMeterLbl:'Stan licznika (tak, jak widzi go Home Assistant)',haFlow:'Przepływ (z aktualizacji)',haToday:'Od startu',haLast:'Ostatnia aktualizacja',haBat:'Bateria',
+  haHint:'Home Assistant widzi impuls dopiero, gdy gazomierz go wyśle. Układ liczy każdy impuls, ale wysyła co kilka sekund, żeby oszczędzać baterię.',
+  ctrlTitle:'Sterowanie',flowLbl:'Przepływ gazu',pOff:'Wyłączony',pHeat:'Ogrzewanie (1,2)',pWater:'Ciepła woda (3,6)',pMax:'Maksimum (6)',speedLbl:'Prędkość symulacji',sendLbl:'Minimalny odstęp między sesjami WiFi (MIN_SEND_INTERVAL_S)',
+  magLbl:'Szerokość magnesu na kole',bounceLbl:'drgania styku',wifiLbl:'WiFi dostępne',usbLbl:'USB podłączone',park:'Zatrzymaj magnes przy kontaktronie',flutter:'Migotanie 5 s',swap:'Wymiana baterii',pause:'Pauza',resume:'Uruchom',reset:'Reset',
+  statTitle:'Czy każdy impuls jest policzony?',chipP:'Policzone przez układ',haP:'Znane Home Assistant',verdict:'Wynik',energyTitle:'Bateria',simTime:'Czas symulacji',avgCur:'Średni prąd',used:'Zużyty ładunek',voltage:'Napięcie baterii',life:'Czas pracy przy takim poborze',
+  energyHint:'Wartości prądu są szacunkowe: sen 0,05 mA, start 40 mA, czuwanie 25 mA, WiFi 110 mA. Dwa ogniwa 3500 mAh (ok. 5900 mAh użytecznie).',
+  tlTitle:'Co robi układ w czasie',win:'Okno',logTitle:'Dziennik zdarzeń',
+  sleep:'głęboki sen',off:'brak zasilania',boot:'start',debounce:'odczyt kontaktronu',wifi:'łączenie z WiFi',mqtt:'wysyłanie do MQTT',save:'zapis we flashu',
+  ok:'wszystkie impulsy policzone',pend:'część czeka jeszcze na wysłanie',lost:'NIEZGODNOŚĆ',
+  lgReed:'kontaktron zamknięty',lgSleep:'sen',lgBoot:'start',lgAwake:'czuwanie',lgWifi:'WiFi / MQTT',lgSave:'flash',lgPulse:'impuls policzony',lgSend:'wysłano do HA',
+  years:'lat',months:'mies.',more:'ponad',
+  eWake:'obudzenie',ePulse:'impuls policzony',ePulseIsr:'impuls policzony przez przerwanie (układ nie spał)',eShort:'krótki impuls policzony (już po wszystkim przy starcie)',eSend:'wysłano do Home Assistant',eSendFail:'WiFi się nie udało, ponowienie później',
+  eFlutter:'za dużo obudzeń: ochrona przed migotaniem, sen 30 s',eSwap:'bateria wyjęta',eRestore:'włączenie zasilania: licznik odtworzony z flasha',eSync:'licznik sprawdzony z MQTT',ePark:'magnes zatrzymany przy kontaktronie',eStatus:'dołączono status (bateria, sygnał, diagnostyka)'}
+};
+let lang = (navigator.language || 'en').toLowerCase().startsWith('pl') ? 'pl' : 'en';
+try { const q = new URLSearchParams(location.search).get('lang'); if (q === 'pl' || q === 'en') lang = q; } catch (e) { /* ignore */ }
+const t = k => (TXT[lang] && TXT[lang][k]) || TXT.en[k] || k;
+
+// ------------------------------------------------------------------ constants (mirror firmware/gas_meter)
+const DT = 0.005;                      // simulation step, s
+const C = {
+  pulsesPerM3: 100, boot: 0.30, debounce: 0.10, debounceMax: 1.5, wifiConnect: 0.8, wifiFail: 11, mqtt: 0.35, flash: 0.015,
+  statusEvery: 6 * 3600, statusPiggy: 300, burstWin: 10, burstMax: 15, lockout: 30, shortMinMs: 10,
+  mA: { sleep: 0.05, boot: 40, debounce: 25, wifi: 110, mqtt: 90, save: 40, off: 0 }, led: 0.25, capacity: 5900,
+  startReading: 7282.35,
+};
+const MODE_COLOR = { sleep: '--c-sleep', off: '--c-sleep', boot: '--c-boot', debounce: '--c-awake', wifi: '--c-wifi', mqtt: '--c-wifi', save: '--c-save' };
+const SOC_TABLE = [[0, 3.0], [4, 3.3], [10, 3.5], [20, 3.6], [35, 3.7], [50, 3.8], [65, 3.9], [80, 4.0], [90, 4.1], [100, 4.2]];
+const socToVolt = p => { for (let i = 1; i < SOC_TABLE.length; i++) if (p <= SOC_TABLE[i][0]) { const [p0, v0] = SOC_TABLE[i - 1], [p1, v1] = SOC_TABLE[i]; return v0 + (v1 - v0) * (p - p0) / (p1 - p0); } return 4.2; };
+
+// ------------------------------------------------------------------ state
+let S;
+const UI = { flow: 0, speed: 20, minSend: 20, magnet: 25, bounce: true, wifiOk: true, usb: false, paused: false, win: 120 };
+
+function newSim() {
+  const base = Math.round(C.startReading * C.pulsesPerM3);
+  S = {
+    t: 0, angle: 180, parked: false, reedActual: 1, bounceLeft: 0, flutterUntil: -1, prevRaw: 1,
+    truePulses: 0, meter: C.startReading, usedmAh: 5900 * 0.05, lastClosedMs: null, closedAt: null,
+    ha: { counter: base, lastT: -1, battery: 4.1, hist: [[0, base]], first: base },
+    chip: { mode: 'sleep', left: 0, armed: 0, timerAt: 6 * 3600, cause: 'timer', dLevel: 1, dStart: 0, stableSince: 0, lowMs: 0, isrArmed: false, isrPulses: 0, isrLast: -10, cold: false, wakeLog: [], sessionStatus: false, ok: true, sleepAfter: 0, led: false },
+    fw: { counter: base, pending: 0, saved: base, flashHas: true, lastLevel: 1, lastTry: -100, lastStatus: -100, failCount: 0, baseKnown: true, mqttSynced: true, wakes: 0, sessions: 0, shortPulses: 0, pulsesTotal: 0, interval: 20 },
+    segs: [{ t0: 0, mode: 'sleep' }], reedSegs: [], marks: [], log: [], packets: [], flashWrites: 0,
+  };
+  // the very first wake-up happens when the status is due (simulation starts "mid-life")
+  S.fw.lastStatus = 0;
+  S.chip.timerAt = C.statusEvery;
+}
+
+function log(msg, cls) { S.log.push({ t: S.t, msg, cls }); if (S.log.length > 400) S.log.shift(); }
+function mark(type) { S.marks.push({ t: S.t, type }); }
+function setMode(m) {
+  const c = S.chip; if (c.mode === m) return;
+  const last = S.segs[S.segs.length - 1]; last.t1 = S.t;
+  c.mode = m; S.segs.push({ t0: S.t, mode: m });
+}
+function prune() {
+  const keep = S.t - 3700;
+  while (S.segs.length > 2 && (S.segs[0].t1 || 0) < keep) S.segs.shift();
+  while (S.reedSegs.length && S.reedSegs[0].t1 < keep) S.reedSegs.shift();
+  while (S.marks.length && S.marks[0].t < keep) S.marks.shift();
+}
+
+// ------------------------------------------------------------------ firmware model
+function backoff(n) { return n >= 4 ? 900 : 60 * Math.pow(2, n - 1); }
+
+function countPulses(n, how) {
+  const fw = S.fw;
+  fw.counter += n; fw.pending += n; fw.pulsesTotal += n;
+  mark('pulse');
+  log(`${how === 'isr' ? t('ePulseIsr') : how === 'short' ? t('eShort') : t('ePulse')}: ${(fw.counter / C.pulsesPerM3).toFixed(2)} m³`, how === 'short' ? 'warn' : 'pulse');
+}
+function absorbIsr() { const c = S.chip; if (c.isrPulses) { const n = c.isrPulses; c.isrPulses = 0; countPulses(n, 'isr'); } }
+
+function wake(cause) {
+  const c = S.chip, fw = S.fw;
+  c.cause = cause; fw.wakes++;
+  c.isrArmed = false;
+  setMode('boot'); c.left = C.boot;
+  mark('wake');
+}
+
+function startDebounce(raw) {
+  const c = S.chip;
+  c.dLevel = raw; c.dStart = S.t; c.stableSince = S.t; c.lowMs = 0;
+  setMode('debounce');
+}
+
+function afterDebounce(raw) {
+  const c = S.chip, fw = S.fw;
+  const level = c.dLevel;
+  const armedForLow = fw.lastLevel === 1;
+  if (c.cold) {
+    fw.lastLevel = level;
+  } else if (level !== fw.lastLevel) {
+    fw.lastLevel = level;
+    if (level === 0) countPulses(1, 'level');
+  } else if (armedForLow && level === 1 && (c.cause === 'reed' || c.lowMs * 1000 >= C.shortMinMs)) {
+    countPulses(1, 'short'); fw.shortPulses++;
+  }
+  // interrupt counting starts, with a final look at the level
+  c.isrPulses = 0; c.isrLast = S.t - C.debounce; c.isrArmed = true;
+  if (raw !== fw.lastLevel) { fw.lastLevel = raw; if (raw === 0) countPulses(1, 'level'); }
+  decideSession(raw);
+}
+
+function decideSession() {
+  const c = S.chip, fw = S.fw, now = S.t;
+  const interval = fw.failCount > 0 ? backoff(fw.failCount) : UI.minSend;
+  fw.interval = interval;
+  const statusDue = c.cold || now - fw.lastStatus >= C.statusEvery;
+  const statusWanted = statusDue || now - fw.lastStatus >= C.statusPiggy;
+  const want = c.cold || fw.pending > 0 || statusDue || !fw.mqttSynced;
+  const canTry = c.cold || now - fw.lastTry >= interval;
+  const batteryOk = socToVolt(Math.max(0, 100 * (1 - S.usedmAh / C.capacity))) >= 3.1;
+  c.sessionStatus = statusWanted;
+  if (want && canTry && batteryOk) {
+    fw.lastTry = now;
+    setMode('wifi'); c.left = UI.wifiOk ? C.wifiConnect : C.wifiFail; c.ok = UI.wifiOk;
+  } else {
+    finalizeStart();
+  }
+}
+
+function publish() {
+  const fw = S.fw, c = S.chip, ha = S.ha;
+  absorbIsr();
+  if (!fw.mqttSynced) {
+    if (fw.baseKnown) { if (ha.counter > fw.counter) fw.counter = ha.counter; }
+    else { fw.counter += ha.counter; fw.baseKnown = true; }
+    fw.mqttSynced = true; log(t('eSync'));
+  }
+  if (fw.baseKnown) {
+    ha.counter = fw.counter; ha.lastT = S.t;
+    ha.hist.push([S.t, ha.counter]); while (ha.hist.length > 5000) ha.hist.shift();
+  }
+  if (c.sessionStatus) { ha.battery = batteryVolt(); fw.lastStatus = S.t; log(t('eStatus')); }
+  fw.pending = 0; fw.failCount = 0; fw.sessions++; fw.lastTry = S.t;
+  mark('send'); S.packets.push({ p0: performance.now() });
+  log(`${t('eSend')}: ${(ha.counter / C.pulsesPerM3).toFixed(2)} m³`, 'send');
+}
+
+function finalizeStart() {
+  const c = S.chip, fw = S.fw;
+  absorbIsr();
+  fw.lastLevel = S.prevRaw;
+  if (fw.baseKnown && fw.counter !== fw.saved) { setMode('save'); c.left = C.flash; return; }
+  goToSleep();
+}
+
+function goToSleep() {
+  const c = S.chip, fw = S.fw, now = S.t;
+  const batteryOk = socToVolt(Math.max(0, 100 * (1 - S.usedmAh / C.capacity))) >= 3.1;
+  const interval = fw.failCount > 0 ? backoff(fw.failCount) : UI.minSend;
+  const nextTry = fw.lastTry + interval;
+  let dueAt = Math.max(fw.lastStatus + C.statusEvery, nextTry);
+  if ((fw.pending > 0 || !fw.mqttSynced) && nextTry < dueAt) dueAt = nextTry;
+  if (!batteryOk) dueAt = now + 3600;
+  c.timerAt = Math.max(dueAt, now + 1);
+  c.armed = fw.lastLevel ? 0 : 1;
+  c.isrArmed = false; c.cold = false;
+  setMode('sleep');
+}
+
+function chipStep(raw) {
+  const c = S.chip, fw = S.fw;
+  // interrupt (only while awake)
+  if (c.isrArmed && raw !== S.prevRaw) {
+    if (S.t - c.isrLast >= C.debounce && raw === 0) c.isrPulses++;
+    c.isrLast = S.t;
+  }
+  switch (c.mode) {
+    case 'off':
+      c.left -= DT;
+      if (c.left <= 0) coldBoot(raw);
+      break;
+    case 'sleep':
+      if (c.armed !== null && raw === c.armed) wake('reed');
+      else if (S.t >= c.timerAt) wake('timer');
+      break;
+    case 'boot':
+      c.left -= DT;
+      if (c.left <= 0) {
+        // flutter protection
+        c.wakeLog.push(S.t); while (c.wakeLog.length && S.t - c.wakeLog[0] > C.burstWin) c.wakeLog.shift();
+        if (c.wakeLog.length > C.burstMax) {
+          log(t('eFlutter'), 'warn'); c.wakeLog.length = 0; c.armed = null; c.timerAt = S.t + C.lockout; c.isrArmed = false; setMode('sleep');
+        } else startDebounce(raw);
+      }
+      break;
+    case 'debounce': {
+      if (raw === 0) c.lowMs += DT;
+      if (raw !== c.dLevel) { c.dLevel = raw; c.stableSince = S.t; }
+      if (S.t - c.stableSince >= C.debounce || S.t - c.dStart >= C.debounceMax) afterDebounce(raw);
+      break;
+    }
+    case 'wifi':
+      c.left -= DT;
+      if (c.left <= 0) {
+        if (c.ok) { setMode('mqtt'); c.left = C.mqtt; }
+        else { fw.failCount++; fw.lastTry = S.t; log(t('eSendFail'), 'warn'); finalizeStart(); }
+      }
+      break;
+    case 'mqtt':
+      c.left -= DT;
+      if (c.left <= 0) { publish(); finalizeStart(); }
+      break;
+    case 'save':
+      c.left -= DT;
+      if (c.left <= 0) {
+        absorbIsr();
+        fw.saved = fw.counter; S.flashWrites++;
+        if (fw.counter !== fw.saved) { c.left = C.flash; } else { fw.lastLevel = S.prevRaw; goToSleep(); }
+      }
+      break;
+  }
+}
+
+function coldBoot(raw) {
+  const fw = S.fw, c = S.chip, ha = S.ha;
+  S.fw = Object.assign({}, fw, { pending: 0, lastLevel: raw, lastTry: -100, lastStatus: -100, failCount: 0, mqttSynced: false, wakes: fw.wakes, sessions: fw.sessions, shortPulses: fw.shortPulses, pulsesTotal: 0 });
+  if (S.fw.flashHas) { S.fw.counter = S.fw.saved; S.fw.baseKnown = true; log(t('eRestore') + `: ${(S.fw.counter / C.pulsesPerM3).toFixed(2)} m³`); }
+  else { S.fw.counter = 0; S.fw.baseKnown = false; }
+  c.cold = true; c.isrArmed = false; c.wakeLog.length = 0; c.cause = 'power-on';
+  setMode('boot'); c.left = C.boot;
+}
+
+function batteryVolt() { return socToVolt(Math.max(0, 100 * (1 - S.usedmAh / C.capacity))); }
+
+// ------------------------------------------------------------------ physics + one step
+function step() {
+  S.t += DT;
+  // gas meter wheel: one revolution per pulse (0.01 m3), the magnet passes the reed once per revolution
+  const rps = S.parked ? 0 : UI.flow / 3600 * C.pulsesPerM3;
+  const prev = S.angle;
+  S.angle += rps * 360 * DT;
+  const w = UI.magnet;
+  const closed = ((S.angle + w / 2) % 360) < w;
+  if (Math.floor((prev + w / 2) / 360) < Math.floor((S.angle + w / 2) / 360)) { S.truePulses++; S.meter += 1 / C.pulsesPerM3; }
+  const actual = closed ? 0 : 1;
+  if (actual !== S.reedActual) {
+    S.reedActual = actual; S.bounceLeft = UI.bounce ? 3 : 0;
+    if (actual === 0) S.closedAt = S.t; else if (S.closedAt !== null) { S.lastClosedMs = (S.t - S.closedAt) * 1000; S.reedSegs.push({ t0: S.closedAt, t1: S.t }); S.closedAt = null; }
+  }
+  let raw = actual;
+  if (S.bounceLeft > 0) { raw = Math.random() < 0.5 ? 0 : 1; S.bounceLeft--; if (S.bounceLeft === 0) raw = actual; }
+  if (S.t < S.flutterUntil) raw = (Math.floor(S.t / 0.02) % 2) ? 0 : 1;
+
+  chipStep(raw);
+  S.prevRaw = raw;
+
+  // energy
+  const c = S.chip;
+  let mA = C.mA[c.mode] + (c.mode !== 'sleep' && c.mode !== 'off' ? C.led : 0);
+  S.curNow = mA;
+  S.usedmAh += mA * DT / 3600;
+  if (S.closedAt !== null) S.curClosed = S.t - S.closedAt;
+}
+
+// ------------------------------------------------------------------ rendering
+const $ = id => document.getElementById(id);
+function applyText() {
+  document.documentElement.lang = lang;
+  document.querySelectorAll('[data-i]').forEach(n => { n.textContent = t(n.dataset.i); });
+  $('btnPause').textContent = UI.paused ? t('resume') : t('pause');
+  document.title = t('title');
+  buildLegend();
+}
+function fmtTime(s) { s = Math.floor(s); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return `${h ? h + ':' : ''}${String(m).padStart(h ? 2 : 1, '0')}:${String(x).padStart(2, '0')}`; }
+function buildOdo(v) {
+  const s = v.toFixed(2).replace('.', '');
+  const el = $('odo'); el.textContent = '';
+  [...s].forEach((d, i) => {
+    if (i === s.length - 2) { const dot = document.createElement('span'); dot.className = 'dot'; dot.textContent = ','; el.append(dot); }
+    const sp = document.createElement('span'); sp.textContent = d; if (i >= s.length - 2) sp.className = 'red'; el.append(sp);
+  });
+}
+let lastOdo = '';
+function buildLegend() {
+  const css = getComputedStyle(document.documentElement);
+  const item = (color, text) => `<span><i style="background:${color}"></i>${text}</span>`;
+  $('legend').innerHTML = item('#d32f2f', t('lgReed')) + item(css.getPropertyValue('--c-sleep'), t('lgSleep')) + item(css.getPropertyValue('--c-boot'), t('lgBoot')) +
+    item(css.getPropertyValue('--c-awake'), t('lgAwake')) + item(css.getPropertyValue('--c-wifi'), t('lgWifi')) + item(css.getPropertyValue('--c-save'), t('lgSave')) +
+    '<span style="color:#2e7d32">&#9650; ' + t('lgPulse') + '</span><span style="color:#1565c0">&#9670; ' + t('lgSend') + '</span>';
+}
+
+function render() {
+  const c = S.chip, fw = S.fw, ha = S.ha;
+  // meter
+  $('wheel').setAttribute('transform', `rotate(${(S.angle % 360).toFixed(1)} 170 112)`);
+  const closed = S.reedActual === 0;
+  $('reedLamp').setAttribute('fill', closed ? '#ff4d4d' : '#555');
+  $('reedBlade').setAttribute('transform', closed ? '' : 'rotate(18 268 112)');
+  const odo = S.meter.toFixed(2); if (odo !== lastOdo) { buildOdo(S.meter); lastOdo = odo; }
+  $('vTrue').textContent = S.truePulses;
+  $('vFlow').textContent = UI.flow.toFixed(2) + ' m³/h';
+  $('vClosed').textContent = S.lastClosedMs === null ? '—' : S.lastClosedMs.toFixed(0) + ' ms';
+  // esp
+  const awake = c.mode !== 'sleep' && c.mode !== 'off';
+  $('espLed').setAttribute('fill', awake ? '#43d843' : '#555');
+  $('chgLed').setAttribute('fill', UI.usb ? '#ff4d4d' : '#555');
+  $('espState').textContent = t(c.mode);
+  $('espZzz').setAttribute('opacity', c.mode === 'sleep' || c.mode === 'off' ? 1 : 0);
+  $('waves').setAttribute('opacity', c.mode === 'wifi' || c.mode === 'mqtt' ? 1 : 0);
+  $('vCounter').textContent = (fw.counter / C.pulsesPerM3).toFixed(2) + ' m³ (' + fw.counter + ')';
+  $('vFlash').textContent = (fw.saved / C.pulsesPerM3).toFixed(2) + ' m³';
+  $('vPending').textContent = fw.pending;
+  $('vWakes').textContent = fw.wakes;
+  $('vSessions').textContent = fw.sessions;
+  $('vShort').textContent = fw.shortPulses;
+  $('vCur').textContent = (S.curNow || 0).toFixed(2) + ' mA';
+  // HA
+  $('haMeter').textContent = (ha.counter / C.pulsesPerM3).toFixed(2) + ' m³';
+  $('haToday').textContent = ((ha.counter - ha.first) / C.pulsesPerM3).toFixed(2) + ' m³';
+  $('haLast').textContent = ha.lastT < 0 ? '—' : fmtTime(S.t - ha.lastT) + ' ' + (lang === 'pl' ? 'temu' : 'ago');
+  let flowTxt = '—';
+  { const h = ha.hist; if (h.length > 1) { let i = h.length - 1; while (i > 0 && S.t - h[i][0] < 900) i--; const dtt = S.t - h[i][0]; if (dtt > 30) flowTxt = Math.max(0, (ha.counter - h[i][1]) / C.pulsesPerM3 / dtt * 3600).toFixed(2) + ' m³/h'; } }
+  $('haFlow').textContent = flowTxt;
+  const pct = Math.max(0, 100 * (1 - S.usedmAh / C.capacity));
+  $('haBat').textContent = ha.battery.toFixed(2) + ' V';
+  $('haBatBar').style.width = Math.min(100, pct) + '%';
+  // packet animation (real time)
+  const now = performance.now(), pkt = $('pkt'); let show = false;
+  S.packets = S.packets.filter(p => now - p.p0 < 1400);
+  if (S.packets.length) { const p = (now - S.packets[S.packets.length - 1].p0) / 1400; pkt.setAttribute('cx', 30 + 290 * p); show = true; }
+  pkt.setAttribute('opacity', show ? 1 : 0);
+  // stats
+  $('sTrue').textContent = S.truePulses;
+  const base = Math.round(C.startReading * C.pulsesPerM3);
+  const chipCount = fw.counter - base, haCount = ha.counter - base;
+  $('sChip').textContent = chipCount; $('sHa').textContent = haCount;
+  const v = $('sVerdict');
+  if (chipCount === S.truePulses && fw.pending === 0 && c.isrPulses === 0) { v.textContent = t('ok'); v.className = 'v good'; }
+  else if (chipCount === S.truePulses || chipCount + c.isrPulses === S.truePulses) { v.textContent = t('pend'); v.className = 'v'; }
+  else if (c.mode === 'off') { v.textContent = '—'; v.className = 'v'; }
+  else { v.textContent = t('lost') + ' (' + (chipCount - S.truePulses) + ')'; v.className = 'v badc'; }
+  $('eTime').textContent = fmtTime(S.t);
+  const avgCur = (S.usedmAh - 5900 * 0.05) / (Math.max(S.t, 1) / 3600);
+  $('eAvg').textContent = (S.t < 1 ? 0 : avgCur).toFixed(3) + ' mA';
+  $('eUsed').textContent = (S.usedmAh - 5900 * 0.05).toFixed(3) + ' mAh';
+  $('eVolt').textContent = batteryVolt().toFixed(2) + ' V';
+  if (S.t > 30 && avgCur > 0) { const months = C.capacity / avgCur / 24 / 30.4; $('eLife').textContent = months > 60 ? t('more') + ' 5 ' + t('years') : (months >= 24 ? (months / 12).toFixed(1) + ' ' + t('years') : months.toFixed(1) + ' ' + t('months')); }
+  else $('eLife').textContent = '—';
+  // log
+  const lg = $('log'), last = S.log.slice(-60).reverse();
+  lg.innerHTML = last.map(e => `<div style="color:${e.cls === 'warn' ? 'var(--warn)' : e.cls === 'send' ? 'var(--accent)' : e.cls === 'pulse' ? 'var(--ok)' : 'inherit'}">${fmtTime(e.t)}  ${e.msg}</div>`).join('');
+  drawTimeline();
+}
+
+function drawTimeline() {
+  const cv = $('tl'); const ratio = window.devicePixelRatio || 1;
+  const w = cv.clientWidth, h = 210; if (cv.width !== w * ratio) { cv.width = w * ratio; cv.height = h * ratio; }
+  const g = cv.getContext('2d'); g.setTransform(ratio, 0, 0, ratio, 0, 0); g.clearRect(0, 0, w, h);
+  const css = getComputedStyle(document.documentElement);
+  const win = UI.win, t1 = S.t, t0 = t1 - win, left = 8, right = w - 8, pw = right - left;
+  const X = tt => left + (tt - t0) / win * pw;
+  g.font = '11px sans-serif'; g.fillStyle = css.getPropertyValue('--muted'); g.strokeStyle = css.getPropertyValue('--line');
+  // grid + labels
+  const stepT = win <= 30 ? 5 : win <= 120 ? 20 : win <= 600 ? 60 : 600;
+  for (let tt = Math.ceil(t0 / stepT) * stepT; tt <= t1; tt += stepT) { const x = X(tt); g.beginPath(); g.moveTo(x, 20); g.lineTo(x, 184); g.stroke(); g.fillText(fmtTime(tt), x + 2, 200); }
+  // rows
+  g.fillStyle = css.getPropertyValue('--muted'); g.fillText('reed', left, 14); g.fillText('chip', left, 74); g.fillText('events', left, 150);
+  // reed row
+  g.fillStyle = '#d32f2f';
+  for (const s of S.reedSegs) { if (s.t1 < t0) continue; const x0 = Math.max(left, X(s.t0)), x1 = Math.min(right, X(s.t1)); g.fillRect(x0, 22, Math.max(1.5, x1 - x0), 34); }
+  if (S.closedAt !== null) { const x0 = Math.max(left, X(S.closedAt)); g.fillRect(x0, 22, Math.max(1.5, right - x0), 34); }
+  // chip row
+  for (const s of S.segs) {
+    const e = s.t1 === undefined ? t1 : s.t1; if (e < t0) continue;
+    const x0 = Math.max(left, X(s.t0)), x1 = Math.min(right, X(e));
+    g.fillStyle = css.getPropertyValue(MODE_COLOR[s.mode]).trim() || '#999';
+    const tall = s.mode === 'sleep' || s.mode === 'off' ? 6 : 52;
+    g.fillRect(x0, 120 - tall, Math.max(1.5, x1 - x0), tall);
+  }
+  // markers
+  for (const m of S.marks) {
+    if (m.t < t0) continue; const x = X(m.t);
+    if (m.type === 'pulse') { g.fillStyle = '#2e7d32'; g.beginPath(); g.moveTo(x, 138); g.lineTo(x - 5, 150); g.lineTo(x + 5, 150); g.fill(); }
+    else if (m.type === 'send') { g.fillStyle = '#1565c0'; g.beginPath(); g.moveTo(x, 160); g.lineTo(x + 5, 168); g.lineTo(x, 176); g.lineTo(x - 5, 168); g.fill(); }
+  }
+}
+
+// ------------------------------------------------------------------ loop + UI
+let lastReal = performance.now(), acc = 0;
+function frame(now) {
+  const real = Math.min(0.1, (now - lastReal) / 1000); lastReal = now;
+  if (!UI.paused) {
+    acc += real * UI.speed;
+    let n = Math.min(Math.floor(acc / DT), 30000); acc -= n * DT; if (acc > 1) acc = 0;
+    for (let i = 0; i < n; i++) step();
+    if (n) prune();
+  }
+  render();
+  requestAnimationFrame(frame);
+}
+
+function bind() {
+  const flow = $('flow'); flow.oninput = () => { UI.flow = +flow.value; S.parked = false; $('flowTxt').textContent = UI.flow.toFixed(2); };
+  document.querySelectorAll('[data-flow]').forEach(b => b.onclick = () => { flow.value = b.dataset.flow; flow.oninput(); });
+  $('speed').onchange = e => { UI.speed = +e.target.value; };
+  $('minSend').onchange = e => { UI.minSend = +e.target.value; };
+  $('mag').oninput = e => { UI.magnet = +e.target.value; $('magTxt').textContent = UI.magnet; };
+  $('bounce').onchange = e => { UI.bounce = e.target.checked; };
+  $('wifiOk').onchange = e => { UI.wifiOk = e.target.checked; };
+  $('usb').onchange = e => { UI.usb = e.target.checked; };
+  $('win').onchange = e => { UI.win = +e.target.value; };
+  $('btnPark').onclick = () => { S.parked = true; S.angle = Math.floor(S.angle / 360) * 360 + 360 - UI.magnet / 2 + 1; log(t('ePark')); };
+  $('btnFlutter').onclick = () => { S.flutterUntil = S.t + 5; };
+  $('btnSwap').onclick = () => { log(t('eSwap'), 'warn'); S.chip.isrArmed = false; setMode('off'); S.chip.left = 2; };
+  $('btnPause').onclick = () => { UI.paused = !UI.paused; applyText(); };
+  $('btnReset').onclick = () => { newSim(); lastOdo = ''; };
+  $('langBtn').onclick = () => { lang = lang === 'pl' ? 'en' : 'pl'; applyText(); };
+}
+
+UI.flow = 1.2;
+newSim(); bind(); applyText();
+if (window.self !== window.top) { const hr = document.querySelector('header .row'); if (hr) hr.style.display = 'none'; }
+window.setLang = l => { if (l === 'pl' || l === 'en') { lang = l; applyText(); } };
+window.__sim = {
+  get S() { return S; }, UI, step, newSim, C, runFor(sec) { const n = Math.round(sec / DT); for (let i = 0; i < n; i++) step(); prune(); },
+  setFlow(f) { UI.flow = f; S.parked = false; }, swap() { S.chip.isrArmed = false; setMode('off'); S.chip.left = 2; },
+};
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

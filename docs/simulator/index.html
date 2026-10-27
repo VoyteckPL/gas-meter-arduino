@@ -249,6 +249,7 @@ const TXT = {
   eFlutter:'za dużo obudzeń: ochrona przed migotaniem, sen 30 s',eSwap:'bateria wyjęta',eRestore:'włączenie zasilania: licznik odtworzony z flasha',eSync:'licznik sprawdzony z MQTT',ePark:'magnes zatrzymany przy kontaktronie',eStatus:'dołączono status (bateria, sygnał, diagnostyka)'}
 };
 let lang = (navigator.language || 'en').toLowerCase().startsWith('pl') ? 'pl' : 'en';
+try { const q = new URLSearchParams(location.search).get('lang'); if (q === 'pl' || q === 'en') lang = q; } catch (e) { /* ignore */ }
 const t = k => (TXT[lang] && TXT[lang][k]) || TXT.en[k] || k;
 
 // ------------------------------------------------------------------ constants (mirror firmware/gas_meter)
@@ -649,6 +650,8 @@ function bind() {
 
 UI.flow = 1.2;
 newSim(); bind(); applyText();
+if (window.self !== window.top) { const hr = document.querySelector('header .row'); if (hr) hr.style.display = 'none'; }
+window.setLang = l => { if (l === 'pl' || l === 'en') { lang = l; applyText(); } };
 window.__sim = {
   get S() { return S; }, UI, step, newSim, C, runFor(sec) { const n = Math.round(sec / DT); for (let i = 0; i < n; i++) step(); prune(); },
   setFlow(f) { UI.flow = f; S.parked = false; }, swap() { S.chip.isrArmed = false; setMode('off'); S.chip.left = 2; },

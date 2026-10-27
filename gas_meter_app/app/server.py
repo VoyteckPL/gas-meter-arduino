@@ -243,6 +243,21 @@ class Store:
                 buckets[hour] += v2 - v1
         return [[h * 3600, round(buckets[h], 3)] for h in sorted(buckets)]
 
+    def flow_series(self, hours):
+        """Average flow (m3/h) per time bucket, derived from the meter reading history."""
+        series = self.history.get("cubic_meters", [])
+        now = time.time()
+        span = hours * 3600
+        bucket = max(300.0, span / 120.0)
+        first = int((now - span) // bucket)
+        count = int(span // bucket) + 1
+        deltas = {i: 0.0 for i in range(first, first + count)}
+        for (t1, v1), (t2, v2) in zip(series, series[1:]):
+            index = int(t2 // bucket)
+            if index in deltas and v2 >= v1:
+                deltas[index] += v2 - v1
+        return [[(i + 0.5) * bucket, round(deltas[i] / bucket * 3600.0, 3)] for i in sorted(deltas)]
+
     def snapshot(self):
         with self.lock:
             return {
@@ -397,6 +412,17 @@ async def api_state(request):
     return web.json_response(data)
 
 
+def thin(points, limit=900):
+    """Keep at most `limit` points (always the last one) so long ranges stay light."""
+    if len(points) <= limit:
+        return points
+    step = -(-len(points) // limit)
+    kept = points[::step]
+    if kept[-1] is not points[-1]:
+        kept.append(points[-1])
+    return kept
+
+
 async def api_series(request):
     store = request.app["store"]
     kind = request.query.get("kind", "hourly")
@@ -417,13 +443,17 @@ async def api_series(request):
         with store.lock:
             raw = [p for p in store.history.get("bt/pin_mv", []) if p[0] >= since]
         return web.json_response([[ts, round(mv / 1000.0 * factor, 3)] for ts, mv in raw])
-    name = {"battery": "BatteryVoltage", "percent": "BatteryPercent", "meter": "cubic_meters"}.get(kind)
+    if kind == "flow":
+        with store.lock:
+            return web.json_response(store.flow_series(hours))
+    name = {"battery": "BatteryVoltage", "percent": "BatteryPercent", "meter": "cubic_meters",
+            "rssi": "RSSI", "bt_pin": "bt/pin_mv"}.get(kind)
     if name is None:
         return web.json_response({"error": "unknown series"}, status=400)
     since = time.time() - hours * 3600
     with store.lock:
         points = [p for p in store.history.get(name, []) if p[0] >= since]
-    return web.json_response(points)
+    return web.json_response(thin(points))
 
 
 async def api_set(request):

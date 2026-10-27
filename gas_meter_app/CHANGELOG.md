@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0
+
+* History of every value: click the meter reading, flow, today, battery, WiFi signal (or the battery
+  test values) to open a "more info" style window with a chart, range buttons (1 h to 14 days),
+  hover readout and min / max / average.
+* New **Demo** tab with the visual simulator (spinning gas meter, reed, ESP32 sleep / WiFi timeline,
+  Home Assistant view, battery estimate). It is also available without Home Assistant in
+  `docs/simulator/` of the repository.
+
 ## 0.2.0
 
 * Battery discharge test card and chart: the panel also listens to the topic of the

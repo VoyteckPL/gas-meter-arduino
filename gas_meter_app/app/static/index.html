@@ -15,9 +15,16 @@
     </div>
   </header>
 
+  <nav class="viewtabs" id="viewTabs">
+    <button class="secondary active" data-view="panel" id="tabPanel">Panel</button>
+    <button class="secondary" data-view="demo" id="tabDemo">Demo</button>
+  </nav>
+
   <main id="root">
     <p class="muted" id="loading">Loading...</p>
   </main>
+
+  <div id="demoView" class="demo" hidden></div>
 
   <div id="toast" class="toast" hidden></div>
   <script src="static/app.js"></script>
