@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.21.0
+
+* **Procent baterii zawsze na wierzchu:** zakładka Przegląd pokazuje teraz naładowanie z krzywej apki (nauczonej z Twojego testu) razem z szacowanym czasem pracy.
+* **Prognoza baterii z sezonami:** model liczy dzień po dniu, ile sesji WiFi będzie w kolejnych miesiącach na podstawie zużycia gazu z faktur. Pokazuje czas do ostrzeżenia i do zatrzymania WiFi, tabelę zużycia baterii miesiąc po miesiącu i fioletową linię prognozy na wykresie.
+* **Encje w Home Assistant** (MQTT discovery, urządzenie „Gas meter”), odświeżane co 10 minut: Bateria (szacunek, %), Czas pracy baterii (dni), Naładuj baterię do (data), Prognoza najbliższej faktury (PLN), Prognoza rachunków 12 miesięcy (PLN), Zużycie gazu w miesiącu (prognoza, m³). Nadają się do kafelków i automatyzacji.
+
 ## 0.20.0
 
 * **Prognoza rachunku** (zakładka Zużycie): najbliższa faktura z zakresem (zużycie tego miesiąca z odczytów gazomierza do dziś, reszta z modelu pogody),

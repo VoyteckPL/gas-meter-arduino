@@ -425,6 +425,22 @@ class Bridge:
             ("battery", "Battery", "BatteryPercent", "%", "battery", "measurement", None),
             ("wifi_signal", "WiFi signal", "RSSI", "dBm", "signal_strength", "measurement", "diagnostic"),
         ]
+        # values computed by the app (battery estimate, bill forecast), published by publish_app_entities()
+        extra = [("battery_estimate", "Bateria (szacunek)", "app/battery_soc", "%", "battery", "measurement", None),
+                 ("battery_days", "Czas pracy baterii", "app/battery_days", "d", "duration", "measurement", None),
+                 ("battery_charge_by", "Naładuj baterię do", "app/battery_charge_by", None, "timestamp", None, None),
+                 ("bill_next", "Prognoza najbliższej faktury", "app/bill_next", "PLN", "monetary", None, None),
+                 ("bill_year", "Prognoza rachunków 12 miesięcy", "app/bill_year", "PLN", "monetary", None, None),
+                 ("month_m3", "Zużycie gazu w miesiącu (prognoza)", "app/month_m3", "m³", None, None, None)]
+        for key, name, topic, unit, device_class, state_class, category in extra:
+            config = {"name": name, "uniq_id": "gas_meter_app_" + key, "stat_t": "%s/%s" % (root, topic), "dev": device}
+            if unit:
+                config["unit_of_meas"] = unit
+            if device_class:
+                config["dev_cla"] = device_class
+            if state_class:
+                config["stat_cla"] = state_class
+            self.client.publish("homeassistant/sensor/gas_meter_app/%s/config" % key, json.dumps(config), qos=1, retain=True)
         for key, name, topic, unit, device_class, state_class, category in entities:
             config = {
                 "name": name,
@@ -513,6 +529,7 @@ async def api_state(request):
     data = request.app["store"].snapshot()
     data["schema"] = SCHEMA
     data["language"] = request.app["options"].get("language", "auto")
+    data["battery_app"] = request.app.get("battery_last")
     return web.json_response(data)
 
 
@@ -596,7 +613,13 @@ def compute_battery(app, source="meter", days=30, factor=2.044, test_ma=None, te
     # the forecast runs to the thresholds the firmware really uses (3.10 V: no WiFi, 3.00 V: hibernate)
     if source == "bt":
         series = {}   # the test sketch does not run the meter logic
-    result = battery.analyze(volts, series, opts, curve=curve, now=now)
+    season = None
+    if source != "bt":
+        monthly, bill_factor = bills_context(app)
+        season = billing.seasonal(monthly, bill_factor) if monthly else None
+        if season:
+            opts["pulses_per_m3"] = cfg_ppm or 100
+    result = battery.analyze(volts, series, opts, curve=curve, now=now, season=season)
     result["curve_info"] = curve_info
     result["capacity"] = cap
     # capacity of one cell: measured when a run has finished, otherwise estimated from the running test
@@ -1464,6 +1487,46 @@ async def api_energy(request):
     return web.json_response(energy_status(app))
 
 
+async def publish_app_entities(app):
+    """Publishes the values the app computes (battery estimate, bill forecast) as retained topics for the HA entities."""
+    bridge = app.get("bridge")
+    if bridge is None:
+        return
+    now = time.time()
+    battery_result = compute_battery(app, "meter", 30, 2.044, None, 1, 30)
+    app["battery_last"] = {"soc": battery_result.get("soc"), "volts": battery_result.get("volts"), "time": now}
+    if battery_result.get("soc") is not None:
+        season = battery_result.get("forecast_season") or {}
+        model = battery_result.get("model") or {}
+        cut = season.get("days_to_cutoff") if season.get("reached") else model.get("days_to_cutoff")
+        warn = season.get("days_to_warn") if season.get("reached") else model.get("days_to_warn")
+        app["battery_last"].update(days=cut, warn_days=warn)
+        bridge.publish("app/battery_soc", "%.0f" % battery_result["soc"])
+        if cut is not None:
+            bridge.publish("app/battery_days", "%.0f" % cut)
+        if warn is not None:
+            bridge.publish("app/battery_charge_by", datetime.fromtimestamp(now + warn * 86400).astimezone().isoformat(timespec="seconds"))
+    monthly, factor = bills_context(app)
+    _, analysis = weather_analysis(app)
+    with app["store"].lock:
+        meter = [list(p) for p in app["store"].series("cubic_meters")]
+    forecast = billing.forecast(monthly, factor, analysis, meter, now) if monthly else None
+    if forecast:
+        bridge.publish("app/bill_next", "%.0f" % forecast["next"]["cost"])
+        bridge.publish("app/bill_year", "%.0f" % forecast["year_cost"])
+        bridge.publish("app/month_m3", "%.1f" % forecast["next"]["m3"])
+
+
+async def app_entities_loop(app):
+    await asyncio.sleep(60)
+    while True:
+        try:
+            await publish_app_entities(app)
+        except Exception as error:  # pragma: no cover
+            log.warning("publishing app entities failed: %s", error)
+        await asyncio.sleep(600)
+
+
 async def api_set(request):
     app = request.app
     try:
@@ -1518,6 +1581,7 @@ async def on_startup(app):
     app["notifier"] = asyncio.create_task(notifier_loop(app))
     app["weather_task"] = asyncio.create_task(weather_loop(app))
     app["energy_task"] = asyncio.create_task(energy_loop(app))
+    app["entities_task"] = asyncio.create_task(app_entities_loop(app))
 
 
 async def on_cleanup(app):
@@ -1525,6 +1589,7 @@ async def on_cleanup(app):
     app["notifier"].cancel()
     app["weather_task"].cancel()
     app["energy_task"].cancel()
+    app["entities_task"].cancel()
     app["store"].save()
     app["bridge"].client.loop_stop()
     app["bridge"].client.disconnect()

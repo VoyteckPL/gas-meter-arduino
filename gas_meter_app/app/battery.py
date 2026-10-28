@@ -11,6 +11,9 @@ Two independent predictions are made and shown together:
 The voltage is converted to a state of charge (SoC) with a curve. The generic curve is replaced by a
 curve learned from the discharge test (firmware/battery_test) as soon as one run has finished.
 """
+import calendar
+import time
+
 # (volts, % charge): same table as batteryPercent() in the firmware
 GENERIC_CURVE = [(3.00, 0), (3.30, 4), (3.50, 10), (3.60, 20), (3.70, 35), (3.80, 50),
                  (3.90, 65), (4.00, 80), (4.10, 90), (4.20, 100)]
@@ -132,7 +135,7 @@ def forecast(now, soc_now, pct_per_day, curve, floor_v, steps=40):
              round(volts_at(soc_now - pct_per_day * days * i / steps, curve), 3)] for i in range(steps + 1)]
 
 
-def analyze(volts, series, options, curve=None, now=None):
+def analyze(volts, series, options, curve=None, now=None, season=None):
     """volts: [[ts, V]...]. series: dict with optional 'sessions', 'wakes', 'meter', 'connect_ms', 'rssi'
     (lists of [ts, value]). options: see DEFAULTS plus 'pulses_per_m3', 'static_ip', 'window_days'."""
     cfg = dict(DEFAULTS)
@@ -203,6 +206,33 @@ def analyze(volts, series, options, curve=None, now=None):
             "days_to_warn": cap * max(0.0, soc_now - soc_warn) / 100.0 / (i_model * 24.0),
         }
         out["forecast_model"] = forecast(now, soc_now, out["model"]["pct_per_day"], curve, cfg["cutoff_v"])
+
+    # ---------------- model with the seasons: the gas use of each calendar month (from the invoices) drives the sessions
+    if season and out.get("model") and options.get("pulses_per_m3"):
+        ppm3 = float(options["pulses_per_m3"])
+        spp_use = spp if spp is not None else 0.8
+        mean_m3 = sum(season.values()) / len(season)
+        sim_soc, day, pts, monthly, warn_day, cut_day = soc_now, 0, [[now, round(last_v, 3)]], {}, None, None
+        while day < 1100 and cut_day is None:
+            t = now + day * DAY
+            lt = time.localtime(t)
+            m3 = season.get("%02d" % lt.tm_mon, mean_m3)
+            pulses = m3 / calendar.monthrange(lt.tm_year, lt.tm_mon)[1] * ppm3
+            sessions = cfg["status_sessions_per_day"] + spp_use * pulses
+            drain = (sleep_ma + self_ma + sessions * session_mah / 24.0) * 24 / cap * 100.0
+            sim_soc -= drain
+            key = "%04d-%02d" % (lt.tm_year, lt.tm_mon)
+            row = monthly.setdefault(key, {"month": key, "pct": 0.0, "sessions_day": sessions, "pulses_day": pulses})
+            row["pct"] += drain
+            day += 1
+            if warn_day is None and sim_soc <= soc_warn:
+                warn_day = day
+            if sim_soc <= soc_cut:
+                cut_day = day
+            if day % 7 == 0 or cut_day is not None:
+                pts.append([round(now + day * DAY, 1), round(volts_at(max(sim_soc, soc_cut), curve), 3)])
+        out["forecast_season"] = {"days_to_cutoff": cut_day, "days_to_warn": warn_day, "points": pts,
+                                  "monthly": list(monthly.values())[:12], "spp": spp_use, "reached": cut_day is not None}
 
     # ---------------- trend based prediction (line through the state of charge)
     use = [(t, v) for t, v in volts if t >= since]

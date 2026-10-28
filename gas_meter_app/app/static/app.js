@@ -562,9 +562,10 @@ function update() {
   const flow = state.flow_m3h;
   $("#flow").textContent = flow === null || flow === undefined ? "—" : num(flow, 2) + " m³/h";
   $("#today").textContent = state.today_m3 === null ? "—" : num(state.today_m3, 2) + " m³";
-  const percent = Number(v.BatteryPercent);
+  const app = state.battery_app, estimate = app && Number.isFinite(app.soc);
+  const percent = estimate ? app.soc : Number(v.BatteryPercent);
   $("#battery").textContent = Number.isFinite(percent)
-    ? percent.toFixed(0) + "% (" + num(v.BatteryVoltage, 2) + " V)" : "—";
+    ? percent.toFixed(0) + "% (" + num(v.BatteryVoltage, 2) + " V)" + (estimate && app.days ? " · ok. " + (app.days > 90 ? Math.round(app.days / 30.4) + " mies." : Math.round(app.days) + " dni") : "") : "—";
   const bar = $("#batteryBar");
   bar.style.width = (Number.isFinite(percent) ? Math.max(0, Math.min(100, percent)) : 0) + "%";
   bar.style.background = percent < 15 ? "var(--bad)" : percent < 40 ? "var(--warn)" : "var(--ok)";
@@ -1551,6 +1552,10 @@ function buildBattery() {
     el("div", { class: "muted small", style: "margin-top:12px", "data-i18n": "bTrend" }),
     el("div", { class: "pred", id: "bTrendCut" }),
     el("div", { class: "muted small", id: "bTrendDates" }),
+    el("div", { class: "muted small", style: "margin-top:12px", text: "Model z sezonami (zużycie gazu z faktur)" }),
+    el("div", { class: "pred", id: "bSeasonCut" }),
+    el("div", { class: "muted small", id: "bSeasonDates" }),
+    el("div", { id: "bSeasonTable", style: "overflow-x:auto;margin-top:6px" }),
     el("p", { class: "hint", "data-i18n": "bPredHint" }),
   ]);
 
@@ -1744,6 +1749,21 @@ function renderBattery() {
       " (R² " + trend.r2.toFixed(2) + ")"
     : t("bNoTrend");
 
+  // seasonal prediction
+  {
+    const fsx = d.forecast_season, cutBox = $("#bSeasonCut"), datesBox = $("#bSeasonDates"), table = $("#bSeasonTable");
+    table.textContent = "";
+    if (!isTest && fsx) {
+      cutBox.textContent = fsx.reached ? fmtLife(fsx.days_to_cutoff) : "ponad 3 lata";
+      const when = (days) => new Date((d.now + days * 86400) * 1000).toLocaleDateString("pl-PL");
+      datesBox.textContent = (fsx.days_to_warn !== null && fsx.days_to_warn !== undefined ? "Ostrzeżenie około " + when(fsx.days_to_warn) + " · " : "") +
+        (fsx.reached ? "zatrzymanie WiFi około " + when(fsx.days_to_cutoff) : "") + " · " + num(fsx.spp, 2) + " sesji na impuls";
+      const tb = el("table", { class: "mini" }, [el("tr", {}, ["Miesiąc", "Sesji/dobę", "Zużycie baterii"].map((h) => el("th", { text: h })))]);
+      for (const r of fsx.monthly) tb.append(el("tr", {}, [MONTH_FULL[Number(r.month.slice(5, 7)) - 1] + " " + r.month.slice(0, 4), num(r.sessions_day, 0), num(r.pct, 1) + " %"].map((v) => el("td", { text: v }))));
+      table.append(tb);
+    } else { cutBox.textContent = "—"; datesBox.textContent = isTest ? "" : "Zaimportuj faktury, żeby uwzględnić sezony."; }
+  }
+
   // budget + what if
   if (!isTest && d.budget_ma) {
     const b = d.budget_ma, total = b.total || 1;
@@ -1805,7 +1825,9 @@ function drawBattery() {
   const chart = battery.chart;
   const hist = d.history || [], fm = d.forecast_model || [], ft = d.forecast_trend || [];
   const warnV = (d.model_params && d.model_params.warn_v) || 3.1, cutV = (d.model_params && d.model_params.cutoff_v) || 3.0;
+  const fs = d.forecast_season, fsPoints = fs && fs.points && fs.points.length > 1 ? fs.points : [];
   const series = [{ name: t("bVolts"), color: cssColor("--accent"), points: hist, area: true }];
+  if (fsPoints.length) series.push({ name: "prognoza z sezonami", color: "#9a5bd0", points: fsPoints, dashed: true });
   if (fm.length) series.push({ name: t("bForecastModel"), color: cssColor("--ok"), points: fm, dashed: true });
   if (ft.length) series.push({ name: t("bForecastTrend"), color: cssColor("--warn"), points: ft, dashed: true });
   chart.o.thresholds = [
@@ -1817,7 +1839,7 @@ function drawBattery() {
   chart.o.emptyText = t("bNoHistory");
   chart.o.emptyHint = d.source === "bt" ? "" : t("emptyBattery");
   setLegend(canvas, legendOf(series, [{ label: t("bWarnLine") + " / " + t("bCutLine"), color: cssColor("--bad"), kind: "dash" }]));
-  const end = Math.max(d.now, ...[fm, ft].map((s) => (s.length ? s[s.length - 1][0] : 0)));
+  const end = Math.max(d.now, ...[fm, ft, fsPoints].map((s) => (s.length ? s[s.length - 1][0] : 0)));
   const fresh = battery.chartKey !== d.source;
   chart.setSeries(series, [hist.length ? hist[0][0] : d.now - 86400, end], !fresh);
   if (fresh) { battery.chartKey = d.source; applyBatteryPreset(false); }
@@ -1825,6 +1847,7 @@ function drawBattery() {
   const legend = $("#bLegend"); legend.textContent = "";
   const addLegend = (c, text) => legend.append(el("span", {}, [el("i", { class: "swatch", style: "background:" + c }), text]));
   addLegend(cssColor("--accent"), t("bVolts"));
+  if (fsPoints.length) addLegend("#9a5bd0", "prognoza z sezonami");
   if (fm.length) addLegend(cssColor("--ok"), t("bForecastModel"));
   if (ft.length) addLegend(cssColor("--warn"), t("bForecastTrend"));
   batteryView(chart.view[0], chart.view[1]);

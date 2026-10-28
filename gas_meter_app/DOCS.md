@@ -181,3 +181,9 @@ dopasowany do miesięcy z faktur. Daje to prognozę na 12 miesięcy i porównani
 Karta „Panel Energia w Home Assistant” (zakładka Zużycie) wysyła statystykę `gas_meter_app:gas_history` w m³. Potem w Ustawienia → Pulpity → Energia
 dodaj źródło gazu i wybierz „Gazomierz (z historią)”. Nie dodawaj obok niego drugiej encji gazomierza, bo zużycie zliczy się podwójnie.
 Faktury sprzed odczytów są rozłożone równo na godziny miesiąca, więc widok godzinowy i dzienny dla tamtego okresu jest uśredniony.
+
+## Encje obliczane przez apkę
+
+Oprócz encji z gazomierza (m³, napięcie, %, WiFi) apka publikuje przez MQTT discovery sześć własnych, odświeżanych co 10 minut:
+`Bateria (szacunek)`, `Czas pracy baterii`, `Naładuj baterię do`, `Prognoza najbliższej faktury`, `Prognoza rachunków 12 miesięcy` i `Zużycie gazu w miesiącu (prognoza)`.
+Prognozy zależą od zaimportowanych faktur, a bateria od historii napięcia; bez nich encje po prostu nie dostają wartości.
