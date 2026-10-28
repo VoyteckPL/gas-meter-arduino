@@ -277,7 +277,7 @@ def analyze(volts, series, options, curve=None, now=None, season=None):
     return out
 
 
-def learn_curve(volts, floor_v=3.0, min_hours=3.0):
+def learn_curve(volts, floor_v=3.0, min_hours=3.0, finished=False):
     """Build a voltage -> charge curve from one finished discharge at (nearly) constant current.
     volts: [[ts, V]...] of the discharge test. Returns (curve, hours of the discharge) or None."""
     if len(volts) < 30:
@@ -287,7 +287,10 @@ def learn_curve(volts, floor_v=3.0, min_hours=3.0):
         if volts[i][1] - volts[i - 1][1] > 0.2:
             start = i
     run = volts[start:]
-    if len(run) < 30 or run[-1][1] > floor_v + 0.15 or (run[-1][0] - run[0][0]) < min_hours * 3600:
+    # a test that ended early (the test sketch stopped by its own, wrong, divider factor) still counts when it says "finished":
+    # the charge left at its last voltage is taken from the generic curve
+    limit = floor_v + (0.35 if finished else 0.15)
+    if len(run) < 30 or run[-1][1] > limit or (run[-1][0] - run[0][0]) < min_hours * 3600:
         return None
     # median filter and a running minimum (the voltage must not rise during a discharge)
     smooth = []
@@ -300,6 +303,8 @@ def learn_curve(volts, floor_v=3.0, min_hours=3.0):
         best = min(best, v)
         envelope.append((ts, best))
     v_start = envelope[0][1]
+    v_end = envelope[-1][1]
+    end_soc = soc(v_end, GENERIC_CURVE) if v_end > floor_v + 0.02 else 0.0
     soc_start = soc(min(v_start, 4.2), GENERIC_CURVE) if v_start < 4.15 else 100.0
     points = {}
     grid = [round(floor_v + 0.1 * k, 2) for k in range(0, 13)]
@@ -309,14 +314,16 @@ def learn_curve(volts, floor_v=3.0, min_hours=3.0):
         hit = next((ts for ts, v in envelope if v <= g), None)
         if hit is None:
             continue
-        points[g] = soc_start * (t1 - hit) / (t1 - t0)
+        points[g] = end_soc + (soc_start - end_soc) * (t1 - hit) / (t1 - t0)
     if len(points) < 6:
         return None
     curve = [(floor_v, 0.0)]
+    if end_soc > 0:
+        curve.append((round(v_end, 2), round(end_soc, 1)))
     curve += [(g, round(points[g], 1)) for g in sorted(points) if g > floor_v and points[g] > curve[-1][1]]
     for v, p in GENERIC_CURVE:                           # above the start of the test: generic values
         if v > v_start and (not curve or p > curve[-1][1]):
             curve.append((v, float(p)))
     if len(curve) < 6 or curve[-1][1] > 100:
         return None
-    return curve, (t1 - t0) / 3600.0
+    return curve, (t1 - t0) / 3600.0 / max(0.5, 1.0 - end_soc / 100.0)

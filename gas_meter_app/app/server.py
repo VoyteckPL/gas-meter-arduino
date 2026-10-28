@@ -159,7 +159,7 @@ class Store:
         cell, when the test current is known) as soon as one run has finished."""
         pins = self.history.get("bt/pin_mv", [])
         volts = [[ts, mv / 1000.0 * factor] for ts, mv in pins]
-        learned = battery.learn_curve(volts)
+        learned = battery.learn_curve(volts, finished=self.values.get("bt/state") == "finished")
         changed = False
         if learned and learned[0] != self.curve:
             curve, hours = learned

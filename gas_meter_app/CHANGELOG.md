@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.21.7
+
+* Test rozładowania zakończony wcześniej niż przy 3,0 V (szkic testowy liczył ze starym współczynnikiem 1,887 zamiast 2,044 i wyłączył się przy faktycznych około 3,25 V): apka przyjmuje taki przebieg, gdy test ma stan „finished”. Brakujący ogon krzywej (kilka procent) bierze z krzywej ogólnej i uwzględnia go w pojemności.
+* Szkic `battery_test` ma teraz współczynnik 2,044, tak jak gazomierz.
+
 ## 0.21.6
 
 * Odporność na restarty licznika: skoki odczytu, których gazomierz nie mógłby wykonać (powyżej około 8 m³ na godzinę), nie są liczone jako zużycie. Dotyczy panelu Energia, prognozy rachunku i modelu baterii. Przyczyna: stara, zatrzymana wartość retained na brokerze naprzemiennie z nowym licznikiem dawała w danych „zużycie” rzędu 400 m³.

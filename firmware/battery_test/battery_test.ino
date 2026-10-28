@@ -37,7 +37,7 @@ const char *MQTT_CLIENT_ID = "battery-test";
 const char *ROOT_TOPIC     = "Gaz/BatteryTest";
 
 #define BATTERY_GPIO       36
-#define BATTERY_DIVIDER    1.887f      // same factor as in the gas meter sketch
+#define BATTERY_DIVIDER    2.044f      // same factor as in the gas meter sketch (calibrated against a multimeter)
 #define SAMPLE_INTERVAL_MS 60000UL     // one measurement per minute
 #define STOP_VOLTAGE       3.00f       // stop (and hibernate) below this voltage
 
