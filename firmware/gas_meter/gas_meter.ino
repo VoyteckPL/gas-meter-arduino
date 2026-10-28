@@ -578,7 +578,6 @@ static bool publishAll(bool sendStatus) {
     confirmed = mqtt.publish(topic("counter"), String(buf), true, 1);   // false: no acknowledgement, the session is repeated
   }
 
-
   mqtt.disconnect();
   LOG("MQTT %s at %lu ms\r\n", confirmed ? "published and disconnected" : "counter NOT acknowledged", (unsigned long)millis());
   return confirmed;
