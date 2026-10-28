@@ -610,7 +610,7 @@ def compute_battery(app, source="meter", days=30, factor=2.044, test_ma=None, te
     cap = battery.capacity(options, measured)
     opts = {"capacity_mah": cap["total_mah"],
             "pulses_per_m3": cfg_ppm, "static_ip": static_ip, "window_days": 7}
-    # the forecast runs to the thresholds the firmware really uses (3.00 V: no WiFi, 2.85 V: hibernate)
+    # the forecast runs to the thresholds the firmware really uses (3.10 V: no WiFi, 3.00 V: hibernate)
     if source == "bt":
         series = {}   # the test sketch does not run the meter logic
     season = None

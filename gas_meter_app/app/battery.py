@@ -54,8 +54,8 @@ DEFAULTS = {
     "sleep_ua": 50.0,           # deep sleep of the whole board
     "selfdischarge_pct_month": 1.5,
     "status_sessions_per_day": 4.0,
-    "warn_v": 3.00,
-    "cutoff_v": 2.85,
+    "warn_v": 3.10,
+    "cutoff_v": 3.00,
 }
 
 
