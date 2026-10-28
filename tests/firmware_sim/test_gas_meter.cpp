@@ -33,7 +33,7 @@ struct Result {
 
 static void world_reset() {
   g_wave.clear(); g_pubs.clear(); g_retained.clear(); g_flash.clear(); g_flash_writes = 0;
-  g_mqtt_ok = true; g_wifi_ok = true; g_isr = nullptr; g_adc_mv = 2000; g_wifi_sessions = 0;
+  g_mqtt_ok = true; g_wifi_ok = true; g_isr = nullptr; g_adc_mv = 2000; g_wifi_sessions = 0; g_ack_failures = 0;
   g_retained["Gaz/Gazomierz/counter"] = "1000";
 }
 
@@ -157,6 +157,13 @@ int main(int argc, char **) {
     Result r;
     // simulate in two halves is not possible with one call, so make the broker come back by a flag flip in the wave
     g_mqtt_ok = true; r = simulate(S(500)); check("30 pulses (sanity, broker up)", n, r); }
+
+  { // the broker does not acknowledge the counter in 3 sessions: the next pulses are sent at once anyway
+    world_reset(); int n = train(10, 10, 30, 1.0); g_ack_failures = 3;
+    check("3 counter publishes without acknowledgement", n, simulate(S(600))); }
+  { // 6 in a row: slow retries (battery), but the broker catches up later
+    world_reset(); int n = train(10, 10, 30, 1.0); g_ack_failures = 6;
+    check("6 counter publishes without acknowledgement, later", n, simulate(S(1500))); }
 
   { // power cut between pulses, flash backup keeps the counter
     world_reset(); int n = train(10, 12, 40, 1.0); check("battery change at 245 s, flash backup", n, simulate(S(700), {S(245)})); }

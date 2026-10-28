@@ -44,6 +44,7 @@ static int g_wake_cause = 0;
 static int g_ext0_level = -1;
 static int64_t g_timer_us = -1;
 static bool g_mqtt_ok = true;
+static int g_ack_failures = 0;             // the next QoS 1 publishes get no acknowledgement
 static bool g_wifi_ok = true;
 static uint32_t g_adc_mv = 2000;
 static int64_t g_wifi_start = -1;
@@ -141,10 +142,11 @@ class MQTTClient {
     return true;
   }
   bool connected() { return true; }
-  bool publish(const String &t, const String &p, bool retained, int) {
+  bool publish(const String &t, const String &p, bool retained, int qos) {
     advance_to(g_now_us + 5000);
     g_pubs.push_back({g_now_us, t.s, p.s});
     if (retained) { if (p.s.empty()) g_retained.erase(t.s); else g_retained[t.s] = p.s; }
+    if (qos > 0 && g_ack_failures > 0) { g_ack_failures--; advance_to(g_now_us + 2000000); return false; }
     return true;
   }
   bool disconnect() { return true; }

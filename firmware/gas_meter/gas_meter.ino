@@ -38,7 +38,7 @@
 #include "driver/rtc_io.h"
 #include "esp_sleep.h"
 
-#define FW_VERSION "0.2.10"
+#define FW_VERSION "0.2.11"
 
 // ------------------------------- configuration -------------------------------
 // WiFi and MQTT credentials live in secrets.h (copy secrets.example.h, never commit it)
@@ -477,7 +477,8 @@ static void restoreBase(MQTTClient &mqtt) {
 
 // A counter value set from the app while the meter is already running: the retained command is read in every WiFi
 // session, so the first pulse after it was set (or the next status) replaces the counter, without a restart.
-// Costs about 0.2 s per session (a few percent of the session energy).
+// The broker sends a retained command right after it confirmed the subscription, so a short wait is enough; a command
+// that arrives too late stays retained and is applied in the next session. No unsubscribe: the session ends anyway.
 static void checkRemoteCounter(MQTTClient &mqtt) {
   String overrideTopic = topic("config/counter");
   bool got = false;
@@ -486,11 +487,10 @@ static void checkRemoteCounter(MQTTClient &mqtt) {
     if (t == overrideTopic && payload.length() > 0) { value = strtoull(payload.c_str(), NULL, 10); got = true; }
   }));
   mqtt.subscribe(overrideTopic);
-  for (unsigned long t = millis(); millis() - t < 200;) {
+  for (unsigned long t = millis(); millis() - t < 100;) {
     mqtt.loop();
-    delay(10);
+    delay(5);
   }
-  mqtt.unsubscribe(overrideTopic);
   mqtt.onMessage((MQTTClientCallbackSimpleFunction)([](String &, String &) -> void {}));   // the lambda above points to this function's locals
   if (!got) return;
   absorbInterruptPulses();
@@ -520,14 +520,6 @@ static bool publishAll(bool sendStatus) {
   absorbInterruptPulses();                 // include pulses counted during the session so far
 
   char buf[48];
-  // never publish a counter that is only relative (it would be a small, wrong value)
-  if (cache.baseKnown) {
-    snprintf(buf, sizeof(buf), "%llu", (unsigned long long)cache.counter);
-    mqtt.publish(topic("counter"), String(buf), true, 1);          // QoS 1: wait until the broker has the value
-    snprintf(buf, sizeof(buf), "%.2f", cache.counter / (double)PULSES_PER_M3);
-    mqtt.publish(topic("cubic_meters"), String(buf), true, 1);
-  }
-
   if (sendStatus) {
     snprintf(buf, sizeof(buf), "%.2f", cache.batteryV);
     mqtt.publish(topic("BatteryVoltage"), String(buf), true, 0);
@@ -575,11 +567,21 @@ static bool publishAll(bool sendStatus) {
   }
 #endif
 
-  mqtt.loop();
-  delay(30);                       // let the TCP buffer drain before disconnecting
+  // The counter goes last and is the only message with QoS 1: the broker gets the messages of one connection in order,
+  // so its acknowledgement of the counter also confirms everything published before it (one round trip, not one per
+  // message). Never publish a counter that is only relative (it would be a small, wrong value).
+  bool confirmed = true;
+  if (cache.baseKnown) {
+    snprintf(buf, sizeof(buf), "%.2f", cache.counter / (double)PULSES_PER_M3);
+    mqtt.publish(topic("cubic_meters"), String(buf), true, 0);
+    snprintf(buf, sizeof(buf), "%llu", (unsigned long long)cache.counter);
+    confirmed = mqtt.publish(topic("counter"), String(buf), true, 1);   // false: no acknowledgement, the session is repeated
+  }
+
+
   mqtt.disconnect();
-  LOG("MQTT published and disconnected at %lu ms\r\n", (unsigned long)millis());
-  return true;
+  LOG("MQTT %s at %lu ms\r\n", confirmed ? "published and disconnected" : "counter NOT acknowledged", (unsigned long)millis());
+  return confirmed;
 }
 
 // seconds to wait after the n-th failed session in a row: quick first retries (one lost session must not hold
