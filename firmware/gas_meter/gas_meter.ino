@@ -38,7 +38,7 @@
 #include "driver/rtc_io.h"
 #include "esp_sleep.h"
 
-#define FW_VERSION "0.2.11"
+#define FW_VERSION "0.2.12"
 
 // ------------------------------- configuration -------------------------------
 // WiFi and MQTT credentials live in secrets.h (copy secrets.example.h, never commit it)
@@ -92,7 +92,7 @@ IPAddress DNS_SERVER(192, 168, 1, 1);
 #define CHATTER_LOCKOUT_S     30
 
 // battery: voltage at the battery = voltage at GPIO36 * BATTERY_DIVIDER
-#define BATTERY_DIVIDER       2.044f    // calibrated against a multimeter on battery power (2.034-2.039 measured, 4.07-3.65 V)
+#define BATTERY_DIVIDER       1.978f    // battery / ADC reading at wake-up (light load): 3.91 V measured at the holder, ADC 1.976 V. The 2.044 from the discharge test included the drop in the wires at 130 mA
 #define BATTERY_STOP_WIFI_V   3.10f     // below: only count pulses, no WiFi
 #define BATTERY_CUTOFF_V      3.00f     // below: hibernate (needs a reset)
 #define BATTERY_RECHECK_S     (60UL * 60UL)
