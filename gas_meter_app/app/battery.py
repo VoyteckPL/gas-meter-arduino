@@ -52,7 +52,7 @@ def capacity(options, measured_per_cell=None):
             "usable_pct": usable, "source": source, "total_mah": cells * per_cell * usable / 100.0}
 DEFAULTS = {
     "capacity_mah": 5900.0,     # two 3500 mAh cells, reduced for cold and ageing
-    "session_mah": 0.04,        # one WiFi session (DHCP). About 0.025 with a static IP
+    "session_mah": 0.015,       # one WiFi session: about 0.7 s at about 80 mA with the hex WPA key and a static IP (measured)
     "sleep_ua": 50.0,           # deep sleep of the whole board
     "selfdischarge_pct_month": 1.5,
     "status_sessions_per_day": 4.0,
@@ -174,6 +174,13 @@ def analyze(volts, series, options, curve=None, now=None, season=None):
         sd = max((now - first_m) / DAY, 1e-6)
         if sd >= 0.25:
             pulses_day = meter_delta(meter, first_m) * pulses_per_m3 / sd
+    if pulses_day is None and season and cfg.get("pulses_per_m3"):
+        # no meter history yet: the gas use of this month from the invoices, so the model works from the first day
+        lt = time.localtime(now)
+        m3 = season.get("%02d" % lt.tm_mon)
+        if m3 is not None:
+            pulses_day = m3 / calendar.monthrange(lt.tm_year, lt.tm_mon)[1] * pulses_per_m3
+            out["pulses_estimated"] = True
     if sessions_day is not None and pulses_day:
         spp = max(0.0, (sessions_day - cfg["status_sessions_per_day"]) / pulses_day)
     out.update({"sessions_day": sessions_day, "pulses_day": pulses_day, "wakes_day": wakes_day,
@@ -192,7 +199,7 @@ def analyze(volts, series, options, curve=None, now=None, season=None):
         sessions_for_model = sessions_day
     out["model_params"] = {"capacity_mah": cap, "session_mah": session_mah, "sleep_ma": sleep_ma,
                            "self_ma": self_ma, "status_sessions_per_day": cfg["status_sessions_per_day"],
-                           "spp": spp if spp is not None else 0.8, "warn_v": cfg["warn_v"], "cutoff_v": cfg["cutoff_v"]}
+                           "spp": spp if spp is not None else 1.0, "warn_v": cfg["warn_v"], "cutoff_v": cfg["cutoff_v"]}
 
     # ---------------- model based prediction
     soc_warn, soc_cut = soc(cfg["warn_v"], curve), soc(cfg["cutoff_v"], curve)
@@ -212,7 +219,7 @@ def analyze(volts, series, options, curve=None, now=None, season=None):
     # ---------------- model with the seasons: the gas use of each calendar month (from the invoices) drives the sessions
     if season and out.get("model") and options.get("pulses_per_m3"):
         ppm3 = float(options["pulses_per_m3"])
-        spp_use = spp if spp is not None else 0.8
+        spp_use = spp if spp is not None else 1.0      # the firmware sends every pulse
         mean_m3 = sum(season.values()) / len(season)
         sim_soc, day, pts, monthly, warn_day, cut_day = soc_now, 0, [[now, round(last_v, 3)]], {}, None, None
         while day < 1100 and cut_day is None:

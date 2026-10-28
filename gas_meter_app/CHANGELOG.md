@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.21.10
+
+* Prognoza baterii działa od pierwszego dnia: dopóki nie ma historii licznika i sesji WiFi, liczba impulsów na dobę jest brana z zużycia gazu w tym miesiącu według faktur. Wcześniej przez pierwsze godziny po starcie (albo po wymianie baterii) prognozy były puste.
+* Koszt jednej sesji WiFi w modelu: 0,015 mAh (zmierzone około 0,7 s z kluczem WPA w hex i statycznym IP), wcześniej 0,04 mAh. Domyślnie jedna sesja na impuls, bo firmware wysyła każdy impuls.
+
 ## 0.21.9
 
 * Zakładka Bateria pokazywała napięcie z historii, która zapisuje jeden punkt na 15 minut, więc nowy odczyt (np. po włożeniu innego ogniwa) pojawiał się dopiero po kwadransie. Teraz „Bateria teraz”, procent i prognozy biorą zawsze najnowszy odczyt.

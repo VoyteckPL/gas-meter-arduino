@@ -1768,7 +1768,7 @@ function renderBattery() {
       const tb = el("table", { class: "mini" }, [el("tr", {}, ["Miesiąc", "Sesji/dobę", "Zużycie baterii"].map((h) => el("th", { text: h })))]);
       for (const r of fsx.monthly) tb.append(el("tr", {}, [MONTH_FULL[Number(r.month.slice(5, 7)) - 1] + " " + r.month.slice(0, 4), num(r.sessions_day, 0), num(r.pct, 1) + " %"].map((v) => el("td", { text: v }))));
       table.append(tb);
-    } else { cutBox.textContent = "—"; datesBox.textContent = isTest ? "" : "Zaimportuj faktury, żeby uwzględnić sezony."; }
+    } else { cutBox.textContent = "—"; datesBox.textContent = isTest ? "" : d.model ? "Zaimportuj faktury, żeby uwzględnić sezony." : "Czeka na pierwsze dane z gazomierza."; }
   }
 
   // budget + what if
