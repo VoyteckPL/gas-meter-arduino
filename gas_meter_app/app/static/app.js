@@ -876,7 +876,7 @@ async function histDetail(v0, v1) {
 const usage = { data: null, unit: "m3", days: 365 * 3, chart: null, built: false };
 const MONTH_NAMES = ["sty", "lut", "mar", "kwi", "maj", "cze", "lip", "sie", "wrz", "paź", "lis", "gru"];
 const monthStart = (key) => new Date(Number(key.slice(0, 4)), Number(key.slice(5, 7)) - 1, 1).getTime() / 1000;
-const monthM3 = (entry) => entry.kwh / (usage.data.factor || 11);
+const monthM3 = (entry) => (entry.m3 !== null && entry.m3 !== undefined ? entry.m3 : entry.kwh / (usage.data.factor || 11));
 
 function buildUsage() {
   const root = $("#usageView");
@@ -948,6 +948,15 @@ function buildUsage() {
     el("div", { class: "muted small", id: "uEstimate" }), useEstimate,
     el("div", { class: "muted small", style: "margin-top:10px", id: "uStatus" }),
   ], true);
+  const syncBtn = el("button", { class: "secondary", text: "Pobierz teraz" });
+  syncBtn.addEventListener("click", syncOrlen);
+  card([
+    el("h2", { text: "Połączenie z Orlen (integracja Orlen gas sensor)" }),
+    el("p", { class: "hint", style: "margin-top:0", text: "Jeśli w Home Assistant działa integracja „Orlen gas sensor” (logowanie do eBOK robi ona, apka nie zna hasła), nowe faktury dopisują się tu same, razem z prawdziwym zużyciem w m³ i współczynnikiem kWh/m³, a odczyt Orlenu jest porównywany z Twoim gazomierzem." }),
+    el("div", { class: "kv", id: "oInfo" }),
+    el("div", { class: "field", style: "gap:8px;margin-top:10px;flex-wrap:wrap" }, [syncBtn]),
+    el("p", { class: "hint", id: "oNote" }),
+  ], true);
   usage.built = true;
 }
 
@@ -967,10 +976,38 @@ async function billsAction(body, doneText, isPreview) {
   } catch (error) { toast(t("error") + ": " + error.message, true); }
 }
 
+async function syncOrlen() {
+  const box = $("#oInfo"), note = $("#oNote");
+  let d;
+  try { d = await api("orlen"); } catch (error) { note.textContent = "Nie udało się odczytać integracji: " + error.message; return; }
+  box.textContent = "";
+  note.textContent = "";
+  if (d.in_ha === false) { note.textContent = "Apka nie działa w Home Assistant."; return; }
+  if (!d.found || !d.found.length) { note.textContent = "Nie znaleziono encji integracji Orlen gas sensor. Zainstaluj ją (HACS) i zaloguj się w jej konfiguracji."; return; }
+  const row = (k, v) => box.append(el("span", { text: k }), el("span", { class: "v", text: v }));
+  if (d.invoice) {
+    row("Ostatnia faktura", d.invoice.number);
+    row("Zużycie z faktury", num(d.invoice.kwh, 0) + " kWh" + (d.invoice.m3 ? " · " + num(d.invoice.m3, 1) + " m³" : ""));
+    if (d.invoice.factor) row("Współczynnik z faktury", num(d.invoice.factor, 2) + " kWh/m³");
+    row("Termin / kwota", d.invoice.due + " · " + num(d.invoice.amount, 2) + " zł" + (d.invoice.new ? " (dodana)" : ""));
+  }
+  if (d.reading) {
+    row("Odczyt w Orlenie", num(d.reading.value, 0) + " m³ · " + fmtDay(d.reading.ts) + (d.reading.type ? " (" + d.reading.type + ")" : ""));
+    if (d.reading.ours !== null && d.reading.ours !== undefined) {
+      row("Nasz gazomierz tego dnia", num(d.reading.ours, 2) + " m³");
+      const diff = d.reading.difference;
+      row("Różnica", (diff > 0 ? "+" : "") + num(diff, 2) + " m³");
+      note.textContent = Math.abs(diff) <= 1 ? "Gazomierz zgadza się z odczytem Orlenu (różnica do 1 m³, a Orlen zaokrągla do pełnych m³)." : "Gazomierz różni się od odczytu Orlenu o więcej niż 1 m³. Sprawdź licznik mechaniczny i ustaw stan licznika w zakładce Ustawienia.";
+    } else note.textContent = "Brak danych gazomierza z dnia odczytu, więc nie ma z czym porównać.";
+  }
+  if (d.changed) await loadUsage();
+}
+
 async function loadUsage() {
   if (!usage.built) buildUsage();
   try { usage.data = await api("bills"); } catch (e) { usage.data = null; return; }
   renderUsage();
+  syncOrlen();
 }
 
 function sumBy(entries, fn) { return entries.reduce((s, e) => s + fn(e), 0); }
@@ -980,7 +1017,7 @@ function renderUsage() {
   if (!d) return;
   const m = d.monthly;
   $("#uFactor").value = Number(d.factor).toFixed(2);
-  $("#uStatus").textContent = d.bills ? "Zapisane faktury: " + d.bills + (d.updated ? ", ostatni import " + new Date(d.updated * 1000).toLocaleDateString("pl-PL") : "") : "Nie zaimportowano jeszcze faktur.";
+  $("#uStatus").textContent = (d.factor_invoices && !d.factor_manual ? "Współczynnik kWh/m³ pochodzi z faktur Orlenu (" + d.invoices_with_m3 + " faktur z podanym m³). " : "") + (d.bills ? "Zapisane faktury: " + d.bills + (d.updated ? ", ostatni import " + new Date(d.updated * 1000).toLocaleDateString("pl-PL") : "") : "Nie zaimportowano jeszcze faktur.");
   const est = $("#uEstimate"), useBtn = $("#uUseEst");
   if (d.estimate) {
     est.textContent = "Z porównania z gazomierzem: " + d.estimate.toFixed(2) + " kWh/m³ (mediana z " + d.ratios.length + " mies.)";

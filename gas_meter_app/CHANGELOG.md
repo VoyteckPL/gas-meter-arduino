@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.15.0
+
+* **Połączenie z integracją Orlen gas sensor** (HACS, `pawelhulek/pgnig-sensor`): apka sama znajduje jej encje po atrybutach,
+  dopisuje **nowe faktury** (numer, termin, kwota, kWh i **m³**) i zapamiętuje odczyty z eBOK. Logowanie do eBOK (Orlen ID z kodem SMS)
+  robi integracja, apka nie zna hasła. Sprawdzanie co 15 minut i przyciskiem „Pobierz teraz”.
+* **Prawdziwy współczynnik kWh/m³** z faktur (mediana z faktur, które podają m³) zamiast domyślnych 11,0. Ręczny zapis współczynnika nadal ma pierwszeństwo.
+  Zużycie miesięczne w m³ jest brane wprost z faktur, gdy faktura je podaje, a w pozostałych miesiącach przeliczane.
+* **Porównanie z Orlenem:** odczyt zapisany w eBOK jest zestawiany ze stanem naszego gazomierza z tego samego dnia (różnica w m³).
+* Faktura dopisana przez integrację nie dubluje tej, którą wcześniej wklejono z tabeli (dopasowanie po numerze albo po terminie i kWh).
+
 ## 0.14.0
 
 * Nowa zakładka **Zużycie** ze statystykami z faktur: kafelki (ostatnie 12 miesięcy w m³ i kWh, koszt, średnia cena, rok do roku),

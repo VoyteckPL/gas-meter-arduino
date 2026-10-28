@@ -48,6 +48,17 @@ Faktura jest przypisana do miesiąca poprzedzającego termin płatności, więc 
 w kWh. Przeliczenie na m³ używa współczynnika kWh na m³. Gdy apka ma historię stanu licznika z tych samych miesięcy
 (po imporcie z Home Assistant albo z samego gazomierza), sama podpowiada współczynnik, a przycisk **Użyj** go zapisuje.
 
+### Integracja Orlen gas sensor
+
+Gdy w Home Assistant działa integracja **Orlen gas sensor** ([pawelhulek/pgnig-sensor](https://github.com/pawelhulek/pgnig-sensor), instalacja przez HACS,
+logowanie przez Orlen ID z kodem SMS robi ona sama), apka znajduje jej encje i:
+
+* dopisuje **nowe faktury** z prawdziwym zużyciem w m³ i kWh (wtedy współczynnik kWh/m³ pochodzi z faktur),
+* porównuje **odczyt zapisany w eBOK** z naszym gazomierzem z tego samego dnia,
+* sprawdza to co 15 minut i na przycisku **Pobierz teraz** w karcie „Połączenie z Orlen”.
+
+Integracja udostępnia tylko ostatnią fakturę i ostatni odczyt, więc starsze faktury wklejasz raz z tabeli (powyżej).
+
 ## Import historii z Home Assistant
 
 Jeśli w Home Assistant masz już historię gazomierza (np. ze starego czujnika), możesz ją dołączyć do apki, żeby wykresy i statystyki

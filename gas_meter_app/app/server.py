@@ -809,6 +809,10 @@ async def notifier_loop(app):
             await run_notifications(app)
         except Exception:  # pragma: no cover
             log.exception("notification check failed")
+        try:
+            await sync_orlen(app)
+        except Exception:  # pragma: no cover
+            log.exception("Orlen sync failed")
         await asyncio.sleep(900)
 
 
@@ -1005,10 +1009,17 @@ def monthly_from_bills(bills):
         if month == 0:
             year, month = year - 1, 12
         key = "%04d-%02d" % (year, month)
-        entry = months.setdefault(key, {"month": key, "kwh": 0.0, "cost": 0.0, "invoices": 0})
+        entry = months.setdefault(key, {"month": key, "kwh": 0.0, "cost": 0.0, "invoices": 0, "m3": 0.0, "m3_known": True})
         entry["kwh"] += bill["kwh"]
         entry["cost"] += bill["amount"]
         entry["invoices"] += 1
+        if bill.get("m3"):
+            entry["m3"] += bill["m3"]
+        else:
+            entry["m3_known"] = False
+    for entry in months.values():                    # the volume is only trusted when every invoice of the month states it
+        if not entry.pop("m3_known"):
+            entry["m3"] = None
     return [months[k] for k in sorted(months)]
 
 
@@ -1066,6 +1077,95 @@ def calibrate_factor(monthly, meter):
     return values[len(values) // 2], ratios
 
 
+# ------------------------------- the Orlen eBOK integration of Home Assistant (pgnig_gas_sensor) -------------------------------
+def parse_when(value):
+    """ISO string (or DD-MM-YYYY) -> unix seconds, None when unreadable."""
+    if not value:
+        return None
+    text = str(value)
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        m = DATE_RE.match(text)
+        return datetime(int(m.group(3)), int(m.group(2)), int(m.group(1))).timestamp() if m else None
+
+
+async def read_orlen(app):
+    """Finds the entities of the integration by their attributes and reads them."""
+    found = {}
+    for state in await core_get("/states") or []:
+        attrs = state.get("attributes") or {}
+        if "last_invoice_number" in attrs:
+            found["cost"] = {"entity": state["entity_id"], "state": state.get("state"), "attrs": attrs}
+        elif "reading_type" in attrs and "reading_date" in attrs:
+            found["reading"] = {"entity": state["entity_id"], "state": state.get("state"), "attrs": attrs}
+        elif "next_payment_date" in attrs:
+            found["invoice"] = {"entity": state["entity_id"], "state": state.get("state"), "attrs": attrs}
+    return found
+
+
+async def sync_orlen(app):
+    """Adds the latest invoice and reading of the integration to the stored data. Returns what was found."""
+    if not core_token():
+        return {"in_ha": False}
+    found = await read_orlen(app)
+    data, store = app["bills"], app["store"]
+    out = {"in_ha": True, "found": sorted(found), "changed": False}
+    cost = found.get("cost")
+    if cost:
+        a = cost["attrs"]
+        number, kwh, m3 = a.get("last_invoice_number"), a.get("last_invoice_wear_KWH"), a.get("last_invoice_wear_m3")
+        due = parse_when(a.get("last_invoice_date"))
+        if number and due and a.get("last_invoice_gross_amount") is not None:
+            due_text = datetime.fromtimestamp(due).strftime("%Y-%m-%d")
+            # the same invoice may be written differently in the pasted table: match the number, or the due date with the same usage
+            entry = next((b for b in data["bills"] if b["number"] == number), None) or next(
+                (b for b in data["bills"] if b["type"] == "invoice" and b["due"] == due_text and kwh and b.get("kwh") and abs(b["kwh"] - float(kwh)) < 1.5), None)
+            new = {"number": number, "type": "invoice", "due": datetime.fromtimestamp(due).strftime("%Y-%m-%d"),
+                   "amount": float(a["last_invoice_gross_amount"]), "to_pay": None, "kwh": float(kwh) if kwh else None,
+                   "m3": float(m3) if m3 else None, "status": "", "source": "orlen"}
+            if entry is None:
+                data["bills"].append(new)
+                data["bills"].sort(key=lambda b: b["due"])
+                out["changed"] = True
+            elif entry.get("m3") != new["m3"] and new["m3"]:
+                entry["m3"] = new["m3"]
+                out["changed"] = True
+            out["invoice"] = {"number": number, "kwh": new["kwh"], "m3": new["m3"], "amount": new["amount"], "due": new["due"],
+                              "factor": (new["kwh"] / new["m3"]) if new["kwh"] and new["m3"] else None, "new": entry is None}
+    reading = found.get("reading")
+    if reading:
+        a = reading["attrs"]
+        when, value = parse_when(a.get("reading_date")), None
+        try:
+            value = float(reading["state"])
+        except (TypeError, ValueError):
+            pass
+        if when and value is not None:
+            known = data.setdefault("readings", [])
+            if not any(r["ts"] == round(when) and r["value"] == value for r in known):
+                known.append({"ts": round(when), "value": value, "type": a.get("reading_type") or ""})
+                known.sort(key=lambda r: r["ts"])
+                out["changed"] = True
+            with store.lock:
+                meter = [list(p) for p in store.series("cubic_meters")]
+            ours = meter_at(meter, when, tolerance=2 * 86400)
+            out["reading"] = {"value": value, "ts": when, "type": a.get("reading_type") or "", "status": a.get("reading_status") or "",
+                              "ours": ours, "difference": (ours - value) if ours is not None else None}
+    if out["changed"]:
+        data["updated"] = time.time()
+        save_bills(data)
+    return out
+
+
+async def api_orlen(request):
+    try:
+        return web.json_response(await sync_orlen(request.app))
+    except Exception as error:
+        log.warning("Orlen sync failed: %s", error)
+        return web.json_response({"error": str(error)}, status=502)
+
+
 async def api_bills(request):
     app = request.app
     data = app["bills"]
@@ -1101,6 +1201,7 @@ async def api_bills(request):
             except (TypeError, ValueError):
                 return web.json_response({"error": "Współczynnik musi być liczbą od 8 do 14 kWh/m³"}, status=400)
             data["factor"] = value
+            data["factor_manual"] = True
             save_bills(data)
         else:
             return web.json_response({"error": "unknown action"}, status=400)
@@ -1108,8 +1209,14 @@ async def api_bills(request):
     with app["store"].lock:
         meter = [list(p) for p in app["store"].series("cubic_meters")]
     estimate, ratios = calibrate_factor(monthly, meter)
-    return web.json_response({"bills": len(data["bills"]), "monthly": monthly, "factor": data.get("factor", 11.0),
-                              "estimate": estimate, "ratios": ratios[-24:], "updated": data.get("updated")})
+    own = sorted(b["kwh"] / b["m3"] for b in data["bills"] if b.get("kwh") and b.get("m3"))
+    from_invoices = own[len(own) // 2] if own else None
+    manual = bool(data.get("factor_manual"))
+    factor = data.get("factor", 11.0) if manual else (from_invoices or data.get("factor", 11.0))
+    return web.json_response({"bills": len(data["bills"]), "monthly": monthly, "factor": factor, "factor_manual": manual,
+                              "factor_invoices": from_invoices, "invoices_with_m3": len(own),
+                              "estimate": estimate, "ratios": ratios[-24:], "updated": data.get("updated"),
+                              "readings": (data.get("readings") or [])[-12:]})
 
 
 async def api_set(request):
@@ -1187,6 +1294,7 @@ def create_app(options):
     app.router.add_get("/api/state", api_state)
     app.router.add_get("/api/series", api_series)
     app.router.add_get("/api/battery", api_battery)
+    app.router.add_get("/api/orlen", api_orlen)
     app.router.add_get("/api/bills", api_bills)
     app.router.add_post("/api/bills", api_bills)
     app.router.add_get("/api/ha_stats", api_ha_stats)
