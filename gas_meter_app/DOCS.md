@@ -26,6 +26,7 @@ Dane logowania przechowuje Home Assistant, nie to repozytorium.
 | Zakładka | Zawartość |
 |---|---|
 | **Przegląd** | stan licznika, przepływ, zużycie dziś, bateria, sygnał WiFi, wykres zużycia. Kliknij kafelek, żeby zobaczyć historię |
+| **Zużycie** | statystyki z faktur: zużycie i koszt miesięczne i roczne, profil sezonowy, import faktur z eBOK |
 | **Bateria** | historia napięcia z prognozą, prognoza żywotności, pojemność, test rozładowania, powiadomienia, statystyki dla nerdów |
 | **Ustawienia** | parametry gazomierza (odstęp wysyłki, debounce, impulsy na m³, kalibracja i progi baterii) oraz **Ustaw stan licznika** |
 | **Sieć** | aktualne IP, MAC, sieć WiFi i punkt dostępu, stałe IP i ustawienia WiFi |
@@ -36,6 +37,16 @@ Dane logowania przechowuje Home Assistant, nie to repozytorium.
 dwa palce powiększają i przesuwają wykres, dotknięcie pokazuje wartość, a pasek przeglądu pod wykresem przesuwa okno jednym palcem.
 
 Mała pomarańczowa liczba przy zakładce oznacza, ile poleceń czeka, aż gazomierz je odbierze. Ostatnio użyta zakładka jest zapamiętywana.
+
+## Faktury i zużycie
+
+Zakładka **Zużycie → Faktury z eBOK**: zaloguj się w eBOK (sam, apka nie zna hasła), otwórz stronę „Faktury”, zaznacz tabelę,
+skopiuj i wklej w polu. **Podgląd** pokazuje, co zostało rozpoznane, a **Importuj faktury** zapisuje je w apce (te same numery są
+aktualizowane, więc możesz wklejać ponownie co kilka miesięcy). Dane zostają tylko w apce.
+
+Faktura jest przypisana do miesiąca poprzedzającego termin płatności, więc miesięczne wartości to przybliżenie. Zużycie z faktur jest
+w kWh. Przeliczenie na m³ używa współczynnika kWh na m³. Gdy apka ma historię stanu licznika z tych samych miesięcy
+(po imporcie z Home Assistant albo z samego gazomierza), sama podpowiada współczynnik, a przycisk **Użyj** go zapisuje.
 
 ## Import historii z Home Assistant
 

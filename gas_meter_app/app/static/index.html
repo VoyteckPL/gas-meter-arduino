@@ -16,6 +16,7 @@
     </div>
     <nav class="viewtabs" id="viewTabs">
       <button class="active" data-view="panel" id="tabPanel">Przegląd</button>
+      <button data-view="usage" id="tabUsage">Zużycie</button>
       <button data-view="battery" id="tabBattery">Bateria</button>
       <button data-view="settings" id="tabSettings">Ustawienia</button>
       <button data-view="network" id="tabNetwork">Sieć</button>
@@ -29,6 +30,7 @@
     <p class="muted" id="loading">Ładowanie…</p>
   </main>
 
+  <div id="usageView" class="bgrid" hidden></div>
   <div id="batteryView" class="bgrid" hidden></div>
   <div id="settingsView" class="bgrid" hidden></div>
   <div id="networkView" class="bgrid" hidden></div>

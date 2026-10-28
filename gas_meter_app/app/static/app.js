@@ -69,7 +69,7 @@ const TEXT = {
     bConnect: "Czas łączenia z WiFi (min / śr. / maks)", bRssi: "Sygnał WiFi (min / śr. / maks)", bSamples: "Próbek baterii", bHistorySince: "Historia od",
     bTestNote: "Test rozładowania: prognoza wynika z trendu napięcia. Gdy test dojdzie do 3,0 V, panel nauczy się prawdziwej krzywej Twoich ogniw i użyje jej dla gazomierza.",
     bDays: "dni", bMonths: "mies.", bOn: "włączone", bUnknown: "nieznane",
-    tabPanel: "Przegląd", meterSub: "wskazanie gazomierza", flowSub: "średnio z ostatnich 15 min", todaySub: "od północy", signalSub: "WiFi gazomierza", lastSub: "ostatni odczyt z gazomierza", tabSettings: "Ustawienia", tabNetwork: "Sieć", tabService: "Serwis", tabDemo: "Demo",
+    tabPanel: "Przegląd", tabUsage: "Zużycie", meterSub: "wskazanie gazomierza", flowSub: "średnio z ostatnich 15 min", todaySub: "od północy", signalSub: "WiFi gazomierza", lastSub: "ostatni odczyt z gazomierza", tabSettings: "Ustawienia", tabNetwork: "Sieć", tabService: "Serwis", tabDemo: "Demo",
     settingsNote: "Zmiany są zapisywane na brokerze MQTT, a gazomierz odbierze je przy najbliższym połączeniu z WiFi (gdy płynie gaz). Włącz tryb serwisowy w zakładce Serwis, żeby zastosował je od razu. Uwaga: odczyt ustawień w firmware gazomierza jest jeszcze w przygotowaniu; dziś działa „Ustaw stan licznika” z obecnym firmware.",
     networkNote: "Zmiany sieci są próbne: gazomierz wraca do poprzednich ustawień, jeśli nie może się połączyć. Wymaga firmware etapu 2.",
     serviceNote: "Tryb serwisowy utrzymuje gazomierz w stanie czuwania, żeby ustawienia, restart i aktualizacje zadziałały od razu. Zużywa baterię, więc wyłącz go po skończeniu.", histHint: "Kliknij wartość, żeby zobaczyć jej historię.", close: "Zamknij", range1h: "1 godz.", range6h: "6 godz.",
@@ -872,6 +872,197 @@ async function histDetail(v0, v1) {
   } catch (e) { /* keep the overview data */ }
 }
 
+// ------------------------------------------------------------------- usage and invoices
+const usage = { data: null, unit: "m3", days: 365 * 3, chart: null, built: false };
+const MONTH_NAMES = ["sty", "lut", "mar", "kwi", "maj", "cze", "lip", "sie", "wrz", "paź", "lis", "gru"];
+const monthStart = (key) => new Date(Number(key.slice(0, 4)), Number(key.slice(5, 7)) - 1, 1).getTime() / 1000;
+const monthM3 = (entry) => entry.kwh / (usage.data.factor || 11);
+
+function buildUsage() {
+  const root = $("#usageView");
+  const card = (children, wide) => { const c = el("section", { class: "card" + (wide ? " wide" : "") }, children); root.append(c); return c; };
+  const tile = (color, icon, label, id, sub) => el("div", { class: "card kpi", style: "--kc:var(" + color + ")" }, [
+    el("div", { class: "lbl" }, [el("span", { text: label }), el("span", { class: "ic", text: icon })]),
+    el("div", { class: "val", id }), el("div", { class: "sub", id: id + "Sub", text: sub || "" })]);
+  root.append(el("div", { class: "kpis", style: "grid-column:1/-1" }, [
+    tile("--accent", "🔥", "Ostatnie 12 miesięcy", "uYear"),
+    tile("--accent", "💰", "Koszt, 12 miesięcy", "uCost"),
+    tile("--muted", "⚖️", "Średnia cena", "uPrice", "z opłatami stałymi"),
+    tile("--muted", "📈", "Rok do roku", "uYoy", "względem poprzednich 12 mies."),
+  ]));
+
+  const unitTabs = el("div", { class: "tabs", id: "uUnits" });
+  for (const [unit, label] of [["m3", "m³"], ["kwh", "kWh"], ["cost", "zł"]]) {
+    const b = el("button", { class: "secondary", "data-unit": unit, text: label });
+    b.addEventListener("click", () => { usage.unit = unit; drawUsage(); });
+    unitTabs.append(b);
+  }
+  const ranges = el("div", { class: "tabs", id: "uRanges" });
+  for (const [label, days] of [["1 rok", 365], ["3 lata", 365 * 3], ["Wszystko", 0]]) {
+    const b = el("button", { class: "secondary", "data-days": days, text: label });
+    b.addEventListener("click", () => { usage.days = days; applyUsageRange(true); });
+    ranges.append(b);
+  }
+  const zoom = (text, title, handler) => { const bt = el("button", { class: "secondary", text, title }); bt.addEventListener("click", handler); return bt; };
+  card([
+    el("h2", { text: "Zużycie miesięczne" }),
+    el("div", { class: "chart-tools" }, [el("div", { class: "field", style: "gap:8px;flex-wrap:wrap" }, [unitTabs, ranges]),
+      el("div", { class: "tabs" }, [zoom("−", t("zoomOut"), () => usage.chart && usage.chart.zoom(2, undefined, true)),
+                                    zoom("+", t("zoomIn"), () => usage.chart && usage.chart.zoom(0.5, undefined, true)),
+                                    zoom("⟲", t("zoomReset"), () => { usage.days = 0; applyUsageRange(true); })])]),
+    el("div", { class: "muted small", id: "uRange" }),
+    el("canvas", { id: "uCanvas" }),
+    el("p", { class: "hint", id: "uHint" }),
+  ], true);
+
+  card([el("h2", { text: "Profil sezonowy (średnio na miesiąc)" }), el("div", { id: "uSeason" }),
+        el("p", { class: "hint", text: "Średnia ze wszystkich lat z faktur. Impulsy na dobę to to, co gazomierz będzie liczył w danym miesiącu, więc od tego zależy zużycie baterii." })]);
+  card([el("h2", { text: "Rocznie" }), el("div", { id: "uYears", style: "overflow-x:auto" })]);
+
+  const text = el("textarea", { id: "uText", rows: "7", placeholder: "Wklej tutaj tabelę ze strony „Faktury” w eBOK (zaznacz, skopiuj, wklej).", style: "width:100%;font:12px ui-monospace,monospace;padding:8px;border:1px solid var(--line);border-radius:10px;background:var(--input);color:var(--text);box-sizing:border-box" });
+  const factor = el("input", { type: "number", id: "uFactor", min: "8", max: "14", step: "0.01" });
+  const factorBtn = el("button", { class: "secondary", text: "Zapisz" });
+  factorBtn.addEventListener("click", () => billsAction({ action: "factor", value: factor.value }, "Zapisano współczynnik"));
+  const useEstimate = el("button", { class: "ghost", id: "uUseEst", text: "Użyj", hidden: "" });
+  useEstimate.addEventListener("click", () => { factor.value = usage.data.estimate.toFixed(2); billsAction({ action: "factor", value: factor.value }, "Zapisano współczynnik"); });
+  const preview = el("button", { class: "secondary", text: "Podgląd" });
+  preview.addEventListener("click", () => billsAction({ action: "preview", text: text.value }, null, true));
+  const importBtn = el("button", { text: "Importuj faktury" });
+  importBtn.addEventListener("click", async () => {
+    const ok = await confirmDialog({ title: "Zaimportować faktury?", confirmText: "Importuj",
+      message: "Faktury dołączą się do zapisanych (te same numery są aktualizowane). Dane zostają tylko w apce, nie trafiają do GitHuba ani do Home Assistant." });
+    if (ok) billsAction({ action: "import", text: text.value }, "Zaimportowano faktury", true);
+  });
+  const clear = el("button", { class: "ghost", text: "Usuń faktury" });
+  clear.addEventListener("click", async () => {
+    const ok = await confirmDialog({ title: "Usunąć zapisane faktury?", danger: true, confirmText: "Usuń", message: "Faktury znikną z apki (statystyki zużycia i kosztów). Możesz je wkleić ponownie." });
+    if (ok) billsAction({ action: "clear" }, "Usunięto faktury");
+  });
+  card([
+    el("h2", { text: "Faktury z eBOK" }),
+    el("p", { class: "hint", style: "margin-top:0", text: "Zaloguj się w eBOK, otwórz „Faktury”, zaznacz tabelę, skopiuj i wklej poniżej. Apka nie loguje się na Twoje konto i nie zna hasła. Faktura trafia do miesiąca poprzedzającego termin płatności." }),
+    text,
+    el("div", { class: "field", style: "gap:8px;flex-wrap:wrap;margin-top:8px" }, [preview, importBtn, clear]),
+    el("div", { class: "kv", id: "uPreview" }),
+    el("div", { class: "row", style: "margin-top:14px" }, [el("label", { for: "uFactor", text: "Współczynnik kWh na m³ (przeliczenie faktur na m³)" }), el("div", { class: "field" }, [factor, factorBtn])]),
+    el("div", { class: "muted small", id: "uEstimate" }), useEstimate,
+    el("div", { class: "muted small", style: "margin-top:10px", id: "uStatus" }),
+  ], true);
+  usage.built = true;
+}
+
+async function billsAction(body, doneText, isPreview) {
+  try {
+    const result = await api("bills", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (isPreview || body.action === "import") {
+      const box = $("#uPreview"); box.textContent = "";
+      const row = (k, v) => box.append(el("span", { text: k }), el("span", { class: "v", text: v }));
+      if (result.found !== undefined) {
+        row("Rozpoznano pozycji", String(result.found)); row("Faktur ze zużyciem", String(result.invoices)); row("Not odsetkowych", String(result.notes));
+        row("Zakres", result.from + " – " + result.to); row("Łącznie", num(result.kwh, 0) + " kWh"); row("Nowych", String(result.new));
+      }
+    }
+    if (doneText) toast(doneText);
+    if (body.action !== "preview") { await loadUsage(); }
+  } catch (error) { toast(t("error") + ": " + error.message, true); }
+}
+
+async function loadUsage() {
+  if (!usage.built) buildUsage();
+  try { usage.data = await api("bills"); } catch (e) { usage.data = null; return; }
+  renderUsage();
+}
+
+function sumBy(entries, fn) { return entries.reduce((s, e) => s + fn(e), 0); }
+
+function renderUsage() {
+  const d = usage.data;
+  if (!d) return;
+  const m = d.monthly;
+  $("#uFactor").value = Number(d.factor).toFixed(2);
+  $("#uStatus").textContent = d.bills ? "Zapisane faktury: " + d.bills + (d.updated ? ", ostatni import " + new Date(d.updated * 1000).toLocaleDateString("pl-PL") : "") : "Nie zaimportowano jeszcze faktur.";
+  const est = $("#uEstimate"), useBtn = $("#uUseEst");
+  if (d.estimate) {
+    est.textContent = "Z porównania z gazomierzem: " + d.estimate.toFixed(2) + " kWh/m³ (mediana z " + d.ratios.length + " mies.)";
+    useBtn.hidden = false;
+  } else { est.textContent = "Porównanie z gazomierzem będzie możliwe, gdy apka ma historię stanu licznika z tych samych miesięcy (np. po imporcie z Home Assistant)."; useBtn.hidden = true; }
+
+  // tiles: the last 12 months with an invoice against the 12 before
+  const last = m.slice(-12), prev = m.slice(-24, -12);
+  const k = (s) => num(s, 0);
+  $("#uYear").textContent = last.length ? k(sumBy(last, monthM3)) + " m³" : "—";
+  $("#uYearSub").textContent = last.length ? k(sumBy(last, (e) => e.kwh)) + " kWh, " + last.length + " mies." : "brak faktur";
+  $("#uCost").textContent = last.length ? k(sumBy(last, (e) => e.cost)) + " zł" : "—";
+  const kwh12 = sumBy(last, (e) => e.kwh), cost12 = sumBy(last, (e) => e.cost);
+  $("#uPrice").textContent = kwh12 ? num(cost12 / kwh12, 3) + " zł/kWh" : "—";
+  if (prev.length === 12 && last.length === 12) {
+    const change = (kwh12 / sumBy(prev, (e) => e.kwh) - 1) * 100;
+    const rounded = Math.round(change);
+    $("#uYoy").textContent = (rounded > 0 ? "+" : "") + (rounded === 0 ? 0 : rounded) + " %";
+  } else $("#uYoy").textContent = "—";
+
+  // seasonal profile
+  const season = $("#uSeason"); season.textContent = "";
+  const byMonth = Array.from({ length: 12 }, () => []);
+  for (const e of m) byMonth[Number(e.month.slice(5, 7)) - 1].push(e);
+  const avg = byMonth.map((list) => (list.length ? sumBy(list, monthM3) / list.length : null));
+  const top = Math.max(...avg.filter((v) => v !== null), 1), perM3 = Number(cfg("pulses_per_m3")) || 100;
+  const pulsesFor = (monthIndex, m3) => m3 * perM3 / new Date(2025, monthIndex + 1, 0).getDate();
+  avg.forEach((v, i) => {
+    if (v === null) return;
+    season.append(el("div", { style: "display:grid;grid-template-columns:34px 1fr 150px;gap:8px;align-items:center;margin:4px 0;font-size:13px" }, [
+      el("span", { class: "muted", text: MONTH_NAMES[i] }),
+      el("div", { class: "bar", style: "margin:0;height:12px" }, [el("div", { style: "width:" + (v / top * 100) + "%;background:var(--accent)" })]),
+      el("span", { style: "text-align:right", text: num(v, 0) + " m³ · " + num(pulsesFor(i, v), 0) + " imp./dobę" }),
+    ]));
+  });
+  if (!m.length) season.append(el("p", { class: "muted small", text: "Brak danych." }));
+
+  // yearly table
+  const years = {};
+  for (const e of m) { const y = e.month.slice(0, 4); (years[y] = years[y] || []).push(e); }
+  const table = el("table", { style: "width:100%;border-collapse:collapse;font-size:14px" });
+  table.append(el("thead", {}, [el("tr", {}, ["Rok", "Miesięcy", "kWh", "m³", "zł", "zł/kWh"].map((h, i) => el("th", { style: "text-align:" + (i ? "right" : "left") + ";padding:6px 8px;color:var(--muted);font-weight:600;font-size:12px", text: h })))]));
+  const body = el("tbody");
+  for (const y of Object.keys(years).sort().reverse()) {
+    const list = years[y], kwh = sumBy(list, (e) => e.kwh), cost = sumBy(list, (e) => e.cost);
+    const cells = [y, list.length + (list.length < 12 ? "*" : ""), num(kwh, 0), num(kwh / (d.factor || 11), 0), num(cost, 0), num(cost / kwh, 3)];
+    body.append(el("tr", {}, cells.map((c, i) => el("td", { style: "text-align:" + (i ? "right" : "left") + ";padding:6px 8px;border-top:1px solid var(--line)", text: c }))));
+  }
+  table.append(body);
+  const holder = $("#uYears"); holder.textContent = ""; holder.append(table);
+  if (Object.values(years).some((l) => l.length < 12)) holder.append(el("p", { class: "hint", text: "* rok niepełny (brak części faktur albo rok w toku)." }));
+  drawUsage();
+}
+
+function usageValue(e) { return usage.unit === "kwh" ? e.kwh : usage.unit === "cost" ? e.cost : monthM3(e); }
+
+function drawUsage() {
+  const d = usage.data, canvas = $("#uCanvas");
+  if (!d || !canvas || $("#usageView").hidden) return;
+  if (!usage.chart) usage.chart = new TimeChart(canvas, { dec: 0, onView: (a, b) => { $("#uRange").textContent = t("visibleRange") + ": " + dateText(a, true) + " – " + dateText(b, true); } });
+  const chart = usage.chart, unit = usage.unit;
+  const points = d.monthly.map((e) => [monthStart(e.month), Math.round(usageValue(e) * 100) / 100]);
+  Object.assign(chart.o, { unit: unit === "m3" ? "m³" : unit === "kwh" ? "kWh" : "zł", emptyText: "Brak faktur", emptyHint: "Wklej tabelę z eBOK w karcie „Faktury z eBOK” poniżej." });
+  const first = points.length ? points[0][0] : Date.now() / 1000, lastM = d.monthly.length ? d.monthly[d.monthly.length - 1].month : null;
+  const end = lastM ? monthStart(lastM) + 31 * 86400 : first + 86400;
+  const fresh = !usage.chartReady || (!usage.hadData && points.length > 0);
+  usage.hadData = points.length > 0;
+  chart.setSeries([{ name: unit === "m3" ? "Zużycie" : unit === "kwh" ? "Energia" : "Koszt", color: cssColor("--accent"), points, kind: "bars" }], [first, end], !fresh);
+  if (fresh) { usage.chartReady = true; applyUsageRange(false); }
+  document.querySelectorAll("#uUnits button").forEach((b) => b.classList.toggle("active", b.dataset.unit === unit));
+  document.querySelectorAll("#uRanges button").forEach((b) => b.classList.toggle("active", Number(b.dataset.days) === usage.days));
+  $("#uHint").textContent = "Faktura jest przypisana do miesiąca poprzedzającego termin płatności, więc to przybliżenie. " + (unit === "m3" ? "Przeliczenie: " + Number(d.factor).toFixed(2) + " kWh na m³." : "");
+}
+
+function applyUsageRange(animate) {
+  const chart = usage.chart;
+  if (!chart) return;
+  if (!usage.days) chart.setView(chart.full[0], chart.full[1], animate);
+  else chart.setView(chart.full[1] - usage.days * 86400, chart.full[1], animate);
+  document.querySelectorAll("#uRanges button").forEach((b) => b.classList.toggle("active", Number(b.dataset.days) === usage.days));
+}
+
 // ------------------------------------------------------------------- battery view
 const battery = { source: "meter", days: 90, data: null, built: false, chart: null, chartKey: null, detailToken: 0 };
 
@@ -1271,12 +1462,12 @@ async function refresh() {
   }
 }
 
-window.addEventListener("resize", () => { if (built) { drawChart(); if (!$("#batteryView").hidden) drawBattery(); } });
+window.addEventListener("resize", () => { if (built) { drawChart(); if (!$("#batteryView").hidden) drawBattery(); if (!$("#usageView").hidden) drawUsage(); } });
 
 // ---------------------------------------------------------------- panel / demo tabs
-const VIEW_NODES = { panel: "#root", battery: "#batteryView", settings: "#settingsView", network: "#networkView",
+const VIEW_NODES = { panel: "#root", usage: "#usageView", battery: "#batteryView", settings: "#settingsView", network: "#networkView",
                      service: "#serviceView", demo: "#demoView" };
-const VIEW_ORDER = ["panel", "battery", "settings", "network", "service", "demo"];
+const VIEW_ORDER = ["panel", "usage", "battery", "settings", "network", "service", "demo"];
 const reducedMotion = () => !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
 let viewSwap = null;
 
@@ -1308,6 +1499,7 @@ function showView(view, from) {
     if (from) window.scrollTo(0, 0);
     if (view === "battery") loadBattery();
     if (view === "service") loadHaStats();
+    if (view === "usage") loadUsage();
   };
   if (from && current && current !== next && !reducedMotion()) {
     current.classList.add(from === "right" ? "slide-out-left" : "slide-out-right");

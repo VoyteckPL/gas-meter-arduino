@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.14.0
+
+* Nowa zakładka **Zużycie** ze statystykami z faktur: kafelki (ostatnie 12 miesięcy w m³ i kWh, koszt, średnia cena, rok do roku),
+  interaktywny wykres miesięczny (m³, kWh albo zł, z przewijaniem i zoomem), **profil sezonowy** (średnie zużycie na miesiąc i
+  impulsy na dobę, czyli to, co gazomierz będzie liczył w danym miesiącu) oraz tabela roczna.
+* **Import faktur z eBOK:** wklejasz tabelę ze strony „Faktury” (zaznacz, skopiuj, wklej), apka ją rozbiera (numer, termin, kwota,
+  zużycie w kWh, noty odsetkowe są pomijane), pokazuje podgląd i po potwierdzeniu zapisuje. Ponowne wklejenie aktualizuje
+  istniejące faktury i dodaje nowe. Dane zostają tylko w apce. Apka nie loguje się do eBOK i nie zna hasła.
+* **Kalibracja współczynnika kWh/m³:** apka porównuje faktury z historią stanu licznika z tych samych miesięcy (np. po imporcie z Home Assistant)
+  i podpowiada współczynnik (mediana z miesięcy). Przycisk „Użyj” go zapisuje.
+
 ## 0.13.0
 
 * **Import historii z Home Assistant.** Zakładka Serwis, karta „Historia z Home Assistant”: apka czyta statystyki długoterminowe

@@ -36,6 +36,7 @@ TARGETS_FILE = os.path.join(DATA_DIR, "notify_targets.json")
 CORE_API = os.environ.get("CORE_API", "http://supervisor/core/api")
 CORE_WS = os.environ.get("CORE_WS") or CORE_API.replace("http://", "ws://").replace("https://", "wss://").replace("/core/api", "/core/websocket")
 IMPORT_FILE = os.path.join(DATA_DIR, "imported.json")
+BILLS_FILE = os.path.join(DATA_DIR, "bills.json")
 
 import battery
 import notifier
@@ -954,6 +955,163 @@ async def api_ha_stats(request):
     return web.json_response(summary)
 
 
+# ------------------------------- invoices pasted from the gas supplier's customer portal -------------------------------
+NUMBER_RE = re.compile(r"^[A-Za-z0-9]+(?:/[A-Za-z0-9]+)+$")        # P/1453267/0009/26, 1453267/37/2022/F, 1453267/2/NO
+DATE_RE = re.compile(r"^(\d{2})-(\d{2})-(\d{4})$")
+MONEY_RE = re.compile(r"^(-?[\d\s\u00a0]+,\d{2})\s*z\u0142$", re.I)
+KWH_RE = re.compile(r"^([\d\s\u00a0]+(?:,\d+)?)\s*kWh$", re.I)
+
+
+def parse_bills(text):
+    """Reads the table copied from the portal (one value per line): number, type, due date, amount, to pay, usage, status.
+    Returns a list of bills; notes (interest) have no usage."""
+    lines = [line.strip() for line in str(text).replace("\r", "").split("\n") if line.strip()]
+    starts = [i for i, line in enumerate(lines) if NUMBER_RE.match(line) and not DATE_RE.match(line)]
+    bills = []
+    for n, start in enumerate(starts):
+        chunk = lines[start + 1: starts[n + 1] if n + 1 < len(starts) else len(lines)]
+        due = amount = to_pay = kwh = None
+        kind, status = "invoice", ""
+        money = []
+        for line in chunk:
+            m = DATE_RE.match(line)
+            if m and due is None:
+                due = "%s-%s-%s" % (m.group(3), m.group(2), m.group(1))
+            elif MONEY_RE.match(line):
+                money.append(float(MONEY_RE.match(line).group(1).replace("\u00a0", "").replace(" ", "").replace(",", ".")))
+            elif KWH_RE.match(line) and kwh is None:
+                kwh = float(KWH_RE.match(line).group(1).replace("\u00a0", "").replace(" ", "").replace(",", "."))
+            elif "nota" in line.lower():
+                kind = "note"
+            elif line.lower() in ("opłacona", "nieopłacona", "częściowo opłacona", "do zapłaty", "po terminie"):
+                status = line
+        if due is None or not money:
+            continue
+        amount = money[0]
+        to_pay = money[1] if len(money) > 1 else None
+        bills.append({"number": lines[start], "type": kind, "due": due, "amount": amount, "to_pay": to_pay, "kwh": kwh, "status": status})
+    return bills
+
+
+def monthly_from_bills(bills):
+    """Usage and cost per calendar month. An invoice is paid in the month after the one it covers, so it counts for the
+    month before its due date. Several invoices in one month are added up."""
+    months = {}
+    for bill in bills:
+        if bill["type"] != "invoice" or not bill.get("kwh"):
+            continue
+        year, month = int(bill["due"][:4]), int(bill["due"][5:7])
+        month -= 1
+        if month == 0:
+            year, month = year - 1, 12
+        key = "%04d-%02d" % (year, month)
+        entry = months.setdefault(key, {"month": key, "kwh": 0.0, "cost": 0.0, "invoices": 0})
+        entry["kwh"] += bill["kwh"]
+        entry["cost"] += bill["amount"]
+        entry["invoices"] += 1
+    return [months[k] for k in sorted(months)]
+
+
+def load_bills():
+    try:
+        with open(BILLS_FILE, encoding="utf-8") as handle:
+            return json.load(handle)
+    except (OSError, ValueError):
+        return {"bills": [], "factor": 11.0}
+
+
+def save_bills(data):
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        tmp = BILLS_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as handle:
+            json.dump(data, handle)
+        os.replace(tmp, BILLS_FILE)
+    except OSError as error:
+        log.warning("could not save the invoices: %s", error)
+
+
+def meter_at(points, when, tolerance=3 * 86400):
+    """Meter reading at a moment, interpolated; None when the data has a gap there."""
+    import bisect
+    if not points:
+        return None
+    index = bisect.bisect_left(points, [when, float("-inf")])
+    before = points[index - 1] if index > 0 else None
+    after = points[index] if index < len(points) else None
+    if before and after:
+        if after[0] - before[0] > 2 * tolerance and min(when - before[0], after[0] - when) > tolerance:
+            return None
+        if after[0] == before[0]:
+            return after[1]
+        return before[1] + (after[1] - before[1]) * (when - before[0]) / (after[0] - before[0])
+    near = before or after
+    return near[1] if near and abs(near[0] - when) <= tolerance else None
+
+
+def calibrate_factor(monthly, meter):
+    """kWh per m3 estimated by comparing the invoices with the meter readings of the same months."""
+    ratios = []
+    for entry in monthly:
+        year, month = int(entry["month"][:4]), int(entry["month"][5:7])
+        start = datetime(year, month, 1).timestamp()
+        end = datetime(year + (month == 12), month % 12 + 1, 1).timestamp()
+        a, b = meter_at(meter, start), meter_at(meter, end)
+        if a is None or b is None or b - a < 5:
+            continue
+        ratios.append({"month": entry["month"], "m3": round(b - a, 2), "kwh": entry["kwh"], "factor": entry["kwh"] / (b - a)})
+    if not ratios:
+        return None, []
+    values = sorted(r["factor"] for r in ratios)
+    return values[len(values) // 2], ratios
+
+
+async def api_bills(request):
+    app = request.app
+    data = app["bills"]
+    if request.method == "POST":
+        try:
+            body = await request.json()
+            action = body.get("action")
+        except (ValueError, AttributeError):
+            return web.json_response({"error": "bad request"}, status=400)
+        if action in ("preview", "import"):
+            parsed = parse_bills(body.get("text", ""))
+            invoices = [b for b in parsed if b["type"] == "invoice" and b.get("kwh")]
+            if not parsed:
+                return web.json_response({"error": "Nie rozpoznałem żadnej faktury. Wklej tabelę ze strony z fakturami."}, status=400)
+            summary = {"found": len(parsed), "invoices": len(invoices), "notes": len(parsed) - len(invoices),
+                       "from": min(b["due"] for b in parsed), "to": max(b["due"] for b in parsed),
+                       "kwh": sum(b["kwh"] for b in invoices), "new": len([b for b in parsed if b["number"] not in {x["number"] for x in data["bills"]}])}
+            if action == "import":
+                merged = {b["number"]: b for b in data["bills"]}
+                merged.update({b["number"]: b for b in parsed})
+                data["bills"] = sorted(merged.values(), key=lambda b: b["due"])
+                data["updated"] = time.time()
+                save_bills(data)
+            return web.json_response(summary)
+        if action == "clear":
+            data["bills"] = []
+            save_bills(data)
+        elif action == "factor":
+            try:
+                value = float(body.get("value"))
+                if not 8 <= value <= 14:
+                    raise ValueError
+            except (TypeError, ValueError):
+                return web.json_response({"error": "Współczynnik musi być liczbą od 8 do 14 kWh/m³"}, status=400)
+            data["factor"] = value
+            save_bills(data)
+        else:
+            return web.json_response({"error": "unknown action"}, status=400)
+    monthly = monthly_from_bills(data["bills"])
+    with app["store"].lock:
+        meter = [list(p) for p in app["store"].series("cubic_meters")]
+    estimate, ratios = calibrate_factor(monthly, meter)
+    return web.json_response({"bills": len(data["bills"]), "monthly": monthly, "factor": data.get("factor", 11.0),
+                              "estimate": estimate, "ratios": ratios[-24:], "updated": data.get("updated")})
+
+
 async def api_set(request):
     app = request.app
     try:
@@ -1021,6 +1179,7 @@ def create_app(options):
     app["options"] = options
     app["notify_state"] = load_notify_state()
     app["notify_log"] = []
+    app["bills"] = load_bills()
     app["notify_targets"] = load_targets()
     app["store"] = Store(options.get("root_topic") or "Gaz/Gazomierz",
                          options.get("battery_test_topic", "Gaz/BatteryTest"))
@@ -1028,6 +1187,8 @@ def create_app(options):
     app.router.add_get("/api/state", api_state)
     app.router.add_get("/api/series", api_series)
     app.router.add_get("/api/battery", api_battery)
+    app.router.add_get("/api/bills", api_bills)
+    app.router.add_post("/api/bills", api_bills)
     app.router.add_get("/api/ha_stats", api_ha_stats)
     app.router.add_post("/api/ha_stats", api_ha_stats)
     app.router.add_get("/api/notify", api_notify)
