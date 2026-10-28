@@ -30,8 +30,8 @@ The meter sleeps almost all the time, so:
 | `ip`, `mac`, `ssid`, `bssid` | network information (status message) |
 
 Manual counter override (HA entity "Set counter"): publish the pulse count (retained) to
-`config/counter`. A running meter reads it in its next session that also sends a status (within minutes when gas is
-used, at the latest after `STATUS_INTERVAL_S`, 6 h); after a reset or power-on it is read at once. The value is used once and cleared.
+`config/counter`. A running meter reads it in every WiFi session, so the first pulse after it was set replaces the counter (without a pulse,
+at the latest in the next status session after `STATUS_INTERVAL_S`, 6 h); after a reset or power-on it is read at once. The value is used once and cleared.
 Example: meter reading 7282.35 m3 with 100 pulses per m3 -> 728235.
 
 ## Planned (stage 2, not implemented yet)
