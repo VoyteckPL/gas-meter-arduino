@@ -12,6 +12,7 @@ Decisions and open items collected while building the project. Tick them off bef
 - [ ] **IP address.** A DHCP reservation in the Deco app is enough. `USE_STATIC_IP 1` saves about 0.015 mAh per session.
 - [ ] **Battery divider.** `BATTERY_DIVIDER 2.044f` is set (measured 2.034-2.039, stable from 4.07 V to 3.65 V).
       Compare with a multimeter once more on the real battery.
+- [ ] **Send interval back from the test value.** `MIN_SEND_INTERVAL_S 0` (every pulse) is only for the desk tests; set 20 or more before mounting.
 - [ ] **Send interval.** `MIN_SEND_INTERVAL_S 20` gives near live data. A larger value (for example 300) cuts the
       WiFi sessions about 10 times and is the biggest lever for battery life. No pulse is ever lost either way.
 - [ ] **Desk test.** Short the reed with a wire a few times and compare the counter with the number of shorts.
