@@ -1104,7 +1104,7 @@ function showView(view) {
   });
   if (view === "battery") loadBattery();
   if (view === "demo" && !$("#demoView iframe")) {
-    const frame = el("iframe", { src: "static/simulator.html?lang=" + lang, title: "simulator" });
+    const frame = el("iframe", { src: "static/simulator.html?v=" + (window.ASSET_V || ""), title: "simulator" });
     // same origin, so the frame can be sized to its content (no inner scrollbar)
     const fit = () => {
       try { frame.style.height = frame.contentDocument.documentElement.scrollHeight + "px"; } catch (e) { /* ignore */ }

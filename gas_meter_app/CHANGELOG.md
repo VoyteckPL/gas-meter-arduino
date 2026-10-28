@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.2
+
+* Naprawa: po aktualizacji panel mógł zostać na „Ładowanie…”, bo przeglądarka (albo aplikacja HA) trzymała starą kopię
+  skryptu. Adresy plików mają teraz numer wersji, a pliki statyczne wysyłane są bez buforowania.
+  Jeśli panel nadal się nie ładuje po aktualizacji, odśwież stronę (w aplikacji HA: zamknij i otwórz panel ponownie).
+
 ## 0.9.1
 
 * Logo ORLEN w nagłówku i na ikonie apki (pliki dostarczone przez użytkownika), czerwień motywu dopasowana do logo (#D81E05).

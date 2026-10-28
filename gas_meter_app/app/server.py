@@ -450,11 +450,26 @@ async def ingress_only(request, handler):
     return await handler(request)
 
 
+def asset_version():
+    """Changes whenever a static file changes, so that the browser never mixes a new page with an old script."""
+    newest = 0
+    for name in os.listdir(STATIC_DIR):
+        newest = max(newest, int(os.path.getmtime(os.path.join(STATIC_DIR, name))))
+    return str(newest)
+
+
+@web.middleware
+async def no_cache_static(request, handler):
+    response = await handler(request)
+    if request.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
 async def index(request):
     with open(os.path.join(STATIC_DIR, "index.html"), encoding="utf-8") as handle:
         html = handle.read()
-    language = request.app["options"].get("language", "auto")
-    html = html.replace("__LANGUAGE__", language)
+    html = html.replace("__V__", asset_version())
     return web.Response(text=html, content_type="text/html", headers={"Cache-Control": "no-store"})
 
 
@@ -849,7 +864,7 @@ async def on_cleanup(app):
 
 
 def create_app(options):
-    app = web.Application(middlewares=[ingress_only])
+    app = web.Application(middlewares=[ingress_only, no_cache_static])
     app["options"] = options
     app["notify_state"] = load_notify_state()
     app["notify_log"] = []

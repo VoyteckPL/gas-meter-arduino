@@ -4,12 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Gazomierz</title>
-  <link rel="stylesheet" href="static/app.css">
+  <link rel="stylesheet" href="static/app.css?v=__V__">
 </head>
 <body>
   <header><div class="hwrap">
     <div class="top">
-      <div class="logo"><img src="static/logo.png" alt="Gazomierz"></div>
+      <div class="logo"><img src="static/logo.png?v=__V__" alt="Gazomierz"></div>
       <div class="ttl"><h1 id="title">Gazomierz</h1><small id="sub">ładowanie…</small></div>
       <span class="pill" id="conn"><span class="dot wait" id="connDot"></span><span id="connTxt">…</span></span>
       <button class="iconbtn" id="refreshBtn" title="Odśwież">⟳</button>
@@ -36,6 +36,7 @@
   <div id="demoView" class="demo" hidden></div>
 
   <div id="toast" class="toast" hidden></div>
-  <script src="static/app.js"></script>
+  <script>window.ASSET_V = "__V__";</script>
+  <script src="static/app.js?v=__V__"></script>
 </body>
 </html>
