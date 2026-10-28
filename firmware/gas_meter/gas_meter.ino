@@ -82,7 +82,7 @@ IPAddress DNS_SERVER(192, 168, 1, 1);
 #define CHATTER_LOCKOUT_S     30
 
 // battery: voltage at the battery = voltage at GPIO36 * BATTERY_DIVIDER
-#define BATTERY_DIVIDER       1.887f    // calibrated against a multimeter (about 2.04 on battery power)
+#define BATTERY_DIVIDER       2.044f    // calibrated against a multimeter on battery power (2.034-2.039 measured, 4.07-3.65 V)
 #define BATTERY_STOP_WIFI_V   3.10f     // below: only count pulses, no WiFi
 #define BATTERY_CUTOFF_V      3.00f     // below: hibernate (needs a reset)
 #define BATTERY_RECHECK_S     (60UL * 60UL)
