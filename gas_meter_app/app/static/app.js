@@ -47,6 +47,13 @@ const TEXT = {
     visibleRange: "Widoczny zakres", goBattery: "Przejdź do zakładki Bateria",
     emptyBattery: "Gazomierz nie przysłał jeszcze danych baterii. Pojawią się po wgraniu szkicu gazomierza (firmware/gas_meter). Test rozładowania zobaczysz w zakładce Bateria.",
     emptyGeneric: "W tym okresie nie ma jeszcze danych.",
+    hsTitle: "Historia z Home Assistant", hsHint: "Wczytuje statystyki długoterminowe wybranej encji z Home Assistant (np. stary czujnik gazomierza), żeby wykresy i statystyki miały ciągłą historię. Zaimportowane dane są tylko starsze niż pierwszy odczyt z nowego gazomierza i nie zmieniają niczego w Home Assistant.",
+    hsEntity: "Encja ze statystykami", hsSearch: "Szukaj", hsKind: "Co to jest", hsKindMeter: "Stan licznika (m³)", hsKindBattery: "Napięcie baterii (V)",
+    hsDivisor: "Dzielnik", hsDivisorHint: "1, jeśli encja podaje m³ albo V. Jeśli podaje impulsy, wpisz ich liczbę na m³ (np. 100).",
+    hsPreview: "Podgląd", hsImport: "Importuj", hsClear: "Usuń zaimportowane", hsRefresh: "Odśwież listę",
+    hsNone: "Nic nie zaimportowano.", hsImported: "Zaimportowano", hsRange: "Zakres", hsCount: "Punktów", hsFirst: "Pierwsza wartość", hsLast: "Ostatnia wartość",
+    hsMin: "Minimum", hsMax: "Maksimum", hsAvg: "Średnia", hsDecreases: "Pominięte spadki licznika", hsNoList: "Nie udało się pobrać listy encji",
+    hsBatteryNote: "Uwaga: stary szkic mierzył napięcie baterii błędnie, więc wartości mogą być zawyżone. Sprawdź zakres w podglądzie.",
     tabBattery: "Bateria", bTitle: "Bateria teraz", bSource: "Źródło", bMeter: "Gazomierz", bTest: "Test rozładowania",
     bVolts: "Napięcie", bSoc: "Naładowanie (szacunek)", bCurveGeneric: "Ogólna krzywa Li-ion", bCurveLearned: "Krzywa nauczona z Twojego testu rozładowania",
     bPredTitle: "Prognoza żywotności", bModel: "Model zużycia", bTrend: "Trend napięcia", bToWarn: "Do napięcia zatrzymania WiFi", bToCut: "Do napięcia odcięcia",
@@ -117,6 +124,78 @@ async function api(path, options) {
   if (!response.ok) throw new Error(data.error || response.statusText);
   return data;
 }
+// ------------------------------------------------------------- history imported from Home Assistant
+const haState = { ids: [], imported: {} };
+const fmtDay = (ts) => new Date(ts * 1000).toLocaleDateString("pl-PL");
+
+async function loadHaStats() {
+  try {
+    const d = await api("ha_stats");
+    haState.ids = d.ids || []; haState.imported = d.imported || {};
+    $("#hsNote").textContent = "";
+  } catch (error) {
+    haState.ids = []; $("#hsNote").textContent = t("hsNoList") + ": " + error.message;
+  }
+  fillHaList(); renderHaStatus();
+}
+function fillHaList() {
+  const q = $("#hsFilter").value.trim().toLowerCase(), select = $("#hsId"), keep = select.value;
+  select.textContent = "";
+  for (const i of haState.ids) {
+    if (q && !(i.id.toLowerCase().includes(q) || i.name.toLowerCase().includes(q))) continue;
+    select.append(el("option", { value: i.id, text: (i.name ? i.name + " · " : "") + i.id + (i.unit ? " · " + i.unit : "") }));
+  }
+  if (keep && [...select.options].some((o) => o.value === keep)) select.value = keep;
+  pickHaKind();
+}
+// the unit tells what the entity is
+function pickHaKind() {
+  const item = haState.ids.find((i) => i.id === $("#hsId").value);
+  if (!item) return;
+  if (/^v$/i.test(item.unit)) $("#hsKind").value = "battery";
+  else if (/m³|m3/i.test(item.unit)) $("#hsKind").value = "meter";
+  $("#hsNote").textContent = $("#hsKind").value === "battery" ? t("hsBatteryNote") : "";
+}
+function renderHaStatus() {
+  const box = $("#hsStatus"); box.textContent = "";
+  const rows = Object.entries(haState.imported);
+  if (!rows.length) { box.textContent = t("hsNone"); return; }
+  for (const [kind, m] of rows) {
+    box.append(el("div", {}, [t("hsImported") + ": " + (kind === "meter" ? t("hsKindMeter") : t("hsKindBattery")) + " — " + m.id + ", " +
+      fmtDay(m.from) + " – " + fmtDay(m.to) + ", " + m.count + " " + t("hsCount").toLowerCase()]));
+  }
+}
+function showHaSummary(summary, kind) {
+  const box = $("#hsResult"); box.textContent = "";
+  if (!summary.count) { box.append(el("span", { text: t("noData") }), el("span", { class: "v", text: "0" })); return; }
+  const unit = kind === "battery" ? " V" : " m³", row = (key, value) => box.append(el("span", { text: t(key) }), el("span", { class: "v", text: value }));
+  row("hsRange", fmtDay(summary.from) + " – " + fmtDay(summary.to));
+  row("hsCount", String(summary.count));
+  row("hsFirst", num(summary.first, 2) + unit); row("hsLast", num(summary.last, 2) + unit);
+  if (kind === "battery") { row("hsMin", num(summary.min, 2) + unit); row("hsAvg", num(summary.avg, 2) + unit); row("hsMax", num(summary.max, 2) + unit); }
+  if (summary.decreases) row("hsDecreases", String(summary.decreases));
+}
+async function haAction(action) {
+  const kind = $("#hsKind").value, statisticId = $("#hsId").value, divisor = Number($("#hsDiv").value) || 1;
+  if (action !== "clear" && !statisticId) return;
+  if (action === "import" || action === "clear") {
+    const ok = await confirmDialog(action === "import"
+      ? { title: "Zaimportować historię?", danger: true, confirmText: "Importuj",
+          message: "Dane z wybranej encji zastąpią wcześniej zaimportowaną historię tego rodzaju i dołączą się do wykresów i statystyk. W Home Assistant nic się nie zmienia.",
+          details: [["Encja", statisticId], ["Co to jest", kind === "meter" ? t("hsKindMeter") : t("hsKindBattery")], ["Dzielnik", String(divisor)]] }
+      : { title: "Usunąć zaimportowaną historię?", danger: true, confirmText: "Usuń",
+          message: "Zaimportowana historia tego rodzaju zniknie z wykresów i statystyk w apce. Dane w Home Assistant zostają.",
+          details: [["Rodzaj", kind === "meter" ? t("hsKindMeter") : t("hsKindBattery")]] });
+    if (!ok) return;
+  }
+  try {
+    const result = await api("ha_stats", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, statistic_id: statisticId, kind, divisor }) });
+    if (action !== "clear") showHaSummary(result, kind); else $("#hsResult").textContent = "";
+    if (action !== "preview") { toast(action === "import" ? "Zaimportowano" : "Usunięto"); await loadHaStats(); drawChart(); if (battery.chart) loadBattery(); refresh(); }
+  } catch (error) { toast(t("error") + ": " + error.message, true); }
+}
+
 // ------------------------------------------------------------- confirmation of sensitive actions
 // The browser's confirm() is silently blocked in some frames (Home Assistant), so the app has its own dialog.
 function confirmDialog({ title, message, details, confirmText, danger }) {
@@ -398,6 +477,33 @@ function build() {
   views.network.append(note("networkNote"));
   views.network.append(network);
 
+  // history imported from Home Assistant statistics
+  views.service.append(el("section", { class: "card", id: "hsCard" }, [
+    el("h2", { "data-i18n": "hsTitle" }),
+    el("p", { class: "hint", style: "margin-top:0", "data-i18n": "hsHint" }),
+    el("div", { class: "row" }, [el("label", { for: "hsFilter", "data-i18n": "hsSearch" }), el("div", { class: "field" }, [el("input", { type: "text", id: "hsFilter", value: "gazomierz", autocomplete: "off" })])]),
+    el("div", { class: "row" }, [el("label", { for: "hsId", "data-i18n": "hsEntity" }), el("div", { class: "field" }, [el("select", { id: "hsId" })])]),
+    el("div", { class: "row" }, [el("label", { for: "hsKind", "data-i18n": "hsKind" }), el("div", { class: "field" }, [
+      el("select", { id: "hsKind" }, [el("option", { value: "meter", "data-i18n": "hsKindMeter" }), el("option", { value: "battery", "data-i18n": "hsKindBattery" })])])]),
+    el("div", { class: "row" }, [el("label", { for: "hsDiv", "data-i18n": "hsDivisor" }), el("div", { class: "field" }, [el("input", { type: "number", id: "hsDiv", value: "1", min: "0.0001", step: "any" })]),
+                                 el("div", { class: "hint", style: "margin:0", "data-i18n": "hsDivisorHint" })]),
+    el("div", { class: "field", style: "gap:8px;flex-wrap:wrap" }, [
+      el("button", { class: "secondary", id: "hsPreviewBtn", "data-i18n": "hsPreview" }),
+      el("button", { id: "hsImportBtn", "data-i18n": "hsImport" }),
+      el("button", { class: "ghost", id: "hsClearBtn", "data-i18n": "hsClear" }),
+      el("button", { class: "ghost", id: "hsRefreshBtn", "data-i18n": "hsRefresh" }),
+    ]),
+    el("div", { class: "kv", id: "hsResult" }),
+    el("p", { class: "hint", id: "hsNote" }),
+    el("div", { class: "muted small", style: "margin-top:12px", id: "hsStatus" }),
+  ]));
+  $("#hsFilter").addEventListener("input", fillHaList);
+  $("#hsId").addEventListener("change", pickHaKind);
+  $("#hsPreviewBtn").addEventListener("click", () => haAction("preview"));
+  $("#hsImportBtn").addEventListener("click", () => haAction("import"));
+  $("#hsClearBtn").addEventListener("click", () => haAction("clear"));
+  $("#hsRefreshBtn").addEventListener("click", loadHaStats);
+
   // diagnostics
   views.service.append(el("section", { class: "card" }, [
     el("h2", { "data-i18n": "diagnostics" }),
@@ -645,7 +751,8 @@ const PRESETS = [["range1h", 3600], ["range6h", 6 * 3600], ["range24h", 86400], 
 const history = { entity: "meter", chart: null, token: 0, detailToken: 0 };
 
 const cssColor = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-const dateText = (ts) => new Date(ts * 1000).toLocaleString("pl-PL", { day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" });
+const dateText = (ts, withYear) => new Date(ts * 1000).toLocaleString("pl-PL", withYear
+  ? { day: "numeric", month: "numeric", year: "numeric" } : { day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" });
 
 function histEntityUrl(spec, extra) {
   let path = "series?kind=" + spec.kind + extra;
@@ -720,7 +827,7 @@ async function loadHistory() {
   $("#histTitle").textContent = t(spec.key);
   document.querySelectorAll("#histEntities button").forEach((b) => b.classList.toggle("active", b.dataset.entity === history.entity));
   let points = [];
-  try { points = await api(spec.fetch ? histEntityUrl(spec, spec.fetch.replace(/^series\?kind=\w+/, "")) : histEntityUrl(spec, "&hours=9600&max=1500")); } catch (e) { points = []; }
+  try { points = await api(spec.fetch ? histEntityUrl(spec, spec.fetch.replace(/^series\?kind=\w+/, "")) : histEntityUrl(spec, "&hours=87600&max=1500")); } catch (e) { points = []; }
   if (token !== history.token) return;
   const now = Date.now() / 1000;
   Object.assign(chart.o, { unit: spec.unit, dec: spec.dec, zeroBase: !!spec.zero, emptyText: t("noData"),
@@ -736,7 +843,7 @@ async function loadHistory() {
 function histView(v0, v1) {
   const spec = HIST[history.entity], chart = history.chart;
   if (!spec || !chart || !chart.series.length) return;
-  $("#histRange").textContent = t("visibleRange") + ": " + dateText(v0) + " – " + dateText(v1);
+  $("#histRange").textContent = t("visibleRange") + ": " + dateText(v0, v1 - v0 > 200 * 86400) + " – " + dateText(v1, v1 - v0 > 200 * 86400);
   const fullSpan = chart.full[1] - chart.full[0], span = v1 - v0;
   document.querySelectorAll("#histRanges button").forEach((b) => {
     const seconds = Number(b.dataset.seconds);
@@ -979,7 +1086,7 @@ async function loadBattery() {
   try {
     const factor = Number(($("#btFactor") || {}).value) || 2.044;
     const ma = Number(($("#bTestMa") || {}).value) || 0, cells = Number(($("#bTestCells") || {}).value) || 1;
-    battery.data = await api("battery?source=" + battery.source + "&days=30&history_days=400&factor=" + factor +
+    battery.data = await api("battery?source=" + battery.source + "&days=30&history_days=3650&factor=" + factor +
                              "&test_ma=" + ma + "&test_cells=" + cells);
   } catch (e) { battery.data = null; }
   renderBattery();
@@ -1123,7 +1230,7 @@ function applyBatteryPreset(animate) {
 function batteryView(v0, v1) {
   const chart = battery.chart;
   if (!chart) return;
-  $("#bReadout").textContent = t("visibleRange") + ": " + dateText(v0) + " – " + dateText(v1);
+  $("#bReadout").textContent = t("visibleRange") + ": " + dateText(v0, v1 - v0 > 200 * 86400) + " – " + dateText(v1, v1 - v0 > 200 * 86400);
   document.querySelectorAll("#bRangeTabs button").forEach((b) => {
     const days = Number(b.dataset.days), d = battery.data;
     const active = days === battery.days && d && (days ? Math.abs((v1 - v0) - days * 86400 * 1.4) < days * 86400 * 0.15 : Math.abs((v1 - v0) - (chart.full[1] - chart.full[0])) < 3600);
@@ -1200,6 +1307,7 @@ function showView(view, from) {
     }
     if (from) window.scrollTo(0, 0);
     if (view === "battery") loadBattery();
+    if (view === "service") loadHaStats();
   };
   if (from && current && current !== next && !reducedMotion()) {
     current.classList.add(from === "right" ? "slide-out-left" : "slide-out-right");

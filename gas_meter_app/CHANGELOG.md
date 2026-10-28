@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.13.0
+
+* **Import historii z Home Assistant.** Zakładka Serwis, karta „Historia z Home Assistant”: apka czyta statystyki długoterminowe
+  wybranej encji (np. `sensor.gazomierz`) przez API Home Assistant i dołącza je do swojej historii. Nie trzeba eksportować CSV.
+  Wybierasz encję z listy (rodzaj, czyli stan licznika w m³ albo napięcie baterii w V, ustawia się sam według jednostki), oglądasz
+  podgląd (zakres dat, liczba punktów, pierwsza i ostatnia wartość) i po potwierdzeniu importujesz. Jeśli encja liczy w impulsach,
+  wpisz dzielnik (impulsów na m³). Zaimportowane dane są tylko starsze niż pierwszy odczyt z nowego gazomierza, nie zmieniają niczego
+  w Home Assistant i można je usunąć jednym przyciskiem.
+* Wykresy, zużycie na godzinę, przepływ i statystyki korzystają ze scalonej historii. Okno historii sięga do 10 lat wstecz,
+  historia stanu licznika jest przechowywana dłużej (do 150 000 punktów), a daty w długich zakresach mają rok.
+
 ## 0.12.1
 
 * Delikatny efekt przejścia między zakładkami (gest w bok albo kliknięcie zakładki): stara zakładka lekko odsuwa się i blednie,

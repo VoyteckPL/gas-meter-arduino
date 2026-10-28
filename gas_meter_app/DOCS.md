@@ -37,6 +37,21 @@ dwa palce powiększają i przesuwają wykres, dotknięcie pokazuje wartość, a 
 
 Mała pomarańczowa liczba przy zakładce oznacza, ile poleceń czeka, aż gazomierz je odbierze. Ostatnio użyta zakładka jest zapamiętywana.
 
+## Import historii z Home Assistant
+
+Jeśli w Home Assistant masz już historię gazomierza (np. ze starego czujnika), możesz ją dołączyć do apki, żeby wykresy i statystyki
+były ciągłe. Zakładka **Serwis → Historia z Home Assistant**:
+
+1. Wybierz encję ze statystykami długoterminowymi (pole „Szukaj” filtruje listę). Rodzaj (stan licznika w m³ albo napięcie baterii w V)
+   ustawia się według jednostki encji.
+2. Kliknij **Podgląd**: zobaczysz zakres dat, liczbę punktów, pierwszą i ostatnią wartość. Dobra encja licznika ma ostatnią wartość
+   bliską aktualnemu stanowi gazomierza i zero pominiętych spadków.
+3. Kliknij **Importuj** i potwierdź. Jeśli encja liczy w impulsach, wpisz najpierw dzielnik (impulsów na m³).
+
+Zaimportowana historia jest tylko starsza niż pierwszy odczyt z nowego gazomierza. Nic się nie zmienia w Home Assistant, a przycisk
+**Usuń zaimportowane** cofa import. Dla każdego rodzaju (licznik, bateria) trzymana jest jedna zaimportowana encja. Uwaga: stary szkic
+mierzył napięcie baterii błędnie, więc zaimportowane napięcie może być zawyżone (sprawdź zakres w podglądzie).
+
 ## Wykresy
 
 Kliknij kafelek w Przeglądzie (albo wartość w teście baterii), żeby zobaczyć jego historię. Wykres jest interaktywny:

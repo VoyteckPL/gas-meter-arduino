@@ -28,12 +28,14 @@ MAX_POINTS = 20000
 HISTORY_TOPICS = ("cubic_meters", "BatteryVoltage", "BatteryPercent", "RSSI", "flow_m3h", "bt/pin_mv", "bt/voltage",
                   "Wakes", "WifiSessions", "wifi_connect_ms")
 # slowly changing series are kept for about a year: minimum spacing (s) and number of points
-LONG_SERIES = {"BatteryVoltage": (900, 40000), "BatteryPercent": (900, 40000), "RSSI": (900, 40000),
+LONG_SERIES = {"cubic_meters": (0, 150000), "BatteryVoltage": (900, 40000), "BatteryPercent": (900, 40000), "RSSI": (900, 40000),
                "Wakes": (1800, 20000), "WifiSessions": (1800, 20000), "wifi_connect_ms": (1800, 20000)}
 CURVE_FILE = os.path.join(DATA_DIR, "curve.json")
 NOTIFY_FILE = os.path.join(DATA_DIR, "notify.json")
 TARGETS_FILE = os.path.join(DATA_DIR, "notify_targets.json")
 CORE_API = os.environ.get("CORE_API", "http://supervisor/core/api")
+CORE_WS = os.environ.get("CORE_WS") or CORE_API.replace("http://", "ws://").replace("https://", "wss://").replace("/core/api", "/core/websocket")
+IMPORT_FILE = os.path.join(DATA_DIR, "imported.json")
 
 import battery
 import notifier
@@ -124,6 +126,7 @@ class Store:
         self.day_start = {}     # "YYYY-MM-DD" -> meter reading at the start of that day
         self.last_meter = None
         self.curve, self.curve_info = None, None
+        self.imported = {}      # 'meter' / 'battery' -> history imported from Home Assistant statistics
         self.load()
 
     # ---- battery curve learned from the discharge test ----
@@ -166,6 +169,11 @@ class Store:
     def load(self):
         self.load_curve()
         try:
+            with open(IMPORT_FILE, encoding="utf-8") as handle:
+                self.imported = json.load(handle)
+        except (OSError, ValueError):
+            self.imported = {}
+        try:
             with open(HISTORY_FILE, encoding="utf-8") as handle:
                 data = json.load(handle)
             self.history = data.get("history", {})
@@ -175,6 +183,26 @@ class Store:
                 self.last_meter = meter[-1][1]
         except (OSError, ValueError):
             pass
+
+    def save_imported(self):
+        try:
+            os.makedirs(DATA_DIR, exist_ok=True)
+            tmp = IMPORT_FILE + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as handle:
+                json.dump(self.imported, handle)
+            os.replace(tmp, IMPORT_FILE)
+        except OSError as error:
+            log.warning("could not save the imported history: %s", error)
+
+    def series(self, name):
+        """History of a value: what was imported from Home Assistant (older than the first live sample) plus the live data."""
+        live = self.history.get(name, [])
+        key = {"cubic_meters": "meter", "BatteryVoltage": "battery"}.get(name)
+        imported = self.imported.get(key) if key else None
+        if not imported:
+            return live
+        cut = live[0][0] if live else float("inf")
+        return [p for p in imported["points"] if p[0] < cut] + live
 
     def save(self):
         try:
@@ -266,7 +294,7 @@ class Store:
         reported = self.number("flow_m3h")
         if reported is not None and time.time() - self.updated.get("flow_m3h", 0) < 900:
             return reported
-        series = self.history.get("cubic_meters", [])
+        series = self.series("cubic_meters")
         if len(series) < 2:
             return None
         now = time.time()
@@ -286,7 +314,7 @@ class Store:
 
     def hourly(self, hours):
         """Consumption per hour (m3) for the last `hours` hours."""
-        series = self.history.get("cubic_meters", [])
+        series = self.series("cubic_meters")
         now = time.time()
         first_hour = int(now // 3600) - hours + 1
         buckets = {h: 0.0 for h in range(first_hour, first_hour + hours)}
@@ -298,7 +326,7 @@ class Store:
 
     def flow_series(self, hours, bucket=None):
         """Average flow (m3/h) per time bucket, derived from the meter reading history."""
-        series = self.history.get("cubic_meters", [])
+        series = self.series("cubic_meters")
         now = time.time()
         span = hours * 3600
         bucket = max(300.0, float(bucket) if bucket else span / 120.0)
@@ -498,7 +526,7 @@ async def api_series(request):
     query = request.query
     kind = query.get("kind", "hourly")
     try:
-        hours = max(1, min(int(query.get("hours", "48")), 24 * 400))
+        hours = max(1, min(int(query.get("hours", "48")), 24 * 3650))
         limit = max(50, min(int(query.get("max", "900")), 5000))
         t_from = float(query["from"]) if "from" in query else None
         t_to = float(query["to"]) if "to" in query else None
@@ -528,7 +556,7 @@ async def api_series(request):
     if name is None:
         return web.json_response({"error": "unknown series"}, status=400)
     with store.lock:
-        points = [p for p in store.history.get(name, []) if lo <= p[0] <= hi]
+        points = [p for p in store.series(name) if lo <= p[0] <= hi]
     return web.json_response(thin(points, limit))
 
 
@@ -541,11 +569,11 @@ def compute_battery(app, source="meter", days=30, factor=2.044, test_ma=None, te
             volts = [[ts, mv / 1000.0 * factor] for ts, mv in store.history.get("bt/pin_mv", [])]
             store.learn_curve(factor, test_ma, test_cells)
         else:
-            volts = [list(p) for p in store.history.get("BatteryVoltage", [])]
+            volts = [list(p) for p in store.series("BatteryVoltage")]
         series = {
             "sessions": [list(p) for p in store.history.get("WifiSessions", [])],
             "wakes": [list(p) for p in store.history.get("Wakes", [])],
-            "meter": [list(p) for p in store.history.get("cubic_meters", [])],
+            "meter": [list(p) for p in store.series("cubic_meters")],
             "connect": [list(p) for p in store.history.get("wifi_connect_ms", [])],
             "rssi": [list(p) for p in store.history.get("RSSI", [])],
         }
@@ -592,7 +620,7 @@ async def api_battery(request):
         days = max(1, min(int(request.query.get("days", "30")), 400))
         test_ma = float(request.query.get("test_ma", "0")) or None
         test_cells = max(1, int(request.query.get("test_cells", "1")))
-        history_days = max(1, min(int(request.query.get("history_days", str(days))), 400))
+        history_days = max(1, min(int(request.query.get("history_days", str(days))), 3650))
     except ValueError:
         factor, days, test_ma, test_cells, history_days = 2.044, 30, None, 1, 30
     source = request.query.get("source", "meter")
@@ -810,6 +838,122 @@ async def api_notify(request):
     })
 
 
+# ------------------------------- history imported from Home Assistant -------------------------------
+async def core_ws_call(commands):
+    """Runs commands on the Home Assistant WebSocket API (through the Supervisor proxy). Returns the results."""
+    token = core_token()
+    if not token:
+        raise RuntimeError("Apka nie działa w Home Assistant")
+    async with ClientSession() as session:
+        async with session.ws_connect(CORE_WS, max_msg_size=0, timeout=30) as ws:
+            await ws.receive_json(timeout=15)                       # auth_required
+            await ws.send_json({"type": "auth", "access_token": token})
+            if (await ws.receive_json(timeout=15)).get("type") != "auth_ok":
+                raise RuntimeError("Home Assistant odrzucił autoryzację")
+            results = []
+            for number, command in enumerate(commands, 1):
+                await ws.send_json(dict(command, id=number))
+                while True:
+                    reply = await ws.receive_json(timeout=120)
+                    if reply.get("id") == number:
+                        break
+                if not reply.get("success"):
+                    raise RuntimeError((reply.get("error") or {}).get("message", "błąd Home Assistant"))
+                results.append(reply.get("result"))
+            return results
+
+
+def stat_time(value):
+    """Statistics rows carry milliseconds since 1970 or an ISO string."""
+    if isinstance(value, (int, float)):
+        return value / 1000.0 if value > 1e11 else float(value)
+    return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+
+
+def stats_to_points(rows, kind, divisor):
+    """Hourly statistics -> [[unix seconds, value]]. A meter uses the reading at the end of the hour,
+    a battery the hourly mean. Returns the points and the number of times the meter reading went down."""
+    points, decreases, top = [], 0, None
+    for row in rows or []:
+        if kind == "meter":
+            value = row.get("state")
+            when = stat_time(row["end"]) if row.get("end") is not None else stat_time(row["start"]) + 3600
+        else:
+            value = row.get("mean")
+            when = stat_time(row["start"]) + 1800
+        if value is None:
+            continue
+        value = float(value) / divisor
+        if kind == "meter":
+            if top is not None and value < top - 1e-9:
+                decreases += 1
+                continue                         # a reset of the source would ruin the consumption
+            top = value
+        points.append([round(when, 1), round(value, 3 if kind == "battery" else 2)])
+    points.sort(key=lambda p: p[0])
+    return points, decreases
+
+
+def summarize(points, kind, decreases=0):
+    if not points:
+        return {"count": 0}
+    values = [p[1] for p in points]
+    out = {"count": len(points), "from": points[0][0], "to": points[-1][0], "first": values[0], "last": values[-1],
+           "min": min(values), "max": max(values), "decreases": decreases}
+    if kind == "battery":
+        out["avg"] = sum(values) / len(values)
+    return out
+
+
+async def api_ha_stats(request):
+    app = request.app
+    store = app["store"]
+    if request.method == "GET":
+        try:
+            ids = (await core_ws_call([{"type": "recorder/list_statistic_ids"}]))[0] if core_token() else []
+        except Exception as error:
+            return web.json_response({"error": str(error), "ids": [], "in_ha": bool(core_token())}, status=502)
+        listing = [{"id": i.get("statistic_id"), "name": i.get("name") or "", "unit": i.get("statistics_unit_of_measurement") or i.get("unit_of_measurement") or ""}
+                   for i in ids or []]
+        listing.sort(key=lambda i: i["id"])
+        meta = {k: {key: v[key] for key in v if key != "points"} for k, v in store.imported.items()}
+        return web.json_response({"ids": listing, "imported": meta, "in_ha": bool(core_token())})
+    try:
+        body = await request.json()
+        action = body.get("action")
+        kind = body.get("kind", "meter")
+        stat_id = str(body.get("statistic_id", ""))
+        divisor = float(body.get("divisor") or 1)
+        if kind not in ("meter", "battery") or divisor <= 0:
+            raise ValueError("bad parameter")
+        if action in ("preview", "import") and not re.fullmatch(r"[a-z0-9_]+\.[a-z0-9_]+", stat_id):
+            raise ValueError("bad statistic id")
+    except (ValueError, TypeError, AttributeError) as error:
+        return web.json_response({"error": str(error)}, status=400)
+    if action == "clear":
+        with store.lock:
+            store.imported.pop(kind, None)
+        store.save_imported()
+        return web.json_response({"ok": True})
+    if action not in ("preview", "import"):
+        return web.json_response({"error": "unknown action"}, status=400)
+    try:
+        result = (await core_ws_call([{
+            "type": "recorder/statistics_during_period", "start_time": "2000-01-01T00:00:00+00:00",
+            "statistic_ids": [stat_id], "period": "hour", "types": ["state", "mean", "min", "max", "sum"]}]))[0]
+    except Exception as error:
+        return web.json_response({"error": str(error)}, status=502)
+    points, decreases = stats_to_points((result or {}).get(stat_id), kind, divisor)
+    summary = summarize(points, kind, decreases)
+    if action == "import":
+        if not points:
+            return web.json_response({"error": "Ta encja nie ma statystyk godzinowych w tym zakresie"}, status=409)
+        with store.lock:
+            store.imported[kind] = dict(summary, id=stat_id, divisor=divisor, imported_at=time.time(), points=points)
+        store.save_imported()
+    return web.json_response(summary)
+
+
 async def api_set(request):
     app = request.app
     try:
@@ -884,6 +1028,8 @@ def create_app(options):
     app.router.add_get("/api/state", api_state)
     app.router.add_get("/api/series", api_series)
     app.router.add_get("/api/battery", api_battery)
+    app.router.add_get("/api/ha_stats", api_ha_stats)
+    app.router.add_post("/api/ha_stats", api_ha_stats)
     app.router.add_get("/api/notify", api_notify)
     app.router.add_post("/api/notify", api_notify)
     app.router.add_get("/api/notify_targets", api_notify_targets)
