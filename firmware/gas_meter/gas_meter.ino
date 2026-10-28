@@ -1,5 +1,7 @@
 /*******************************************************************************
  * Battery powered gas meter pulse counter (reed contact -> MQTT -> Home Assistant)
+ * The idea of reporting every pulse at once (no waiting after a failure, acknowledged publish of the absolute counter)
+ * comes from https://github.com/Torxgewinde/Firebeetle-2-ESP32-E (GPL-2, Tom Stoeveken).
  *
  * Board : DFRobot FireBeetle 2 ESP32-UE (DFR1140), ESP32 Arduino core 3.x
  * Library: "MQTT" by Joel Gaehwiler (Library Manager)
@@ -36,7 +38,7 @@
 #include "driver/rtc_io.h"
 #include "esp_sleep.h"
 
-#define FW_VERSION "0.2.4"
+#define FW_VERSION "0.2.5"
 
 // ------------------------------- configuration -------------------------------
 // WiFi and MQTT credentials live in secrets.h (copy secrets.example.h, never commit it)
@@ -485,9 +487,9 @@ static bool publishAll(bool sendStatus) {
   // never publish a counter that is only relative (it would be a small, wrong value)
   if (cache.baseKnown) {
     snprintf(buf, sizeof(buf), "%llu", (unsigned long long)cache.counter);
-    mqtt.publish(topic("counter"), String(buf), true, 0);
+    mqtt.publish(topic("counter"), String(buf), true, 1);          // QoS 1: wait until the broker has the value
     snprintf(buf, sizeof(buf), "%.2f", cache.counter / (double)PULSES_PER_M3);
-    mqtt.publish(topic("cubic_meters"), String(buf), true, 0);
+    mqtt.publish(topic("cubic_meters"), String(buf), true, 1);
   }
 
   if (sendStatus) {
@@ -625,6 +627,7 @@ void setup() {
   bool allowWifi = !(batteryValid && v < BATTERY_STOP_WIFI_V);
 
   // ---- reed contact: one pulse = magnet arrives (level goes LOW) ----
+  uint32_t pulsesAtWake = cache.pulsesTotal;      // to know whether this wake-up counted a pulse
   bool armedForLow = (cache.lastLevel == HIGH);     // the reed woke us on LOW
   unsigned long lowMs = 0;
   int level = readReedStable(lowMs);
@@ -663,7 +666,11 @@ void setup() {
   // include the status in a session that happens anyway when the last one is a few minutes old
   bool statusWanted = statusDue || (now - cache.lastStatusS >= STATUS_PIGGYBACK_S);
   bool want      = coldStart || cache.pending > 0 || statusDue || !cache.mqttSynced;
-  bool canTry    = coldStart || (now - cache.lastTryS >= interval);
+  // a new pulse is always sent at once, also while a failed session is still being waited out: the counter that is
+  // published is the absolute value, so one successful session makes up for all the failed ones. Only a longer outage
+  // (5 sessions in a row) falls back to the slow retries, to save the battery.
+  bool newPulse  = (cache.pulsesTotal != pulsesAtWake) && cache.failCount < 5;
+  bool canTry    = coldStart || newPulse || (now - cache.lastTryS >= interval);
 
   if (want && canTry && allowWifi) {
     cache.lastTryS = now;
