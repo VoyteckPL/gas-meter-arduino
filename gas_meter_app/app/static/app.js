@@ -948,6 +948,21 @@ function buildUsage() {
         el("p", { class: "hint", id: "wStatus" }),
         el("div", { class: "field", style: "gap:8px;flex-wrap:wrap;align-items:center" }, [el("span", { class: "muted small", text: "Szer./dł. geogr.:" }), lat, lon, locBtn, refBtn]),
         el("p", { class: "hint", text: "Temperatury dobowe pochodzą z darmowego archiwum Open-Meteo (bez konta i klucza); wysyłane są tylko współrzędne zaokrąglone do ok. 1 km. Stopniodni = suma różnic poniżej 15,5 °C. Model to zużycie = stałe + współczynnik × stopniodni, dopasowane do miesięcy z faktur." })], true);
+  const eBtn = (text, cls, fn) => { const bt = el("button", { class: cls, text }); bt.addEventListener("click", fn); return bt; };
+  card([el("h2", { text: "Panel Energia w Home Assistant" }),
+        el("p", { class: "hint", style: "margin:0 0 8px", text: "Apka może wysłać do Home Assistanta całą historię zużycia gazu jako statystykę „Gazomierz (z historią)”: miesiące z faktur sprzed pierwszych odczytów, potem odczyty gazomierza godzina po godzinie. Dodaj ją w Ustawienia → Pulpity → Energia → Dodaj źródło gazu. Dane z faktur są rozłożone równo na godziny miesiąca, więc dobre są do widoku miesięcznego i rocznego." }),
+        el("div", { id: "eStatus", class: "muted small" }), el("div", { id: "ePreview", class: "muted small", style: "margin-top:6px" }),
+        el("div", { class: "field", style: "gap:8px;flex-wrap:wrap;margin-top:8px" }, [
+          eBtn("Podgląd", "secondary", () => energyAction("preview")),
+          eBtn("Wyślij historię do panelu Energia", "", async () => {
+            const ok = await confirmDialog({ title: "Wysłać historię do panelu Energia?", confirmText: "Wyślij",
+              message: "Apka doda w Home Assistancie własną statystykę „Gazomierz (z historią)”. Nie zmienia żadnej istniejącej encji ani jej historii, a statystykę można usunąć przyciskiem obok. Potem nowe godziny będą dopisywane automatycznie." });
+            if (ok) energyAction("import");
+          }),
+          eBtn("Usuń z Home Assistanta", "ghost", async () => {
+            const ok = await confirmDialog({ title: "Usunąć statystykę z Home Assistanta?", danger: true, confirmText: "Usuń", message: "Zniknie statystyka „Gazomierz (z historią)” razem z historią w panelu Energia. Dane w apce zostają i można je wysłać ponownie." });
+            if (ok) energyAction("clear");
+          })])]);
   card([el("h2", { text: "Profil sezonowy (średnio na miesiąc)" }), el("div", { id: "uSeason" }),
         el("p", { class: "hint", text: "Średnia ze wszystkich lat z faktur. Impulsy na dobę to to, co gazomierz będzie liczył w danym miesiącu, więc od tego zależy zużycie baterii." })]);
   card([el("h2", { text: "Rocznie" }), el("div", { id: "uYears", style: "overflow-x:auto" })]);
@@ -1042,6 +1057,27 @@ async function loadUsage() {
   renderUsage();
   syncOrlen();
   loadWeather();
+  api("energy").then(renderEnergy).catch(() => {});
+}
+
+async function energyAction(action) {
+  try {
+    const r = await api("energy", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) });
+    if (action === "preview" || action === "import") {
+      $("#ePreview").textContent = (action === "preview" ? "Podgląd: " : "Wysłano: ") + r.rows + " godzin, od " + new Date(r.from * 1000).toLocaleDateString("pl-PL") + " do " + new Date(r.to * 1000).toLocaleDateString("pl-PL") +
+        ", razem " + num(r.total_m3, 0) + " m³ (w tym " + r.history_rows + " godzin z faktur).";
+    } else $("#ePreview").textContent = "";
+    if (action !== "preview") toast(action === "import" ? "Wysłano historię do Home Assistanta" : "Usunięto statystykę");
+    renderEnergy(r.status || r);
+  } catch (e) { toast(e.message, true); }
+}
+
+function renderEnergy(st) {
+  const box = $("#eStatus");
+  if (!box) return;
+  box.textContent = !st || !st.in_ha ? "Dostępne tylko, gdy apka działa w Home Assistant." :
+    st.imported ? "Statystyka " + st.statistic_id + " jest w Home Assistancie: " + st.rows + " godzin, ostatnia z " + new Date(st.last_start * 1000).toLocaleString("pl-PL") + ", suma " + num(st.last_sum, 0) + " m³. Nowe godziny są dopisywane co godzinę." :
+    "Jeszcze nic nie wysłano.";
 }
 
 const weatherState = { data: null, chart: null, chartReady: false, scatterHover: null, forecastHover: null };

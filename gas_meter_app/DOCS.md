@@ -175,3 +175,9 @@ Apka pobiera dobowe średnie temperatury z archiwum Open-Meteo (darmowe, bez klu
 domyślnie z lokalizacji ustawionej w Home Assistancie; można je zmienić w karcie „Pogoda a zużycie". Temperatury są zapisywane w `/data/weather.json`.
 Na ich podstawie liczone są stopniodni grzewcze (suma różnic poniżej 15,5 °C) i model „zużycie = stałe + współczynnik × stopniodni"
 dopasowany do miesięcy z faktur. Daje to prognozę na 12 miesięcy i porównanie sezonów grzewczych (m³ na 1000 stopniodni). Potrzeba co najmniej 6 miesięcy z fakturami.
+
+## Panel Energia
+
+Karta „Panel Energia w Home Assistant” (zakładka Zużycie) wysyła statystykę `gas_meter_app:gas_history` w m³. Potem w Ustawienia → Pulpity → Energia
+dodaj źródło gazu i wybierz „Gazomierz (z historią)”. Nie dodawaj obok niego drugiej encji gazomierza, bo zużycie zliczy się podwójnie.
+Faktury sprzed odczytów są rozłożone równo na godziny miesiąca, więc widok godzinowy i dzienny dla tamtego okresu jest uśredniony.

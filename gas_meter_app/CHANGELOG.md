@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.19.0
+
+* **Panel Energia:** apka wysyła do Home Assistanta własną statystykę „Gazomierz (z historią)” (`gas_meter_app:gas_history`, m³, z sumą).
+  Do pierwszych odczytów gazomierza używa miesięcy z faktur rozłożonych równo na godziny, dalej godzinowych odczytów gazomierza
+  (także tych zaimportowanych z Home Assistanta). Jedno źródło gazu w panelu Energia pokazuje więc całą historię.
+* Nie zmienia żadnej istniejącej encji. Nowe godziny są dopisywane co godzinę, a statystykę można usunąć przyciskiem w apce.
+  Wysyłka i usunięcie wymagają potwierdzenia.
+
 ## 0.18.1
 
 * **Miesiące jako bloki:** co drugi miesiąc ma jasne tło, a w porównaniu lat i prognozie dochodzą pionowe podziałki między miesiącami.

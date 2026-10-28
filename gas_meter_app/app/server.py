@@ -38,11 +38,14 @@ CORE_WS = os.environ.get("CORE_WS") or CORE_API.replace("http://", "ws://").repl
 IMPORT_FILE = os.path.join(DATA_DIR, "imported.json")
 BILLS_FILE = os.path.join(DATA_DIR, "bills.json")
 WEATHER_FILE = os.path.join(DATA_DIR, "weather.json")
+ENERGY_FILE = os.path.join(DATA_DIR, "energy.json")
+ENERGY_ID = "gas_meter_app:gas_history"
 WEATHER_API = os.environ.get("WEATHER_API", "https://archive-api.open-meteo.com/v1/archive")
 
 import battery
 import notifier
 import weather
+import energy
 
 log = logging.getLogger("gas_meter")
 
@@ -1327,6 +1330,131 @@ async def api_weather(request):
                               "base_c": weather.BASE_C, **analysis})
 
 
+def load_energy():
+    try:
+        with open(ENERGY_FILE, encoding="utf-8") as handle:
+            return json.load(handle)
+    except (OSError, ValueError):
+        return {}
+
+
+def save_energy(data):
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        with open(ENERGY_FILE + ".tmp", "w", encoding="utf-8") as handle:
+            json.dump(data, handle)
+        os.replace(ENERGY_FILE + ".tmp", ENERGY_FILE)
+    except OSError as error:  # pragma: no cover
+        log.warning("cannot save energy state: %s", error)
+
+
+def bills_context(app):
+    """monthly usage from the invoices and the kWh/m3 factor, the same way the Usage tab computes them."""
+    bills = app["bills"]
+    monthly = monthly_from_bills(bills["bills"])
+    own = sorted(b["kwh"] / b["m3"] for b in bills["bills"] if b.get("kwh") and b.get("m3"))
+    factor = bills.get("factor", 11.0) if bills.get("factor_manual") or not own else own[len(own) // 2]
+    return monthly, factor
+
+
+def iso_hour(ts):
+    return datetime.utcfromtimestamp(ts).strftime("%Y-%m-%dT%H:00:00+00:00")
+
+
+async def send_energy(rows):
+    """Sends hourly rows as the external statistic; a Home Assistant that does not know unit_class gets it without."""
+    metadata = {"has_mean": False, "has_sum": True, "name": "Gazomierz (z historią)", "source": "gas_meter_app",
+                "statistic_id": ENERGY_ID, "unit_of_measurement": "m³", "unit_class": "volume"}
+    for start in range(0, len(rows), 3000):
+        stats = [{"start": iso_hour(r["start"]), "sum": round(r["sum"], 4), "state": round(r["state"], 4)} for r in rows[start:start + 3000]]
+        try:
+            await core_ws_call([{"type": "recorder/import_statistics", "metadata": metadata, "stats": stats}])
+        except RuntimeError as error:
+            if "unit_class" not in str(error) and "extra keys" not in str(error):
+                raise
+            metadata.pop("unit_class", None)
+            await core_ws_call([{"type": "recorder/import_statistics", "metadata": metadata, "stats": stats}])
+
+
+def energy_status(app):
+    data = app["energy"]
+    out = {"in_ha": bool(core_token()), "statistic_id": ENERGY_ID, "imported": bool(data.get("last_start"))}
+    for key in ("last_start", "last_sum", "imported_at", "rows", "first_start", "history_rows"):
+        out[key] = data.get(key)
+    return out
+
+
+async def energy_full(app, dry):
+    monthly, factor = bills_context(app)
+    with app["store"].lock:
+        meter = [list(p) for p in app["store"].series("cubic_meters")]
+    rows, state = energy.build_rows(monthly, factor, meter, time.time())
+    if not rows:
+        raise ValueError("Brak danych do wysłania: zaimportuj faktury albo poczekaj na odczyty gazomierza.")
+    first_live = meter[0][0] if meter else None
+    summary = {"rows": len(rows), "from": rows[0]["start"], "to": rows[-1]["start"], "total_m3": rows[-1]["sum"],
+               "history_rows": len([r for r in rows if first_live is None or r["start"] < energy.hour_floor(first_live)]), "months": len(monthly)}
+    if not dry:
+        await send_energy(rows)
+        data = app["energy"]
+        data.update(state, imported_at=time.time(), rows=len(rows), first_start=rows[0]["start"], history_rows=summary["history_rows"])
+        save_energy(data)
+    return summary
+
+
+async def energy_update(app):
+    """Hourly: the new completed hours of the meter, continuing the stored sum."""
+    data = app["energy"]
+    if not data.get("last_start"):
+        return 0
+    with app["store"].lock:
+        meter = [list(p) for p in app["store"].series("cubic_meters")]
+    rows, state = energy.build_rows([], 11.0, meter, time.time(), data)
+    if not rows:
+        return 0
+    await send_energy(rows)
+    data.update(state, imported_at=time.time(), rows=(data.get("rows") or 0) + len(rows))
+    save_energy(data)
+    return len(rows)
+
+
+async def energy_loop(app):
+    await asyncio.sleep(90)
+    while True:
+        try:
+            await energy_update(app)
+        except Exception as error:  # pragma: no cover
+            log.warning("energy update failed: %s", error)
+        await asyncio.sleep(3600)
+
+
+async def api_energy(request):
+    app = request.app
+    if request.method == "POST":
+        try:
+            action = (await request.json()).get("action")
+        except (ValueError, AttributeError):
+            return web.json_response({"error": "bad request"}, status=400)
+        try:
+            if action in ("preview", "import"):
+                if not core_token():
+                    return web.json_response({"error": "Apka nie działa w Home Assistant"}, status=409)
+                summary = await energy_full(app, action == "preview")
+                return web.json_response(dict(summary, status=energy_status(app)))
+            if action == "clear":
+                await core_ws_call([{"type": "recorder/clear_statistics", "statistic_ids": [ENERGY_ID]}])
+                app["energy"].clear()
+                save_energy(app["energy"])
+            else:
+                return web.json_response({"error": "unknown action"}, status=400)
+        except ValueError as error:
+            return web.json_response({"error": str(error)}, status=409)
+        except Exception as error:
+            log.warning("energy %s failed: %s", action, error)
+            return web.json_response({"error": str(error)}, status=502)
+    return web.json_response(energy_status(app))
+
+
 async def api_set(request):
     app = request.app
     try:
@@ -1380,12 +1508,14 @@ async def on_startup(app):
     app["saver"] = asyncio.create_task(saver(app))
     app["notifier"] = asyncio.create_task(notifier_loop(app))
     app["weather_task"] = asyncio.create_task(weather_loop(app))
+    app["energy_task"] = asyncio.create_task(energy_loop(app))
 
 
 async def on_cleanup(app):
     app["saver"].cancel()
     app["notifier"].cancel()
     app["weather_task"].cancel()
+    app["energy_task"].cancel()
     app["store"].save()
     app["bridge"].client.loop_stop()
     app["bridge"].client.disconnect()
@@ -1398,6 +1528,7 @@ def create_app(options):
     app["notify_log"] = []
     app["bills"] = load_bills()
     app["weather"] = load_weather()
+    app["energy"] = load_energy()
     app["notify_targets"] = load_targets()
     app["store"] = Store(options.get("root_topic") or "Gaz/Gazomierz",
                          options.get("battery_test_topic", "Gaz/BatteryTest"))
@@ -1408,6 +1539,8 @@ def create_app(options):
     app.router.add_get("/api/orlen", api_orlen)
     app.router.add_get("/api/bills", api_bills)
     app.router.add_post("/api/bills", api_bills)
+    app.router.add_get("/api/energy", api_energy)
+    app.router.add_post("/api/energy", api_energy)
     app.router.add_get("/api/weather", api_weather)
     app.router.add_post("/api/weather", api_weather)
     app.router.add_get("/api/ha_stats", api_ha_stats)
