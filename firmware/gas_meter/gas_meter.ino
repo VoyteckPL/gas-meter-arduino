@@ -36,7 +36,7 @@
 #include "driver/rtc_io.h"
 #include "esp_sleep.h"
 
-#define FW_VERSION "0.2.2"
+#define FW_VERSION "0.2.3"
 
 // ------------------------------- configuration -------------------------------
 // WiFi and MQTT credentials live in secrets.h (copy secrets.example.h, never commit it)
@@ -544,6 +544,13 @@ static bool publishAll(bool sendStatus) {
   return true;
 }
 
+// seconds to wait after the n-th failed session in a row: quick first retries (one lost session must not hold
+// the next pulses for a minute), then slower while the network is really down
+static uint32_t retryDelayS(uint8_t failures) {
+  static const uint16_t steps[] = {10, 30, 60, 120, 240};
+  return failures >= 6 ? 900UL : steps[failures - 1];
+}
+
 // ------------------------------- main ---------------------------------------
 void setup() {
 #if STATUS_LED
@@ -650,7 +657,7 @@ void setup() {
   uint32_t now = nowSeconds();
   uint32_t interval = MIN_SEND_INTERVAL_S;
   if (cache.failCount > 0) {
-    interval = (cache.failCount >= 4) ? 900UL : (60UL << (cache.failCount - 1));
+    interval = retryDelayS(cache.failCount);
   }
   bool statusDue = coldStart || (now - cache.lastStatusS >= STATUS_INTERVAL_S);
   // include the status in a session that happens anyway when the last one is a few minutes old
@@ -663,6 +670,8 @@ void setup() {
     bool ok = false;
     if (wifiUp((coldStart && !cache.baseKnown) ? WIFI_TIMEOUT_FIRST_MS : WIFI_TIMEOUT_MS)) {
       ok = publishAll(statusWanted);
+    } else {
+      LOG("WiFi connection failed\r\n");
     }
     WiFi.disconnect(true);
     now = nowSeconds();
@@ -674,7 +683,8 @@ void setup() {
       if (statusWanted) cache.lastStatusS = now;
     } else if (cache.failCount < 255) {
       cache.failCount++;
-      interval = (cache.failCount >= 4) ? 900UL : (60UL << (cache.failCount - 1));
+      interval = retryDelayS(cache.failCount);
+      LOG("Send failed (%u in a row), next try in %lu s\r\n", (unsigned)cache.failCount, (unsigned long)interval);
     }
     cache.lastTryS = now;
   }
