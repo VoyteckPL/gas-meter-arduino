@@ -1,116 +1,112 @@
-# Gas Meter
+# Gazomierz
 
-A panel in the Home Assistant sidebar for the battery powered ESP32 gas meter
-(see the firmware in this repository). It shows the readings and lets you change the
-meter's settings. It also creates normal Home Assistant entities (meter reading in m³,
-battery, WiFi signal) so the gas meter can be used in the Energy dashboard.
+Panel w pasku bocznym Home Assistant dla gazomierza na baterii (ESP32, kontaktron, MQTT; firmware w tym repozytorium).
+Pokazuje odczyty, historię i baterię z prognozą żywotności, pozwala zmieniać ustawienia gazomierza i wysyła powiadomienia o baterii.
+Tworzy też zwykłe encje Home Assistant (stan licznika w m³, bateria, sygnał WiFi), więc gazomierz można dodać do panelu Energia.
 
-## Installation
+Styl interfejsu jest inspirowany kolorystyką ORLEN. Aplikacja jest nieoficjalna i nie ma związku z PKN ORLEN.
 
-1. In Home Assistant open **Settings → Add-ons → Add-on store**.
-2. Open the **⋮** menu (top right) → **Repositories** and add
-   `https://github.com/VoyteckPL/gas-meter-arduino`.
-3. Find **Gas Meter**, **Install**, **Start**. Switch on **Show in sidebar**.
-4. Open **Gas meter** from the sidebar.
+## Instalacja
 
-## MQTT connection
+1. W Home Assistant otwórz **Ustawienia → Dodatki → Sklep z dodatkami**.
+2. Menu **⋮** (prawy górny róg) → **Repozytoria** i dodaj `https://github.com/VoyteckPL/gas-meter-arduino`.
+3. Znajdź **Gazomierz**, kliknij **Zainstaluj**, **Uruchom** i włącz **Pokaż na pasku bocznym**.
+4. Otwórz **Gazomierz** z paska bocznego.
 
-* If the **Mosquitto broker** add-on is installed, the app uses it automatically.
-* Otherwise open the app **Configuration** tab and fill in `mqtt_host`, `mqtt_port`,
-  `mqtt_user` and `mqtt_password` (the same broker the meter publishes to).
+## Połączenie MQTT
 
-The credentials are stored by Home Assistant, not in this repository.
+* Jeśli masz dodatek **Mosquitto broker**, apka użyje go automatycznie.
+* W przeciwnym razie w zakładce **Konfiguracja** apki wpisz `mqtt_host`, `mqtt_port`, `mqtt_user` i `mqtt_password`
+  (ten sam broker, do którego publikuje gazomierz).
 
-## Tabs
+Dane logowania przechowuje Home Assistant, nie to repozytorium.
 
-| Tab | Content |
+## Zakładki
+
+| Zakładka | Zawartość |
 |---|---|
-| **Overview** | meter reading, flow, consumption today, battery, WiFi signal, consumption chart. Click a value to see its history |
-| **Battery** | battery voltage history with forecast, life prediction, capacity, discharge test, nerd statistics |
-| **Settings** | meter settings (send interval, debounce, pulses per m³, battery calibration and limits) and **Set meter reading** |
-| **Network** | current IP, MAC, WiFi network and access point; static IP and WiFi settings |
-| **Service** | service mode, restart, firmware update, diagnostics (counters, wake-ups, uptime, reset reason) |
-| **Demo** | simulator of the meter and the ESP32, runs in the browser and needs no data from the meter |
+| **Przegląd** | stan licznika, przepływ, zużycie dziś, bateria, sygnał WiFi, wykres zużycia. Kliknij kafelek, żeby zobaczyć historię |
+| **Bateria** | historia napięcia z prognozą, prognoza żywotności, pojemność, test rozładowania, powiadomienia, statystyki dla nerdów |
+| **Ustawienia** | parametry gazomierza (odstęp wysyłki, debounce, impulsy na m³, kalibracja i progi baterii) oraz **Ustaw stan licznika** |
+| **Sieć** | aktualne IP, MAC, sieć WiFi i punkt dostępu, stałe IP i ustawienia WiFi |
+| **Serwis** | tryb serwisowy, restart, aktualizacja firmware, diagnostyka (liczniki, obudzenia, czas pracy, powód restartu) |
+| **Demo** | symulator gazomierza i ESP32, działa w przeglądarce i nie potrzebuje danych z gazomierza |
 
-A small orange number on a tab means that many commands are waiting for the meter to pick them up.
-The last tab you used is remembered.
+Mała pomarańczowa liczba przy zakładce oznacza, ile poleceń czeka, aż gazomierz je odbierze. Ostatnio użyta zakładka jest zapamiętywana.
 
-## Battery tab
+## Zakładka Bateria
 
-Shows the voltage history with a forecast and two independent life predictions:
+Pokazuje historię napięcia z prognozą i dwie niezależne prognozy żywotności:
 
-* **Usage model**: remaining charge divided by the average current computed from what the meter
-  really does (WiFi sessions per day, about 0.04 mAh per session, sleep 50 µA, self-discharge 1.5 % per month).
-  Works from the first day.
-* **Voltage trend**: a line through the state of charge over the last 7 days, extended to the cut-off
-  voltage. It is measured but settles slowly, because a Li-ion cell has a flat voltage curve at the top.
+* **Model zużycia**: pozostały ładunek podzielony przez średni prąd wyliczony z tego, co gazomierz naprawdę robi
+  (sesje WiFi na dobę, ok. 0,04 mAh na sesję, sen 50 µA, samorozładowanie 1,5% na miesiąc). Działa od pierwszego dnia.
+* **Trend napięcia**: prosta poprowadzona przez stan naładowania z ostatnich 7 dni i przedłużona do napięcia odcięcia.
+  Jest zmierzony, ale ustala się wolno, bo ogniwo Li-ion ma płaską krzywą napięcia na górze.
 
-The capacity used by both is the number of cells times the capacity of one cell times the usable part. Type the current
-drawn during the discharge test (measured with a multimeter in series with the battery) and the number of cells in the test, and
-the panel calculates the real capacity of your cell (current x time to empty), saves it and uses it instead of the data sheet value.
+Gdy oba wyniki się zgadzają, można im ufać.
 
-When both agree, trust the result. With the discharge test running (`firmware/battery_test`) the tab
-can also show the test; when a run reaches 3.0 V the real curve of your cells is learned and used for the gas meter.
+Pojemność użyta w obu to liczba ogniw razy pojemność jednego ogniwa razy użyteczna część. Wpisz prąd pobierany podczas testu rozładowania
+(zmierzony multimetrem szeregowo z baterią) i liczbę ogniw w teście, a panel policzy prawdziwą pojemność Twojego ogniwa
+(prąd razy czas do rozładowania), zapisze ją i użyje zamiast wartości katalogowej. Gdy test dojdzie do 3,0 V, panel uczy się też
+prawdziwej krzywej napięcie → naładowanie i używa jej dla gazomierza.
 
-## Notifications
+## Powiadomienia
 
-The app watches the battery and sends messages through Home Assistant (a notification in the bell and, when
-`notify_service` is set, a push to the phone):
+Apka obserwuje baterię i wysyła wiadomości przez Home Assistant (powiadomienie w dzwonku oraz, po wybraniu odbiorców, push na telefon):
 
-* **Report** (weekly or monthly, the first one right after the first data): charge, voltage, estimated life from
-  the usage model and the voltage trend, and the date by which to charge. The date uses the more cautious of the two.
-* **Warning** when fewer than `battery_warn_days` days are left before the WiFi stop voltage (3.10 V), repeated every
-  7 days. Below `battery_critical_days` the message is stronger and repeated every 2 days. A voltage of 3.50 V / 3.30 V
-  triggers the same warnings even if the prediction is missing.
-* **Charged** note when the voltage rose by 0.25 V after a warning, which also clears the warning.
-* **Silent meter** alert when no data arrives for `silent_alert_hours` hours (an empty battery or lost WiFi).
+* **Raport** (co tydzień albo co miesiąc, pierwszy zaraz po pierwszych danych): naładowanie, napięcie, szacunkowa żywotność z modelu
+  i z trendu oraz data, do której warto naładować. Data jest liczona z ostrożniejszej z dwóch prognoz.
+* **Ostrzeżenie**, gdy do napięcia zatrzymania WiFi (3,10 V) zostaje mniej niż `battery_warn_days` dni, powtarzane co 7 dni.
+  Poniżej `battery_critical_days` komunikat jest mocniejszy i wraca co 2 dni. Napięcia 3,50 V / 3,30 V wywołują te same ostrzeżenia,
+  nawet gdy prognozy brakuje.
+* **Naładowano**, gdy napięcie wzrosło o 0,25 V po ostrzeżeniu (to też kasuje ostrzeżenie).
+* **Alarm ciszy**, gdy przez `silent_alert_hours` godzin nie przychodzą dane (pusta bateria albo zgubione WiFi).
 
-**Choosing who gets the messages:** in the **Battery** tab, card *Notifications*, the panel lists the people of your
-Home Assistant with their phones (phones with the Home Assistant Companion app), plus other phones that do not belong to a
-person. Tick the ones that should get the messages. The choice is saved by the app. If your phone is missing, install the
-Companion app, log in and press *Refresh*.
+**Wybór odbiorców:** w zakładce **Bateria**, karta *Powiadomienia*, panel pokazuje osoby z Twojego Home Assistant razem z ich telefonami
+(z aplikacją Home Assistant Companion) oraz inne telefony, które nie należą do żadnej osoby. Zaznacz tych, którzy mają dostawać wiadomości.
+Wybór zapamiętuje apka. Jeśli telefonu nie ma na liście, zainstaluj aplikację Companion, zaloguj się i kliknij *Odśwież*.
 
-Use the buttons in the **Battery** tab to send a test message or a report at once. The app needs access to the Home
-Assistant API (`homeassistant_api`); Home Assistant grants it on update.
+Przyciski w karcie pozwalają od razu wysłać wiadomość testową albo raport. Apka potrzebuje dostępu do API Home Assistant
+(`homeassistant_api`), HA nadaje go przy aktualizacji.
 
-## Options
+## Opcje
 
-| Option | Default | Meaning |
+| Opcja | Domyślnie | Znaczenie |
 |---|---|---|
-| `mqtt_host`, `mqtt_port`, `mqtt_user`, `mqtt_password` | empty | broker, leave empty to use the Mosquitto add-on |
-| `root_topic` | `Gaz/Gazomierz` | must be the same as `ROOT_TOPIC` in the firmware |
-| `battery_test_topic` | `Gaz/BatteryTest` | topic of the `battery_test` sketch, shows a discharge test card and chart (empty = off) |
-| `battery_preset` | `NCR18650GA` | cell type (rated capacity from the data sheet) or `custom` |
-| `battery_cells` | `2` | number of cells **in parallel** |
-| `battery_cell_mah` | `3000` | capacity of one cell, used only with `custom` |
-| `battery_usable_pct` | `85` | usable part of the label capacity (3.0 V cut-off, cold, ageing, real cells below the label) |
-| `notify_service` | empty | optional: one more notification service, for example `notify.mobile_app_yourphone`. Normally you choose the phones in the **Battery** tab instead |
-| `notify_persistent` | `true` | also create a notification in the Home Assistant bell |
-| `battery_report` | `monthly` | report with the charge and the estimated life: `off`, `weekly` or `monthly` |
-| `battery_warn_days` | `45` | warn when fewer days than this are left before the WiFi stop voltage |
-| `battery_critical_days` | `14` | stronger warning below this many days |
-| `silent_alert_hours` | `48` | alert when the meter sends nothing for this many hours (0 = off) |
-| `publish_discovery` | `true` | create the Home Assistant entities (meter, battery, signal) |
-| `language` | `auto` | `auto` (browser language), `pl` or `en`. The PL / EN button in the panel overrides it |
+| `mqtt_host`, `mqtt_port`, `mqtt_user`, `mqtt_password` | puste | broker; zostaw puste, żeby użyć dodatku Mosquitto |
+| `root_topic` | `Gaz/Gazomierz` | musi być taki sam jak `ROOT_TOPIC` w firmware |
+| `battery_test_topic` | `Gaz/BatteryTest` | temat szkicu `battery_test`, pokazuje kartę i wykres testu rozładowania (puste = wyłączone) |
+| `battery_preset` | `NCR18650GA` | typ ogniw (pojemność z danych katalogowych) albo `custom` |
+| `battery_cells` | `2` | liczba ogniw **równolegle** |
+| `battery_cell_mah` | `3000` | pojemność jednego ogniwa, tylko przy `custom` |
+| `battery_usable_pct` | `85` | użyteczna część pojemności z etykiety (odcięcie 3,0 V, zimno, starzenie, ogniwa poniżej etykiety) |
+| `notify_service` | puste | opcjonalnie jedna dodatkowa usługa powiadomień, np. `notify.mobile_app_twoj_telefon`. Zwykle odbiorców wybierasz w zakładce Bateria |
+| `notify_persistent` | `true` | dodatkowo twórz powiadomienie w dzwonku Home Assistant |
+| `battery_report` | `monthly` | raport o baterii: `off`, `weekly` lub `monthly` |
+| `battery_warn_days` | `45` | ostrzegaj, gdy do napięcia zatrzymania WiFi zostaje mniej dni |
+| `battery_critical_days` | `14` | mocniejsze ostrzeżenie poniżej tylu dni |
+| `silent_alert_hours` | `48` | alarm, gdy gazomierz nic nie wysyła przez tyle godzin (0 = wyłączone) |
+| `publish_discovery` | `true` | utwórz encje Home Assistant (stan licznika, bateria, sygnał) |
+| `language` | `auto` | nieużywane, apka jest tylko po polsku |
 
-## How the panel talks to the meter
+## Jak panel rozmawia z gazomierzem
 
-The meter sleeps almost all the time. It only reads settings during a WiFi session, which
-happens when gas flows (heating or hot water) and every few hours for the status report.
-Therefore:
+Gazomierz śpi prawie cały czas. Ustawienia odczytuje tylko podczas sesji WiFi, która zdarza się, gdy płynie gaz (ogrzewanie albo ciepła woda)
+oraz co kilka godzin przy raporcie statusowym. Dlatego:
 
-* A change is written to the broker as a **retained command** (`<root>/set/<name>`).
-  The panel shows **"waiting for the meter"** until the meter has read and cleared it.
-* To make the meter pick up changes quickly, turn on **service mode** and run hot water
-  or heating for a moment. The meter then stays awake until you switch service mode off.
-* Pending commands can be cancelled with **cancel**.
+* Zmiana jest zapisywana na brokerze jako **polecenie retained** (`<root>/set/<nazwa>`). Panel pokazuje
+  **„czeka na gazomierz”**, dopóki gazomierz jej nie odczyta i nie wyczyści.
+* Żeby gazomierz odebrał zmiany szybko, włącz **tryb serwisowy** i odkręć na chwilę ciepłą wodę albo ogrzewanie.
+  Gazomierz zostaje wtedy obudzony, dopóki nie wyłączysz trybu serwisowego.
+* Oczekujące polecenia można anulować przyciskiem **anuluj**.
 
-Settings, service mode, firmware update and network changes need the firmware stage 2
-(see the repository README). Readings and **Set meter reading** work with the current firmware.
+Ustawienia, tryb serwisowy, aktualizacja firmware i zmiana sieci wymagają firmware etapu 2 (patrz README repozytorium).
+Odczyty i **Ustaw stan licznika** działają z obecnym firmware.
 
-## Notes
+## Uwagi
 
-* The WiFi password you type in the Network section travels through the MQTT broker until
-  the meter has applied it and cleared it. Use a private broker. The panel never shows the password.
-* History (meter reading, battery, signal) is kept in the app's data folder for 14 days
-  and survives restarts and updates.
+* Hasło WiFi wpisane w sekcji Sieć przechodzi przez broker MQTT, dopóki gazomierz go nie zastosuje i nie wyczyści. Używaj prywatnego brokera.
+  Panel nigdy nie pokazuje hasła.
+* Historia (stan licznika, bateria, sygnał) jest zapisywana w katalogu danych apki i przeżywa restarty oraz aktualizacje.
+  Baterię, sygnał i liczniki sesji trzymamy ok. roku (jedna próbka na 15 minut).
+* Logo w pasku nagłówka to `static/logo.png`, ikona apki to `icon.png`. Możesz je podmienić na własne pliki o tych nazwach.

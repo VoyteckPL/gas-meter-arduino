@@ -1,31 +1,31 @@
 <!doctype html>
-<html lang="en">
+<html lang="pl">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Gas meter</title>
+  <title>Gazomierz</title>
   <link rel="stylesheet" href="static/app.css">
 </head>
 <body>
-  <header>
-    <h1 id="title">Gas meter</h1>
-    <div class="head-right">
-      <span id="conn" class="badge off">...</span>
-      <button id="langBtn" class="ghost" title="Language">PL / EN</button>
+  <header><div class="hwrap">
+    <div class="top">
+      <div class="logo"><img src="static/logo.png" alt="Gazomierz"></div>
+      <div class="ttl"><h1 id="title">Gazomierz</h1><small id="sub">ładowanie…</small></div>
+      <span class="pill" id="conn"><span class="dot wait" id="connDot"></span><span id="connTxt">…</span></span>
+      <button class="iconbtn" id="refreshBtn" title="Odśwież">⟳</button>
     </div>
-  </header>
-
-  <nav class="viewtabs" id="viewTabs">
-    <button class="secondary active" data-view="panel" id="tabPanel">Overview</button>
-    <button class="secondary" data-view="battery" id="tabBattery">Battery</button>
-    <button class="secondary" data-view="settings" id="tabSettings">Settings</button>
-    <button class="secondary" data-view="network" id="tabNetwork">Network</button>
-    <button class="secondary" data-view="service" id="tabService">Service</button>
-    <button class="secondary" data-view="demo" id="tabDemo">Demo</button>
-  </nav>
+    <nav class="viewtabs" id="viewTabs">
+      <button class="active" data-view="panel" id="tabPanel">Przegląd</button>
+      <button data-view="battery" id="tabBattery">Bateria</button>
+      <button data-view="settings" id="tabSettings">Ustawienia</button>
+      <button data-view="network" id="tabNetwork">Sieć</button>
+      <button data-view="service" id="tabService">Serwis</button>
+      <button data-view="demo" id="tabDemo">Demo</button>
+    </nav>
+  </div></header>
 
   <main id="root">
-    <p class="muted" id="loading">Loading...</p>
+    <p class="muted" id="loading">Ładowanie…</p>
   </main>
 
   <div id="batteryView" class="bgrid" hidden></div>

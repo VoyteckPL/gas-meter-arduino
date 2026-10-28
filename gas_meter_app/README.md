@@ -1,6 +1,6 @@
-# Gas Meter (Home Assistant app / add-on)
+# Gazomierz (aplikacja / dodatek Home Assistant)
 
-Sidebar panel for the battery powered ESP32 gas meter: readings, consumption chart,
-battery, settings and service mode. Talks to the meter over MQTT.
+Panel w pasku bocznym dla gazomierza na baterii (ESP32): odczyty, historia, bateria z prognozą żywotności,
+powiadomienia, ustawienia i tryb serwisowy. Rozmawia z gazomierzem przez MQTT.
 
-See `DOCS.md` for installation and usage.
+Instalacja i opis w `DOCS.md`.

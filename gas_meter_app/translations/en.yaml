@@ -1,0 +1,55 @@
+configuration:
+  mqtt_host:
+    name: Adres brokera MQTT
+    description: Zostaw puste, żeby użyć dodatku Mosquitto broker. Inaczej wpisz adres brokera, do którego publikuje gazomierz.
+  mqtt_port:
+    name: Port MQTT
+    description: Zwykle 1883.
+  mqtt_user:
+    name: Użytkownik MQTT
+    description: Zostaw puste przy użyciu dodatku Mosquitto broker.
+  mqtt_password:
+    name: Hasło MQTT
+    description: Zostaw puste przy użyciu dodatku Mosquitto broker. Hasło jest przechowywane przez Home Assistant, nie w repozytorium.
+  root_topic:
+    name: Temat główny gazomierza
+    description: Musi być taki sam jak ROOT_TOPIC w szkicu gazomierza (domyślnie Gaz/Gazomierz).
+  battery_test_topic:
+    name: Temat testu baterii
+    description: Temat szkicu testu rozładowania (firmware/battery_test). Puste wyłącza kartę testu.
+  battery_preset:
+    name: Typ ogniw
+    description: Typ ogniw 18650, z którego bierze się pojemność z danych katalogowych. Wybierz "custom" i wpisz pojemność poniżej dla innych ogniw.
+  battery_cells:
+    name: Liczba ogniw
+    description: Liczba ogniw połączonych równolegle.
+  battery_cell_mah:
+    name: Pojemność jednego ogniwa (mAh)
+    description: Używane tylko przy typie "custom".
+  battery_usable_pct:
+    name: Użyteczna część pojemności (%)
+    description: Jaka część pojemności z etykiety jest realnie dostępna (odcięcie 3,0 V, zimno, starzenie). Domyślnie 85. Zmierzona pojemność z testu rozładowania ma pierwszeństwo.
+  notify_service:
+    name: Dodatkowa usługa powiadomień
+    description: Opcjonalnie, np. notify.mobile_app_twoj_telefon. Zwykle odbiorców wybierasz w panelu (zakładka Bateria).
+  notify_persistent:
+    name: Powiadomienie w Home Assistant
+    description: Dodatkowo twórz powiadomienie w dzwonku Home Assistant.
+  battery_report:
+    name: Raport o baterii
+    description: Jak często wysyłać raport z naładowaniem i szacunkową żywotnością (off - wyłączony, weekly - co tydzień, monthly - co miesiąc).
+  battery_warn_days:
+    name: Ostrzeżenie (dni do ładowania)
+    description: Ostrzegaj, gdy do napięcia zatrzymania WiFi zostaje mniej dni niż ta wartość.
+  battery_critical_days:
+    name: Ostrzeżenie krytyczne (dni)
+    description: Mocniejsze ostrzeżenie poniżej tej liczby dni.
+  silent_alert_hours:
+    name: Alarm ciszy gazomierza (godz.)
+    description: Alarm, gdy gazomierz nic nie wysyła przez tyle godzin. 0 wyłącza.
+  publish_discovery:
+    name: Utwórz encje w Home Assistant
+    description: Tworzy encje (stan licznika, bateria, sygnał) przez MQTT discovery.
+  language:
+    name: Język (nieużywany)
+    description: Aplikacja jest tylko po polsku. Ta opcja jest ignorowana.

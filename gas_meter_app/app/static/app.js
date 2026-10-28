@@ -2,70 +2,6 @@
 
 // ----------------------------------------------------------------- translations
 const TEXT = {
-  en: {
-    title: "Gas meter", loading: "Loading...", connected: "MQTT connected", disconnected: "MQTT offline",
-    readings: "Readings", meter: "Meter reading", flow: "Flow", today: "Today", battery: "Battery",
-    signal: "WiFi signal", lastData: "Last data", never: "no data yet", ago: "ago",
-    consumption: "Consumption", hourly: "Per hour (48 h)", batteryChart: "Battery (7 days)",
-    noData: "No data yet",
-    chartBt: "Battery test", btTitle: "Battery discharge test", btVoltage: "Battery voltage",
-    btPin: "Voltage at the pin", btUptime: "Test running for", btState: "State", btFactor: "Divider factor",
-    btHint: "Voltage = pin voltage x divider factor. Compare with a multimeter and adjust the factor.",
-    noMeterTitle: "No data from the meter yet",
-    noMeterText: "The panel is waiting for the topics of the new gas meter sketch ({root}/cubic_meters, BatteryVoltage, BatteryPercent, RSSI). Flash firmware/gas_meter from the repository, or publish them once by hand in MQTT (retained) to see the panel with data.",
-    service: "Service mode", serviceMode: "Service mode",
-    serviceHint: "The meter sleeps. It picks up service mode at its next WiFi session (a gas pulse, i.e. heating or hot water running) and then stays awake until you switch it off or a timeout.",
-    restart: "Restart meter", update: "Install firmware update", confirm: "Are you sure?",
-    settings: "Settings", save: "Save", cancel: "cancel", meterValue: "meter",
-    waiting: "waiting for the meter", saved: "Saved, waiting for the meter", error: "Error",
-    send_interval: "Send interval (0 = every pulse)", status_interval: "Status interval",
-    debounce: "Reed debounce", pulses_per_m3: "Pulses per m³", battery_cal: "Battery calibration factor",
-    battery_warn_v: "Battery warning voltage", battery_cutoff_v: "Battery cut-off voltage",
-    counterTitle: "Set meter reading", counterLabel: "Meter reading (m³)",
-    counterHint: "Applied once after the meter is restarted or powered up. The reading is converted to pulses with the pulses-per-m³ setting.",
-    network: "Network", static_ip: "Static IP", ip: "IP address", gateway: "Gateway", subnet: "Subnet mask",
-    dns: "DNS server", wifi_ssid: "WiFi network (SSID)", wifi_password: "WiFi password (write only)",
-    networkHint: "Network changes are applied tentatively: if the meter cannot connect after the restart it returns to the previous settings.",
-    diagnostics: "Diagnostics", counter: "Pulse counter", pending: "Pending pulses", wakes: "Wake-ups",
-    wifi_sessions: "WiFi sessions", wakes_per_pulse: "Wake-ups per pulse", wifi_connect_ms: "WiFi connect time",
-    uptime: "Uptime", reset_reason: "Reset reason", firmware: "Firmware", mac: "MAC address", bssid: "Access point",
-    ssid: "WiFi network", currentIp: "Current IP", installed: "Installed", available: "Available",
-    bCapacity: "Battery capacity", bCapRated: "from the data sheet", bCapMeasured: "from your discharge test", bUsable: "usable",
-    bCapHint: "The label capacity is reduced for the 3.0 V cut-off, the cold at the meter, ageing and the difference between the label and real cells. Set the cell type and the number of cells in the app Configuration tab.",
-    bTestCapTitle: "Capacity of your cell (from the test)", bTestMa: "Current drawn during the test (mA)", bTestCells: "Cells in the test",
-    bTestCapEst: "Capacity of one cell", bTestCapFinal: "measured (test finished)", bTestCapRunning: "estimate (test running)",
-    bTestCapHint: "Measure the current with a multimeter in series with the battery (it should be about 120-150 mA with FAST_DISCHARGE 1) and type it here. Capacity = current x time to empty. When the test reaches 3.0 V the result is saved and used for the life prediction.",
-    nTitle: "Notifications", nTarget: "Phone (notify service)", nPersistent: "Notification in Home Assistant", nReport: "Battery report",
-    nNext: "Next report", nLevel: "Battery state", nTest: "Send a test", nNow: "Send the report now", nLog: "Recent notifications",
-    nOff: "off", nWeekly: "every week", nMonthly: "every month", nNone: "none (only the notification in Home Assistant)", nOk: "ok", nWarn: "charge soon (plan it)", nCrit: "charge now",
-    nHint: "You get a report with the charge and the estimated life, a warning when the battery has to be charged (default 45 days before the WiFi stop voltage, a reminder every week, every 2 days when critical at 14 days), a note when it was charged and an alert when the meter is silent for 48 hours. You choose the recipients below, the report interval and the limits are in the app Configuration tab.",
-    nSent: "sent", nFailed: "not delivered", nNotHa: "Not running inside Home Assistant, messages are only written to the log.",
-    nRecipients: "Who gets the messages (phones with the Home Assistant app)", nOther: "Other phones", nNoPhones: "No phone with the Home Assistant app found. Install the app on the phone and log in, then press Refresh.",
-    nRefresh: "Refresh", nNoneSelected: "Nobody selected: you only get the notification in Home Assistant.", nManual: "Also set in the app options",
-    tabBattery: "Battery", bTitle: "Battery now", bSource: "Source", bMeter: "Gas meter", bTest: "Discharge test",
-    bVolts: "Voltage", bSoc: "Charge (estimated)", bCurveGeneric: "Generic Li-ion curve", bCurveLearned: "Curve learned from your discharge test",
-    bPredTitle: "Life prediction", bModel: "Usage model", bTrend: "Voltage trend", bToWarn: "To the WiFi stop voltage", bToCut: "To the cut-off voltage",
-    bConf: "Confidence", bLow: "low (too little data yet)", bMedium: "medium", bHigh: "high", bNoTrend: "not enough data yet (needs about a day)",
-    bNoModel: "no data about WiFi sessions yet", bPredHint: "The model works from day one but relies on assumed costs. The trend is measured but slow to settle: a Li-ion cell has a flat voltage curve at the top, so the first months look like almost no discharge. When both agree, trust it.",
-    bChartTitle: "Voltage history and forecast", bDays30: "30 days", bDays90: "90 days", bDays365: "1 year", bForecastModel: "forecast (model)",
-    bForecastTrend: "forecast (trend)", bWarnLine: "WiFi stop", bCutLine: "cut-off", bNoHistory: "No battery history yet",
-    bBudgetTitle: "Where the energy goes", bSleep: "Deep sleep", bSelf: "Self-discharge of the cells", bSessions: "WiFi sessions", bTotal: "Total average current",
-    bWhatIf: "What if the gas use was different?", bPulsesDay: "Pulses per day", bWhatIfOut: "battery life", bAvgDay: "your yearly average: about 266 pulses/day (970 m³)",
-    bStatsTitle: "Nerd statistics", bPulsesPerDay: "Pulses per day (7 d)", bSessionsPerDay: "WiFi sessions per day (7 d)", bWakesPerDay: "Wake-ups per day (7 d)",
-    bSessPerPulse: "WiFi sessions per pulse", bImplied: "Average current from the voltage trend", bModelCur: "Average current from the model",
-    bMvDay: "Voltage change", bMinMax: "Voltage min / max", bUsed: "Charge used since first record", bPerM3: "Battery cost of 1 m³ of gas",
-    bConnect: "WiFi connect time (min / avg / max)", bRssi: "WiFi signal (min / avg / max)", bSamples: "Battery samples", bHistorySince: "History since",
-    bTestNote: "Discharge test: the prediction comes from the voltage trend. When the test reaches 3.0 V the panel learns the real curve of your cells and uses it for the gas meter.",
-    bDays: "days", bMonths: "months", bOn: "on", bUnknown: "unknown",
-    tabPanel: "Overview", tabSettings: "Settings", tabNetwork: "Network", tabService: "Service", tabDemo: "Demo (simulator)",
-    settingsNote: "Changes are stored on the MQTT broker and the meter picks them up at its next WiFi session (gas flowing). Turn on service mode in the Service tab to have them applied at once. Note: reading the settings in the meter firmware is still in preparation; today 'Set meter reading' works with the current firmware.",
-    networkNote: "Network changes are applied tentatively: the meter returns to the previous settings if it cannot connect. Needs the meter firmware stage 2.",
-    serviceNote: "Service mode keeps the meter awake so that settings, restart and updates are applied at once. It uses the battery, so switch it off when done.", histHint: "Click a value to see its history.", close: "Close", range1h: "1 h", range6h: "6 h", range24h: "24 h",
-    range7d: "7 days", range14d: "14 days", hMeter: "Meter reading", hFlow: "Flow", hHourly: "Consumption per hour",
-    hBattery: "Battery voltage", hPercent: "Battery level", hRssi: "WiFi signal", hBtPin: "Pin voltage (test)",
-    hBtVolt: "Battery voltage (test)", sMin: "Min", sMax: "Max", sAvg: "Average", sLast: "Last", sChange: "Change",
-    sTotal: "Total", sPoints: "Samples",
-  },
   pl: {
     title: "Gazomierz", loading: "Ładowanie...", connected: "MQTT połączony", disconnected: "MQTT offline",
     readings: "Odczyty", meter: "Stan licznika", flow: "Przepływ", today: "Dzisiaj", battery: "Bateria",
@@ -121,7 +57,7 @@ const TEXT = {
     bConnect: "Czas łączenia z WiFi (min / śr. / maks)", bRssi: "Sygnał WiFi (min / śr. / maks)", bSamples: "Próbek baterii", bHistorySince: "Historia od",
     bTestNote: "Test rozładowania: prognoza wynika z trendu napięcia. Gdy test dojdzie do 3,0 V, panel nauczy się prawdziwej krzywej Twoich ogniw i użyje jej dla gazomierza.",
     bDays: "dni", bMonths: "mies.", bOn: "włączone", bUnknown: "nieznane",
-    tabPanel: "Przegląd", tabSettings: "Ustawienia", tabNetwork: "Sieć", tabService: "Serwis", tabDemo: "Demo (symulator)",
+    tabPanel: "Przegląd", meterSub: "wskazanie gazomierza", flowSub: "średnio z ostatnich 15 min", todaySub: "od północy", signalSub: "WiFi gazomierza", lastSub: "ostatni odczyt z gazomierza", tabSettings: "Ustawienia", tabNetwork: "Sieć", tabService: "Serwis", tabDemo: "Demo",
     settingsNote: "Zmiany są zapisywane na brokerze MQTT, a gazomierz odbierze je przy najbliższym połączeniu z WiFi (gdy płynie gaz). Włącz tryb serwisowy w zakładce Serwis, żeby zastosował je od razu. Uwaga: odczyt ustawień w firmware gazomierza jest jeszcze w przygotowaniu; dziś działa „Ustaw stan licznika” z obecnym firmware.",
     networkNote: "Zmiany sieci są próbne: gazomierz wraca do poprzednich ustawień, jeśli nie może się połączyć. Wymaga firmware etapu 2.",
     serviceNote: "Tryb serwisowy utrzymuje gazomierz w stanie czuwania, żeby ustawienia, restart i aktualizacje zadziałały od razu. Zużywa baterię, więc wyłącz go po skończeniu.", histHint: "Kliknij wartość, żeby zobaczyć jej historię.", close: "Zamknij", range1h: "1 godz.", range6h: "6 godz.",
@@ -132,14 +68,7 @@ const TEXT = {
   },
 };
 
-let lang = "en";
-function pickLanguage(option) {
-  let saved = null;
-  try { saved = localStorage.getItem("gasMeterLang"); } catch (e) { /* ignore */ }
-  if (saved === "pl" || saved === "en") return saved;
-  if (option === "pl" || option === "en") return option;
-  return (navigator.language || "en").toLowerCase().startsWith("pl") ? "pl" : "en";
-}
+const lang = "pl";
 function t(key) { return (TEXT[lang] && TEXT[lang][key]) || TEXT.en[key] || key; }
 
 // -------------------------------------------------------------------- helpers
@@ -284,30 +213,21 @@ function build() {
     el("p", { class: "hint", "data-i18n": "btHint" }),
   ]));
 
-  // readings
-  root.append(el("section", { class: "card" }, [
-    el("h2", { "data-i18n": "readings" }),
-    el("div", { class: "big", id: "meter" }),
-    el("div", { class: "muted small", "data-i18n": "meter" }),
-    el("div", { class: "kv" }, [
-      el("span", { "data-i18n": "flow" }), el("span", { class: "v", id: "flow" }),
-      el("span", { "data-i18n": "today" }), el("span", { class: "v", id: "today" }),
-      el("span", { "data-i18n": "battery" }), el("span", { class: "v", id: "battery" }),
-    ]),
-    el("div", { class: "bar" }, [el("div", { id: "batteryBar" })]),
-    el("div", { class: "kv" }, [
-      el("span", { "data-i18n": "signal" }), el("span", { class: "v", id: "rssi" }),
-      el("span", { "data-i18n": "lastData" }), el("span", { class: "v", id: "lastData" }),
-    ]),
+  // readings as tiles (like the GPK Szemud app): a click opens the history
+  const tile = (cls, color, icon, labelKey, valId, subNode) => el("div", { class: "card kpi " + cls, style: "--kc:var(" + color + ")", role: "button", tabindex: "0", title: t("histHint") }, [
+    el("div", { class: "lbl" }, [el("span", { "data-i18n": labelKey }), el("span", { class: "ic", text: icon })]),
+    el("div", { class: "val", id: valId }),
+    subNode || el("div", { class: "sub" }),
+  ]);
+  root.append(el("div", { class: "kpis" }, [
+    tile("big2", "--accent", "🔥", "meter", "meter", el("div", { class: "sub", "data-i18n": "meterSub" })),
+    tile("", "--accent", "💨", "flow", "flow", el("div", { class: "sub", "data-i18n": "flowSub" })),
+    tile("", "--accent", "📅", "today", "today", el("div", { class: "sub", "data-i18n": "todaySub" })),
+    tile("", "--ok", "🔋", "battery", "battery", el("div", { class: "bar" }, [el("div", { id: "batteryBar" })])),
+    tile("", "--muted", "📶", "signal", "rssi", el("div", { class: "sub", "data-i18n": "signalSub" })),
+    tile("", "--muted", "🕒", "lastData", "lastData", el("div", { class: "sub", "data-i18n": "lastSub" })),
   ]));
-
-  root.lastElementChild.append(el("p", { class: "hint", "data-i18n": "histHint" }));
-  for (const [id, entity] of [["meter", "meter"], ["flow", "flow"], ["today", "hourly"], ["battery", "percent"], ["rssi", "rssi"],
-                              ["btVolt", "btVolt"], ["btPinMv", "btPin"]]) {
-    const node = $("#" + id);
-    node.classList.add("clickable");
-    node.addEventListener("click", () => openHistory(entity));
-  }
+  root.append(el("p", { class: "hint wide", style: "grid-column:1/-1;margin:0", "data-i18n": "histHint" }));
 
   // charts
   const tabs = el("div", { class: "tabs" });
@@ -317,7 +237,7 @@ function build() {
     tab.addEventListener("click", () => { chartKind = kind; drawChart(); });
     tabs.append(tab);
   }
-  root.append(el("section", { class: "card" }, [
+  root.append(el("section", { class: "card wide" }, [
     el("h2", { "data-i18n": "consumption" }), tabs, el("canvas", { id: "chart" }),
   ]));
 
@@ -426,9 +346,8 @@ function update() {
   const v = state.values;
   const now = state.now;
 
-  const conn = $("#conn");
-  conn.textContent = state.connected ? t("connected") : t("disconnected");
-  conn.className = "badge " + (state.connected ? "on" : "off");
+  $("#connTxt").textContent = state.connected ? t("connected") : t("disconnected");
+  $("#connDot").className = "dot " + (state.connected ? "ok" : "err");
 
   const notice = $("#notice");
   notice.hidden = v.cubic_meters !== undefined;
@@ -447,6 +366,7 @@ function update() {
   $("#rssi").textContent = v.RSSI !== undefined ? v.RSSI + " dBm" : "—";
   const newest = Math.max(0, ...Object.entries(state.updated).filter(([k]) => !k.startsWith("cfg/")).map(([, ts]) => ts));
   $("#lastData").textContent = newest ? ago(now - newest) + " " + t("ago") : t("never");
+  $("#sub").textContent = (v.cubic_meters !== undefined ? num(v.cubic_meters, 2) + " m³" : t("noData")) + (newest ? " · " + ago(now - newest) + " " + t("ago") : "");
 
   // battery discharge test
   const hasTest = v["bt/pin_mv"] !== undefined;
@@ -784,15 +704,15 @@ const battery = { source: "meter", days: 90, data: null, hover: null, built: fal
 
 function fmtLife(days) {
   if (days === null || days === undefined || !Number.isFinite(days)) return "—";
-  if (days > 3650) return "> 10 " + (lang === "pl" ? "lat" : "years");
-  if (days < 1 / 48) return "0 " + (lang === "pl" ? "godz." : "h");
-  if (days < 2) return Math.max(1, Math.round(days * 24)) + " " + (lang === "pl" ? "godz." : "h");
+  if (days > 3650) return "> 10 " + "lat";
+  if (days < 1 / 48) return "0 " + "godz.";
+  if (days < 2) return Math.max(1, Math.round(days * 24)) + " " + "godz.";
   if (days >= 90) return (days / 30.4).toFixed(1) + " " + t("bMonths");
   return Math.round(days) + " " + t("bDays");
 }
 function fmtDate(days) {
   if (days === null || days === undefined || !Number.isFinite(days) || days > 3650) return "";
-  const when = new Date(Date.now() + days * 86400000), loc = lang === "pl" ? "pl-PL" : "en-GB";
+  const when = new Date(Date.now() + days * 86400000), loc = "pl-PL";
   return days < 2 ? when.toLocaleString(loc, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
                   : when.toLocaleDateString(loc, { year: "numeric", month: "short", day: "numeric" });
 }
@@ -954,7 +874,7 @@ async function notifyAction(action) {
 async function loadNotify() {
   let n;
   try { n = await api("notify"); } catch (e) { return; }
-  const when = (ts) => ts ? new Date(ts * 1000).toLocaleDateString(lang === "pl" ? "pl-PL" : "en-GB") : "—";
+  const when = (ts) => ts ? new Date(ts * 1000).toLocaleDateString("pl-PL") : "—";
   $("#nReport").textContent = t({ off: "nOff", weekly: "nWeekly", monthly: "nMonthly" }[n.config.report] || "nOff");
   $("#nNext").textContent = n.config.report === "off" ? "—" : when(n.next_report);
   $("#nLevel").textContent = t({ ok: "nOk", warn: "nWarn", crit: "nCrit" }[n.level] || "nOk");
@@ -967,7 +887,7 @@ async function loadNotify() {
     const problems = Object.entries(entry.sent).filter(([, r]) => r && r.ok === false)
       .map(([name, r]) => (name === "notify" ? t("nTarget") : t("nPersistent")) + ": " + r.detail);
     log.append(el("div", { style: "margin-bottom:6px" }, [
-      el("span", { class: "muted", text: new Date(entry.ts * 1000).toLocaleString(lang === "pl" ? "pl-PL" : "en-GB") + " — " }),
+      el("span", { class: "muted", text: new Date(entry.ts * 1000).toLocaleString("pl-PL") + " — " }),
       el("span", { text: entry.message }),
       ...(problems.length ? [el("div", { style: "color:var(--bad)", text: t("nFailed") + " — " + problems.join("; ") })] : []),
     ]));
@@ -1062,7 +982,7 @@ function renderBattery() {
   add("bWakesPerDay", f(d.wakes_day, 0));
   add("bSessPerPulse", f(d.sessions_per_pulse, 2));
   if (trend) {
-    add("bMvDay", trend.mv_per_day.toFixed(1) + " mV / " + (lang === "pl" ? "dobę" : "day"));
+    add("bMvDay", trend.mv_per_day.toFixed(1) + " mV / " + "dobę");
     if (!isTest) add("bImplied", (trend.implied_ma * 1000).toFixed(0) + " µA");
   }
   if (model) add("bModelCur", (model.current_ma * 1000).toFixed(0) + " µA");
@@ -1078,7 +998,7 @@ function renderBattery() {
   if (d.connect_ms) add("bConnect", d.connect_ms.min.toFixed(0) + " / " + d.connect_ms.avg.toFixed(0) + " / " + d.connect_ms.max.toFixed(0) + " ms");
   if (d.rssi) add("bRssi", d.rssi.min.toFixed(0) + " / " + d.rssi.avg.toFixed(0) + " / " + d.rssi.max.toFixed(0) + " dBm");
   add("bSamples", d.points);
-  if (d.first_ts) add("bHistorySince", new Date(d.first_ts * 1000).toLocaleDateString(lang === "pl" ? "pl-PL" : "en-GB"));
+  if (d.first_ts) add("bHistorySince", new Date(d.first_ts * 1000).toLocaleDateString("pl-PL"));
   drawBattery();
 }
 
@@ -1113,7 +1033,7 @@ function drawBattery() {
   const ticks = width < 500 ? 2 : 4;
   for (let i = 0; i <= ticks; i++) {
     const ts = x0 + (x1 - x0) * i / ticks;
-    const when = new Date(ts * 1000), loc = lang === "pl" ? "pl-PL" : "en-GB";
+    const when = new Date(ts * 1000), loc = "pl-PL";
     ctx.fillText(x1 - x0 < 3 * 86400 ? when.toLocaleString(loc, { day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" })
                                      : when.toLocaleDateString(loc, { month: "short", day: "numeric", year: x1 - x0 > 300 * 86400 ? "2-digit" : undefined }),
                  Math.min(Math.max(left, sx(ts) - 22), width - 70), height - 6);
@@ -1144,11 +1064,11 @@ function drawBattery() {
       const [label, p] = best;
       ctx.strokeStyle = color("--muted"); ctx.beginPath(); ctx.moveTo(sx(p[0]), top); ctx.lineTo(sx(p[0]), top + plotH); ctx.stroke();
       ctx.fillStyle = color("--text"); ctx.beginPath(); ctx.arc(sx(p[0]), sy(p[1]), 4, 0, 7); ctx.fill();
-      readout = new Date(p[0] * 1000).toLocaleString(lang === "pl" ? "pl-PL" : "en-GB") + " — " + p[1].toFixed(3) + " V" + (label ? " (" + label + ")" : "");
+      readout = new Date(p[0] * 1000).toLocaleString("pl-PL") + " — " + p[1].toFixed(3) + " V" + (label ? " (" + label + ")" : "");
     }
   } else {
     const last = hist[hist.length - 1];
-    readout = new Date(last[0] * 1000).toLocaleString(lang === "pl" ? "pl-PL" : "en-GB") + " — " + last[1].toFixed(3) + " V";
+    readout = new Date(last[0] * 1000).toLocaleString("pl-PL") + " — " + last[1].toFixed(3) + " V";
   }
   $("#bReadout").textContent = readout;
 }
@@ -1158,24 +1078,18 @@ async function refresh() {
   try {
     state = await api("state");
     if (!built) {
-      lang = pickLanguage(state.language); build(); drawChart();
+      build(); drawChart();
       let saved = "panel";
       try { saved = localStorage.getItem("gasMeterView") || "panel"; } catch (e) { /* ignore */ }
       showView(saved);
     }
     update();
   } catch (error) {
-    const conn = $("#conn");
-    conn.textContent = t("disconnected");
-    conn.className = "badge off";
+    $("#connTxt").textContent = t("disconnected");
+    $("#connDot").className = "dot err";
   }
 }
 
-$("#langBtn").addEventListener("click", () => {
-  lang = lang === "pl" ? "en" : "pl";
-  try { localStorage.setItem("gasMeterLang", lang); } catch (e) { /* ignore */ }
-  if (built) { applyLanguage(); update(); drawChart(); if (!$("#histDialog").hidden) loadHistory(); if (!$("#batteryView").hidden) renderBattery(); }
-});
 window.addEventListener("resize", () => { if (built) { drawChart(); if ($("#histDialog")) renderHistory(); if (!$("#batteryView").hidden) drawBattery(); } });
 
 // ---------------------------------------------------------------- panel / demo tabs
@@ -1201,6 +1115,10 @@ function showView(view) {
   try { localStorage.setItem("gasMeterView", view); } catch (e) { /* ignore */ }
 }
 document.querySelectorAll("#viewTabs button").forEach((b) => b.addEventListener("click", () => showView(b.dataset.view)));
+$("#refreshBtn").addEventListener("click", () => {
+  refresh();
+  if (!$("#batteryView").hidden) loadBattery();
+});
 
 refresh();
 setInterval(refresh, 3000);

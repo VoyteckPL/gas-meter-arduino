@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.0
+
+* Nowy wygląd w stylu ORLEN i układzie aplikacji GPK Szemud: czerwony nagłówek z logo, zakładki w nagłówku,
+  kafelki z odczytami w Przeglądzie, stan połączenia i przycisk odświeżania.
+* Nazwa apki zmieniona na **Gazomierz**. Interfejs, powiadomienia, opisy opcji i dokumentacja tylko po polsku.
+* Własne logo i ikona (płomień i tarcza licznika). Oficjalnego logo ORLEN nie dołączam, żeby podmienić je na własne,
+  zastąp pliki `static/logo.png` i `icon.png`.
+* Opcja `language` jest ignorowana.
+
 ## 0.8.0
 
 * Choose who gets the battery notifications in the panel (Battery tab): the people of your Home Assistant

@@ -105,10 +105,10 @@ def level_of(a, cfg):
     return "ok"
 
 
-def decide(state, analysis, now, cfg, last_data_ts, lang="en", force_report=False):
+def decide(state, analysis, now, cfg, last_data_ts, lang="pl", force_report=False):
     """Returns (events, new_state). events: list of {"kind", "level", "title", "message"}.
     cfg: report ('off'|'weekly'|'monthly'), warn_days, critical_days, silent_hours."""
-    lang = lang if lang in TEXT else "en"
+    lang = lang if lang in TEXT else "pl"
     s = TEXT[lang]
     st = {"last_report": None, "level": "ok", "level_ts": 0, "low_v": None, "silent": False}
     st.update(state or {})

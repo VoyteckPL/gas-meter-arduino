@@ -3,15 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Gas meter simulator</title>
+<title>Symulator gazomierza</title>
 <style>
 :root {
-  --bg:#eef1f5; --card:#fff; --text:#1c2733; --muted:#6b7a8a; --line:#dde3ea; --accent:#1565c0;
+  --bg:#eef1f5; --card:#fff; --text:#1c2733; --muted:#6b7a8a; --line:#dde3ea; --accent:#cc2d30;
   --ok:#2e7d32; --warn:#ef6c00; --bad:#c62828; --input:#f5f7fa;
   --c-sleep:#90a4ae; --c-boot:#8e24aa; --c-awake:#fb8c00; --c-wifi:#1e88e5; --c-save:#6d4c41;
 }
 @media (prefers-color-scheme: dark) {
-  :root { --bg:#10141a; --card:#1a2028; --text:#e6ebf0; --muted:#8d9aa8; --line:#2b333d; --accent:#4d9cf0;
+  :root { --bg:#10141a; --card:#1a2028; --text:#e6ebf0; --muted:#8d9aa8; --line:#2b333d; --accent:#ff6a6c;
           --ok:#66bb6a; --warn:#ffa726; --bad:#ef5350; --input:#232a33; --c-sleep:#546e7a; }
 }
 * { box-sizing:border-box; }
@@ -50,11 +50,7 @@ a { color:var(--accent); }
 </head>
 <body>
 <header>
-  <h1 data-i="title">Gas meter simulator</h1>
-  <div class="row">
-    <button id="langBtn">PL / EN</button>
-    <a href="https://github.com/VoyteckPL/gas-meter-arduino" target="_blank" rel="noopener">GitHub</a>
-  </div>
+  <h1 data-i="title">Symulator gazomierza</h1>
 </header>
 <main>
   <!-- GAS METER -->
@@ -217,21 +213,6 @@ a { color:var(--accent); }
 
 // ------------------------------------------------------------------ texts
 const TXT = {
- en:{title:'Gas meter simulator',meterTitle:'Gas meter (bellows meter with reed contact)',reedWord:'reed',trueP:'Real pulses (meter)',flowNow:'Flow',pulseLen:'Reed closed for',
-  espTitle:'ESP32 board',ledWord:'LED',usbWord:'USB charging',counterRtc:'Counter (chip)',counterFlash:'Counter in flash',pendingP:'Pulses not yet sent',wakes:'Wake-ups',sessions:'WiFi sessions',shortP:'Short pulses seen',current:'Current draw',
-  haTitle:'Home Assistant panel',haMeterLbl:'Meter reading (as Home Assistant sees it)',haFlow:'Flow (from updates)',haToday:'Since start',haLast:'Last update',haBat:'Battery',
-  haHint:'Home Assistant only sees a pulse when the meter has sent it. The chip counts every pulse, but it sends only every few seconds to save battery.',
-  ctrlTitle:'Controls',flowLbl:'Gas flow',pOff:'Off',pHeat:'Heating (1.2)',pWater:'Hot water (3.6)',pMax:'Maximum (6)',speedLbl:'Simulation speed',sendLbl:'Minimum interval between WiFi sessions (MIN_SEND_INTERVAL_S)',
-  magLbl:'Magnet width on the wheel',bounceLbl:'contact bounce',wifiLbl:'WiFi available',usbLbl:'USB connected',park:'Park magnet at the reed',flutter:'Flutter 5 s',swap:'Change battery',pause:'Pause',resume:'Run',reset:'Reset',
-  statTitle:'Is every pulse counted?',chipP:'Counted by the chip',haP:'Known to Home Assistant',verdict:'Verdict',energyTitle:'Battery',simTime:'Simulated time',avgCur:'Average current',used:'Charge used',voltage:'Battery voltage',life:'Life at this rate',
-  energyHint:'Current values are estimates: sleep 0.05 mA, start-up 40 mA, awake 25 mA, WiFi 110 mA. Two 3500 mAh cells (about 5900 mAh usable).',
-  tlTitle:'What the chip does over time',win:'Window',logTitle:'Event log',
-  sleep:'deep sleep',off:'no power',boot:'starting',debounce:'reading the reed',wifi:'connecting to WiFi',mqtt:'sending to MQTT',save:'saving to flash',
-  ok:'all pulses counted',pend:'some are still waiting to be sent',lost:'MISMATCH',
-  lgReed:'reed closed',lgSleep:'sleep',lgBoot:'start-up',lgAwake:'awake',lgWifi:'WiFi / MQTT',lgSave:'flash',lgPulse:'pulse counted',lgSend:'sent to HA',
-  years:'years',months:'months',more:'more than',
-  eWake:'wake-up',ePulse:'pulse counted',ePulseIsr:'pulse counted by interrupt (awake)',eShort:'short pulse counted (already over at start)',eSend:'sent to Home Assistant',eSendFail:'WiFi failed, retry later',
-  eFlutter:'too many wake-ups: flutter protection, sleeping 30 s',eSwap:'battery removed',eRestore:'power on: counter restored from flash',eSync:'counter checked against MQTT',ePark:'magnet parked at the reed',eStatus:'status (battery, signal, diagnostics) added'},
  pl:{title:'Symulator gazomierza',meterTitle:'Gazomierz (miechowy, z kontaktronem)',reedWord:'kontaktron',trueP:'Prawdziwe impulsy (gazomierz)',flowNow:'Przepływ',pulseLen:'Kontaktron zamknięty przez',
   espTitle:'Płytka ESP32',ledWord:'LED',usbWord:'ładowanie z USB',counterRtc:'Licznik (w układzie)',counterFlash:'Licznik we flashu',pendingP:'Impulsy jeszcze niewysłane',wakes:'Obudzenia',sessions:'Sesje WiFi',shortP:'Wykryte krótkie impulsy',current:'Pobór prądu',
   haTitle:'Panel Home Assistant',haMeterLbl:'Stan licznika (tak, jak widzi go Home Assistant)',haFlow:'Przepływ (z aktualizacji)',haToday:'Od startu',haLast:'Ostatnia aktualizacja',haBat:'Bateria',
@@ -248,9 +229,8 @@ const TXT = {
   eWake:'obudzenie',ePulse:'impuls policzony',ePulseIsr:'impuls policzony przez przerwanie (układ nie spał)',eShort:'krótki impuls policzony (już po wszystkim przy starcie)',eSend:'wysłano do Home Assistant',eSendFail:'WiFi się nie udało, ponowienie później',
   eFlutter:'za dużo obudzeń: ochrona przed migotaniem, sen 30 s',eSwap:'bateria wyjęta',eRestore:'włączenie zasilania: licznik odtworzony z flasha',eSync:'licznik sprawdzony z MQTT',ePark:'magnes zatrzymany przy kontaktronie',eStatus:'dołączono status (bateria, sygnał, diagnostyka)'}
 };
-let lang = (navigator.language || 'en').toLowerCase().startsWith('pl') ? 'pl' : 'en';
-try { const q = new URLSearchParams(location.search).get('lang'); if (q === 'pl' || q === 'en') lang = q; } catch (e) { /* ignore */ }
-const t = k => (TXT[lang] && TXT[lang][k]) || TXT.en[k] || k;
+let lang = 'pl';
+const t = k => (TXT[lang] && TXT[lang][k]) || k;
 
 // ------------------------------------------------------------------ constants (mirror firmware/gas_meter)
 const DT = 0.005;                      // simulation step, s
@@ -645,8 +625,7 @@ function bind() {
   $('btnSwap').onclick = () => { log(t('eSwap'), 'warn'); S.chip.isrArmed = false; setMode('off'); S.chip.left = 2; };
   $('btnPause').onclick = () => { UI.paused = !UI.paused; applyText(); };
   $('btnReset').onclick = () => { newSim(); lastOdo = ''; };
-  $('langBtn').onclick = () => { lang = lang === 'pl' ? 'en' : 'pl'; applyText(); };
-}
+  }
 
 UI.flow = 1.2;
 newSim(); bind(); applyText();

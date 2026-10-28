@@ -24,6 +24,12 @@ Based on [Torxgewinde/Firebeetle-2-ESP32-E](https://github.com/Torxgewinde/Fireb
 | `docs/mqtt-topics.md` | MQTT topic contract between firmware and Home Assistant |
 | `docs/images/` | wiring diagram, reed pull-up explanation, HA panel mockup |
 
+## Wygląd apki
+
+Interfejs apki jest po polsku, w kolorystyce inspirowanej ORLEN i w układzie aplikacji GPK Szemud (nagłówek z zakładkami, kafelki).
+Apka jest nieoficjalna i nie ma związku z PKN ORLEN. Logo i ikona w repozytorium są własne. Żeby użyć innego logo, podmień
+`gas_meter_app/app/static/logo.png` (nagłówek) oraz `gas_meter_app/icon.png` i `gas_meter_app/logo.png` (sklep z dodatkami).
+
 ## Simulator
 
 Open `docs/simulator/index.html` in a browser (no installation). With GitHub Pages enabled for the `main` branch, folder `/docs`, it is available at `https://voyteckpl.github.io/gas-meter-arduino/simulator/`.

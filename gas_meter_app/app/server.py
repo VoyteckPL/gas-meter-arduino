@@ -605,20 +605,8 @@ async def call_service(path, data):
 
 
 async def language_of(app):
-    option = app["options"].get("language", "auto")
-    if option in ("pl", "en"):
-        return option
-    token = core_token()
-    if token:
-        try:
-            async with ClientSession() as session:
-                async with session.get(CORE_API + "/config", timeout=10,
-                                       headers={"Authorization": "Bearer " + token}) as response:
-                    code = (await response.json()).get("language", "en")
-                    return "pl" if str(code).startswith("pl") else "en"
-        except Exception:  # pragma: no cover
-            pass
-    return "en"
+    """The app is Polish only."""
+    return "pl"
 
 
 async def core_get(path):
