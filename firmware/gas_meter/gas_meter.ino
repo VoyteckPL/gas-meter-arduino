@@ -38,7 +38,7 @@
 #include "driver/rtc_io.h"
 #include "esp_sleep.h"
 
-#define FW_VERSION "0.2.8"
+#define FW_VERSION "0.2.9"
 
 // ------------------------------- configuration -------------------------------
 // WiFi and MQTT credentials live in secrets.h (copy secrets.example.h, never commit it)
@@ -350,6 +350,9 @@ static bool wifiUp(unsigned long timeoutMs) {
 
   WiFi.persistent(false);
   WiFi.mode(WIFI_STA);
+  // no modem sleep during the short session: with it the radio only listens at the beacons of the access point, so
+  // every answer of the broker (connect, subscribe, publish acknowledgements) can wait 100-300 ms or more
+  WiFi.setSleep(false);
 #if USE_STATIC_IP
   WiFi.config(STATIC_IP, GATEWAY, SUBNET, DNS_SERVER);
 #endif
@@ -508,10 +511,12 @@ static bool publishAll(bool sendStatus) {
     LOG("MQTT connection failed\r\n");
     return false;
   }
-  LOG("MQTT connected (fw %s), publishing counter %llu%s\r\n", FW_VERSION, (unsigned long long)cache.counter, sendStatus ? " + status" : "");
+  LOG("MQTT connected at %lu ms (fw %s), publishing counter %llu%s\r\n", (unsigned long)millis(), FW_VERSION,
+      (unsigned long long)cache.counter, sendStatus ? " + status" : "");
 
   if (!cache.mqttSynced) restoreBase(mqtt);
   else checkRemoteCounter(mqtt);
+  LOG("command check done at %lu ms\r\n", (unsigned long)millis());
   absorbInterruptPulses();                 // include pulses counted during the session so far
 
   char buf[48];
@@ -573,7 +578,7 @@ static bool publishAll(bool sendStatus) {
   mqtt.loop();
   delay(30);                       // let the TCP buffer drain before disconnecting
   mqtt.disconnect();
-  LOG("MQTT published and disconnected\r\n");
+  LOG("MQTT published and disconnected at %lu ms\r\n", (unsigned long)millis());
   return true;
 }
 

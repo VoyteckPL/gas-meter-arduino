@@ -99,6 +99,7 @@ class WiFiClass {
  public:
   void persistent(bool) {}
   void mode(int) {}
+  void setSleep(bool) {}
   void config(IPAddress, IPAddress, IPAddress, IPAddress) {}
   void begin(const char *, const char *) { g_wifi_start = g_now_us; }
   void begin(const char *, const char *, int32_t, const uint8_t *) { g_wifi_start = g_now_us; }
