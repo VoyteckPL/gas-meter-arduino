@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.20.0
+
+* **Prognoza rachunku** (zakładka Zużycie): najbliższa faktura z zakresem (zużycie tego miesiąca z odczytów gazomierza do dziś, reszta z modelu pogody),
+  suma na następne 12 miesięcy z porównaniem do roku wcześniej oraz tabela kolejnych miesięcy.
+* Cena liczona jako opłata stała + cena za kWh, dopasowane do faktur z ostatnich 12 miesięcy.
+
 ## 0.19.0
 
 * **Panel Energia:** apka wysyła do Home Assistanta własną statystykę „Gazomierz (z historią)” (`gas_meter_app:gas_history`, m³, z sumą).
