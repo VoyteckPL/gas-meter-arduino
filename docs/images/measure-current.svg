@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="640" viewBox="0 0 980 640" font-family="Arial, Helvetica, sans-serif">
+  <rect width="980" height="640" fill="#ffffff"/>
+  <text x="490" y="34" text-anchor="middle" font-size="22" font-weight="700" fill="#1d1d21">Pomiar prądu testu: miernik równolegle do wyłącznika</text>
+  <text x="490" y="58" text-anchor="middle" font-size="14" fill="#6c6c78">wyłącznik jest w przewodzie minus (jak u Ciebie); zasilanie nie jest przerywane</text>
+
+  <!-- battery -->
+  <rect x="70" y="140" width="110" height="190" rx="14" fill="#eef0f4" stroke="#1d1d21" stroke-width="3"/>
+  <rect x="104" y="124" width="42" height="16" rx="4" fill="#1d1d21"/>
+  <text x="125" y="108" text-anchor="middle" font-size="26" font-weight="700" fill="#cc2d30">+</text>
+  <text x="125" y="360" text-anchor="middle" font-size="30" font-weight="700" fill="#1d1d21">−</text>
+  <text x="125" y="222" text-anchor="middle" font-size="15" font-weight="700" fill="#1d1d21">ogniwo</text>
+  <text x="125" y="242" text-anchor="middle" font-size="15" fill="#1d1d21">18650</text>
+  <text x="125" y="262" text-anchor="middle" font-size="13" fill="#6c6c78">(1 szt. w teście)</text>
+
+  <!-- board -->
+  <rect x="730" y="140" width="210" height="190" rx="12" fill="#37474f" stroke="#102027" stroke-width="3"/>
+  <text x="835" y="225" text-anchor="middle" font-size="16" font-weight="700" fill="#ffffff">Płytka</text>
+  <text x="835" y="246" text-anchor="middle" font-size="14" fill="#cfd8dc">FireBeetle (test baterii)</text>
+  <circle cx="730" cy="170" r="7" fill="#ffd166"/><text x="748" y="175" font-size="13" fill="#ffffff">BAT +</text>
+  <circle cx="730" cy="300" r="7" fill="#90a4ae"/><text x="748" y="305" font-size="13" fill="#ffffff">GND / BAT −</text>
+
+  <!-- red wire: battery + to board -->
+  <polyline points="125,124 125,88 690,88 690,170 730,170" fill="none" stroke="#cc2d30" stroke-width="5" stroke-linejoin="round"/>
+  <text x="400" y="78" text-anchor="middle" font-size="14" fill="#cc2d30">przewód plus (bez zmian)</text>
+
+  <!-- minus wire through the switch -->
+  <polyline points="125,330 125,430 290,430" fill="none" stroke="#1d1d21" stroke-width="5" stroke-linejoin="round"/>
+  <polyline points="500,430 690,430 690,300 730,300" fill="none" stroke="#1d1d21" stroke-width="5" stroke-linejoin="round"/>
+  <!-- switch -->
+  <circle cx="290" cy="430" r="9" fill="#1d1d21"/><circle cx="500" cy="430" r="9" fill="#1d1d21"/>
+  <line x1="290" y1="430" x2="487" y2="398" stroke="#1d1d21" stroke-width="6" stroke-linecap="round"/>
+  <text x="395" y="384" text-anchor="middle" font-size="16" font-weight="700" fill="#1d1d21">wyłącznik (w minusie)</text>
+  <text x="272" y="462" text-anchor="end" font-size="13" fill="#6c6c78">strona baterii (−)</text>
+  <text x="518" y="462" text-anchor="start" font-size="13" fill="#6c6c78">strona płytki (GND)</text>
+
+  <!-- current direction -->
+  <polygon points="560,430 576,422 576,438" fill="#1d1d21"/>
+  <text x="680" y="416" text-anchor="end" font-size="12" fill="#6c6c78">prąd: płytka → bateria</text>
+
+  <!-- meter -->
+  <rect x="300" y="520" width="200" height="100" rx="12" fill="#ffe08a" stroke="#1d1d21" stroke-width="3"/>
+  <rect x="318" y="534" width="164" height="34" rx="5" fill="#cfe8d0" stroke="#1d1d21" stroke-width="2"/>
+  <text x="400" y="559" text-anchor="middle" font-size="22" font-family="Courier New, monospace" font-weight="700" fill="#1d1d21">0.13 A</text>
+  <text x="400" y="595" text-anchor="middle" font-size="13" font-weight="700" fill="#1d1d21">pokrętło: A  (prąd stały, DC)</text>
+  <circle cx="345" cy="520" r="9" fill="#1d1d21"/><text x="332" y="514" text-anchor="end" font-size="13" font-weight="700" fill="#1d1d21">COM</text>
+  <circle cx="455" cy="520" r="9" fill="#cc2d30"/><text x="470" y="514" text-anchor="start" font-size="13" font-weight="700" fill="#cc2d30">10A</text>
+
+  <!-- probes: black COM -> battery side, red 10A -> board side -->
+  <polyline points="345,520 345,490 290,490 290,440" fill="none" stroke="#1d1d21" stroke-width="4" stroke-dasharray="1 0"/>
+  <polyline points="455,520 455,490 500,490 500,440" fill="none" stroke="#cc2d30" stroke-width="4"/>
+  <polygon points="290,440 284,454 296,454" fill="#1d1d21"/><polygon points="500,440 494,454 506,454" fill="#cc2d30"/>
+
+  <!-- callouts -->
+  <g font-size="14">
+    <circle cx="560" cy="540" r="13" fill="#cc2d30"/><text x="560" y="545" text-anchor="middle" fill="#fff" font-weight="700">1</text>
+    <text x="582" y="545" fill="#1d1d21">czerwona sonda (gniazdo 10A) → strona płytki (GND)</text>
+    <circle cx="560" cy="574" r="13" fill="#1d1d21"/><text x="560" y="579" text-anchor="middle" fill="#fff" font-weight="700">2</text>
+    <text x="582" y="579" fill="#1d1d21">czarna sonda (gniazdo COM) → strona baterii (−)</text>
+    <circle cx="560" cy="608" r="13" fill="#2e9d57"/><text x="560" y="613" text-anchor="middle" fill="#fff" font-weight="700">3</text>
+    <text x="582" y="613" fill="#1d1d21">dopiero teraz wyłącz wyłącznik: prąd idzie przez miernik</text>
+  </g>
+
+  <!-- warning -->
+  <rect x="24" y="486" width="256" height="132" rx="10" fill="#fff4f4" stroke="#cc2d30" stroke-width="2"/>
+  <text x="38" y="510" font-size="14" font-weight="700" fill="#cc2d30">NIE:</text>
+  <text x="38" y="532" font-size="13" fill="#1d1d21">• nie dotykaj sondami zacisków</text>
+  <text x="38" y="550" font-size="13" fill="#1d1d21">  baterii w trybie prądu (zwarcie)</text>
+  <text x="38" y="572" font-size="13" fill="#1d1d21">• nie wyjmuj sond przy wyłączonym</text>
+  <text x="38" y="590" font-size="13" fill="#1d1d21">  wyłączniku (najpierw włącz go)</text>
+  <text x="38" y="610" font-size="13" fill="#1d1d21">• gniazdo 10A służy tylko do prądu</text>
+</svg>

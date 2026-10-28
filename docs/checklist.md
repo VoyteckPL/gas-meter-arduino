@@ -28,6 +28,28 @@ Decisions and open items collected while building the project. Tick them off bef
 - [ ] **Notifications.** *Battery* tab: tick the people who should get the messages and press *Send a test*.
 - [ ] **Simulator on GitHub Pages.** Settings > Pages > branch `main`, folder `/docs`.
 
+## Measuring the current of the discharge test
+
+![measuring the test current](images/measure-current.png)
+
+Do it while the test runs and **without ever interrupting the power** (an interruption restarts the test sketch).
+
+1. Multimeter: selector on **A with a DC symbol**, red probe in the **10A** jack, black probe in **COM**. Use the 10A jack: the
+   mA jack usually has a 200 mA fuse and the WiFi bursts of the test can blow it. The display then shows for example `0.13`
+   (0.13 A = 130 mA).
+2. The power switch (in the minus wire) stays **on**. Find its two terminals: the battery side and the board side (GND).
+3. Black probe (COM) to the **battery side**, red probe (10A) to the **board side**. The closed switch shorts the meter,
+   it shows about 0.00 and the board keeps running.
+4. Turn the switch **off**. The current now flows through the meter. Wait about 10 seconds and watch the display for a
+   minute. The value jumps with the WiFi activity, note the typical middle value (about 120-150 mA is expected).
+5. Turn the switch **on again before** you take the probes off.
+6. In the app: *Battery* tab, card *Capacity of your cell (from the test)*: type the current in mA (0.13 A = 130) and the
+   number of cells in the test. When the test reaches 3.0 V, open the *Battery* tab and the *Discharge test* view once so that the
+   result is stored.
+
+Never touch the battery terminals with the probes while the meter is set to current (a short circuit). A negative reading only
+means that the probes are swapped.
+
 ## Battery and wiring
 
 - [ ] Two cells **in parallel**, never in series. Charge both to the same voltage (within about 0.1 V) before joining them.
