@@ -48,6 +48,13 @@ Kliknij kafelek w Przeglądzie (albo wartość w teście baterii), żeby zobaczy
 * przyciski zakresów (1 godz. … Wszystko) ustawiają widoczny okres,
 * po najechaniu (lub dotknięciu) widać dokładną wartość i czas, a pod wykresem minimum, maksimum i średnią z widocznego okresu.
 
+## Zabezpieczenia
+
+Akcje, które mogą zaszkodzić gazomierzowi albo odczytom, wymagają potwierdzenia w oknie z opisem skutków:
+restart, aktualizacja firmware, tryb serwisowy, stałe IP i ustawienia sieci, stan licznika oraz parametry pomiaru i baterii.
+Okno pokazuje, co dokładnie się zmieni, a przy akcjach niebezpiecznych przycisk potwierdzenia aktywuje się dopiero po chwili.
+Anuluj, klawisz Esc albo kliknięcie w tło zamykają okno bez wysyłania polecenia.
+
 ## Zakładka Bateria
 
 Pokazuje historię napięcia z prognozą i dwie niezależne prognozy żywotności:

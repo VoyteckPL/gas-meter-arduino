@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.12.0
+
+* **Potwierdzenia wrażliwych akcji.** Przed wysłaniem do gazomierza apka pyta o potwierdzenie przy: restarcie gazomierza,
+  aktualizacji firmware, włączeniu i wyłączeniu trybu serwisowego, zmianie stałego IP i wszystkich ustawień sieci (IP, brama,
+  maska, DNS, nazwa i hasło WiFi), ustawianiu stanu licznika oraz zmianie parametrów (odstęp wysyłki, odstęp raportu,
+  debounce, impulsy na m³, kalibracja i progi baterii). Okno pokazuje, co się zmieni (np. „100 ms → 150 ms”,
+  stary i nowy stan licznika w m³), ostrzega o skutkach i można je zamknąć przyciskiem Anuluj, klawiszem Esc albo kliknięciem w tło.
+  Przy akcjach niebezpiecznych przycisk potwierdzenia jest przez chwilę zablokowany, żeby nie zadziałał od przypadkowego
+  podwójnego dotknięcia. Hasło WiFi jest w oknie ukryte.
+* Do tej pory przycisk restartu używał systemowego okna potwierdzenia, które w ramce Home Assistant bywa po cichu blokowane,
+  więc mógł nie robić nic. Teraz jest własne okno.
+* „Ustaw stan licznika” nie przyjmuje pustego pola (wcześniej puste pole oznaczało 0 impulsów).
+* **Demo i suwaki:** przewijanie w pionie czasem „nie łapało”, gdy palec zaczynał się na suwaku (suwak przechwytywał dotyk).
+  Suwaki i wykresy pozwalają teraz przewijać stronę, a ramka Demo nie ma własnego przewijania. Przesunięcie w bok w Demo
+  przełącza zakładkę.
+
 ## 0.11.0
 
 * **Przełączanie zakładek gestem:** przesunięcie palcem w lewo albo w prawo na stronie przechodzi do następnej lub poprzedniej

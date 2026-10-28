@@ -24,7 +24,8 @@ main { max-width:1200px; margin:0 auto; padding:8px 16px 40px; display:grid; gap
 .muted { color:var(--muted); } .small { font-size:12px; }
 button, select { font:inherit; color:var(--text); background:var(--input); border:1px solid var(--line); border-radius:8px; padding:6px 10px; cursor:pointer; }
 button.primary { background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600; }
-input[type=range] { width:100%; }
+input[type=range] { width:100%; touch-action:pan-y; }
+canvas, svg { touch-action:pan-y; }
 label { display:block; font-size:12px; color:var(--muted); margin-top:8px; }
 .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
 .kv { display:grid; grid-template-columns:1fr auto; gap:4px 10px; margin-top:8px; }
@@ -629,7 +630,19 @@ function bind() {
 
 UI.flow = 1.2;
 newSim(); bind(); applyText();
-if (window.self !== window.top) { const hr = document.querySelector('header .row'); if (hr) hr.style.display = 'none'; }
+if (window.self !== window.top) {
+  const hr = document.querySelector('header .row'); if (hr) hr.style.display = 'none';
+  // inside the app the page is as tall as its content: no scrolling of its own, so vertical gestures always reach the app
+  document.documentElement.style.overflow = 'hidden'; document.body.style.overflow = 'hidden';
+  // a swipe left or right moves to the neighbouring tab of the app
+  let sw = null;
+  document.addEventListener('touchstart', (e) => { sw = e.touches.length === 1 && !e.target.closest('input, select, textarea') ? { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() } : null; }, { passive: true });
+  document.addEventListener('touchmove', (e) => { if (e.touches.length > 1) sw = null; }, { passive: true });
+  document.addEventListener('touchend', (e) => {
+    if (!sw) return; const t = e.changedTouches[0], dx = t.clientX - sw.x, dy = t.clientY - sw.y, quick = Date.now() - sw.t < 700; sw = null;
+    if (quick && Math.abs(dx) >= 70 && Math.abs(dx) >= Math.abs(dy) * 1.8) parent.postMessage({ gasSwipe: dx < 0 ? 'left' : 'right' }, location.origin);
+  }, { passive: true });
+}
 window.setLang = l => { if (l === 'pl' || l === 'en') { lang = l; applyText(); } };
 window.__sim = {
   get S() { return S; }, UI, step, newSim, C, runFor(sec) { const n = Math.round(sec / DT); for (let i = 0; i < n; i++) step(); prune(); },

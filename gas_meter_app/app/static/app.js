@@ -117,7 +117,91 @@ async function api(path, options) {
   if (!response.ok) throw new Error(data.error || response.statusText);
   return data;
 }
+// ------------------------------------------------------------- confirmation of sensitive actions
+// The browser's confirm() is silently blocked in some frames (Home Assistant), so the app has its own dialog.
+function confirmDialog({ title, message, details, confirmText, danger }) {
+  return new Promise((resolve) => {
+    const hadNoScroll = document.body.classList.contains("noscroll");
+    const cancel = el("button", { class: "secondary", text: "Anuluj" });
+    const ok = el("button", { class: danger ? "danger" : "", text: confirmText || "Potwierdź" });
+    const overlay = el("div", { class: "overlay", style: "z-index:40" }, [
+      el("div", { class: "dialog confirm", role: "alertdialog", "aria-modal": "true", "aria-label": title }, [
+        el("h2", { text: title }),
+        el("p", { class: "confirm-text", text: message }),
+        ...(details && details.length ? [el("div", { class: "kv confirm-kv" }, details.flatMap(([k, v]) => [el("span", { text: k }), el("span", { class: "v", text: v })]))] : []),
+        el("div", { class: "confirm-actions" }, [cancel, ok]),
+      ]),
+    ]);
+    const finish = (value) => {
+      document.removeEventListener("keydown", onKey, true);
+      overlay.remove();
+      if (!hadNoScroll) document.body.classList.remove("noscroll");
+      resolve(value);
+    };
+    const onKey = (e) => { if (e.key === "Escape") { e.preventDefault(); finish(false); } };
+    document.addEventListener("keydown", onKey, true);
+    cancel.addEventListener("click", () => finish(false));
+    ok.addEventListener("click", () => finish(true));
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) finish(false); });
+    document.body.classList.add("noscroll");
+    document.body.append(overlay);
+    cancel.focus();
+    if (danger) { ok.disabled = true; setTimeout(() => { ok.disabled = false; }, 800); }   // no accidental double tap
+  });
+}
+
+const CONFIRM_ACTIONS = {
+  restart: () => ({ title: "Zrestartować gazomierz?", danger: true, confirmText: "Zrestartuj",
+    message: "Gazomierz uruchomi się ponownie przy najbliższym połączeniu z WiFi. Stan licznika jest zapisywany w pamięci gazomierza." }),
+  update: () => ({ title: "Zainstalować aktualizację firmware?", danger: true, confirmText: "Zainstaluj",
+    message: "Gazomierz pobierze i zainstaluje nowe oprogramowanie przy najbliższym połączeniu. Aktualizacja chwilę trwa i zużywa więcej baterii. Upewnij się, że bateria jest naładowana." }),
+  service_mode: (value) => value === "ON"
+    ? { title: "Włączyć tryb serwisowy?", confirmText: "Włącz",
+        message: "Gazomierz będzie stale czuwał i od razu odbierał polecenia. To szybko zużywa baterię, więc wyłącz tryb po skończeniu pracy." }
+    : { title: "Wyłączyć tryb serwisowy?", confirmText: "Wyłącz", message: "Gazomierz wróci do oszczędnego snu." },
+  static_ip: (value) => ({ title: value === "ON" ? "Włączyć stałe IP?" : "Wyłączyć stałe IP?", danger: true, confirmText: "Zmień",
+    message: "Zła konfiguracja sieci może odciąć gazomierz od WiFi. Zmiana jest próbna: jeśli gazomierz nie połączy się po restarcie, wraca do poprzednich ustawień (wymaga firmware etapu 2)." }),
+  counter: (value) => {
+    const perM3 = Number(cfg("pulses_per_m3")) || 100, current = Number(state.values.counter);
+    return { title: "Ustawić stan licznika?", danger: true, confirmText: "Ustaw stan",
+      message: "Zły stan licznika zafałszuje wszystkie odczyty i statystyki. Nowy stan zostanie zastosowany raz, po restarcie lub włączeniu zasilania gazomierza.",
+      details: [["Teraz", Number.isFinite(current) ? num(current / perM3, 2) + " m³" : "—"], ["Nowy stan", num(Number(value) / perM3, 2) + " m³ (" + value + " impulsów)"]] };
+  },
+};
+const NETWORK_NAMES = ["ip", "gateway", "subnet", "dns", "wifi_ssid", "wifi_password"];
+const SETTING_WARNINGS = {
+  pulses_per_m3: "Zła wartość zafałszuje wszystkie odczyty zużycia gazu.",
+  debounce: "Zbyt mała lub zbyt duża wartość może powodować pomijanie albo podwójne liczenie impulsów.",
+  battery_cal: "Zła wartość zafałszuje pomiar napięcia baterii i ostrzeżenia o rozładowaniu.",
+  battery_cutoff_v: "Zbyt wysoki próg odcięcia wyłączy gazomierz za wcześnie, a zbyt niski może uszkodzić ogniwa.",
+  battery_warn_v: "Ta wartość decyduje o ostrzeżeniach o niskiej baterii.",
+  send_interval: "Dłuższy odstęp opóźnia dane w Home Assistant, ale oszczędza baterię.",
+  status_interval: "Częstszy raport statusowy zużywa więcej baterii.",
+};
+
+// What to ask before sending a command. Returns null when the command needs no confirmation.
+function describeAction(name, value) {
+  if (CONFIRM_ACTIONS[name]) return CONFIRM_ACTIONS[name](value);
+  const label = t(name) || name;
+  if (NETWORK_NAMES.includes(name)) {
+    const secret = name === "wifi_password";
+    return { title: "Zmienić ustawienie sieci?", danger: true, confirmText: "Zmień",
+      message: "Zła konfiguracja sieci może odciąć gazomierz od WiFi. Zmiana jest próbna: jeśli gazomierz nie połączy się po restarcie, wraca do poprzednich ustawień (wymaga firmware etapu 2).",
+      details: [[label, secret ? "•••••••• (hasło nie jest pokazywane)" : String(value)]] };
+  }
+  const spec = (state.schema || {})[name];
+  if (spec && spec.group === "settings") {
+    const current = cfg(name), unit = spec.unit ? " " + spec.unit : "";
+    return { title: "Zmienić ustawienie?", danger: ["pulses_per_m3", "debounce", "battery_cal", "battery_cutoff_v"].includes(name), confirmText: "Zmień",
+      message: SETTING_WARNINGS[name] || "Zmiana zostanie zapisana i odebrana przez gazomierz przy najbliższym połączeniu.",
+      details: [[label, (current === undefined ? "—" : current + unit) + "  →  " + value + unit]] };
+  }
+  return null;
+}
+
 async function send(name, value) {
+  const ask = describeAction(name, value);
+  if (ask && !(await confirmDialog(ask))) return;
   try {
     await api("set", { method: "POST", headers: { "Content-Type": "application/json" },
                        body: JSON.stringify({ name, value }) });
@@ -175,7 +259,7 @@ function switchRow(name, labelKey) {
 }
 function actionButton(name, labelKey) {
   const button = el("button", { class: "secondary", "data-i18n": labelKey });
-  button.addEventListener("click", () => { if (confirm(t("confirm"))) send(name, "1"); });
+  button.addEventListener("click", () => send(name, "1"));
   return button;
 }
 
@@ -281,8 +365,9 @@ function build() {
   counterInput.addEventListener("input", () => dirty.add("counter"));
   const counterSave = el("button", { text: t("save") });
   counterSave.addEventListener("click", () => {
-    const perM3 = Number(cfg("pulses_per_m3")) || 100;
-    send("counter", Math.round(Number(counterInput.value) * perM3));
+    const perM3 = Number(cfg("pulses_per_m3")) || 100, reading = Number(counterInput.value);
+    if (counterInput.value.trim() === "" || !Number.isFinite(reading) || reading <= 0) { toast("Wpisz poprawny stan licznika (m³).", true); return; }
+    send("counter", Math.round(reading * perM3));
   });
   views.settings.append(el("section", { class: "card" }, [
     el("h2", { "data-i18n": "counterTitle" }),
@@ -1104,7 +1189,7 @@ function showView(view, from) {
     const frame = el("iframe", { src: "static/simulator.html?v=" + (window.ASSET_V || ""), title: "simulator" });
     // same origin, so the frame can be sized to its content (no inner scrollbar)
     const fit = () => {
-      try { frame.style.height = frame.contentDocument.documentElement.scrollHeight + "px"; } catch (e) { /* ignore */ }
+      try { frame.style.height = (frame.contentDocument.documentElement.scrollHeight + 12) + "px"; } catch (e) { /* ignore */ }
     };
     frame.addEventListener("load", () => { fit(); setInterval(fit, 1000); });
     $("#demoView").append(frame);
@@ -1112,6 +1197,16 @@ function showView(view, from) {
   try { localStorage.setItem("gasMeterView", view); } catch (e) { /* ignore */ }
 }
 document.querySelectorAll("#viewTabs button").forEach((b) => b.addEventListener("click", () => showView(b.dataset.view)));
+function swipeTab(direction) {
+  const buttons = [...document.querySelectorAll("#viewTabs button")];
+  const now = buttons.findIndex((b) => b.classList.contains("active")), next = now + (direction === "left" ? 1 : -1);
+  if (now >= 0 && next >= 0 && next < buttons.length) showView(buttons[next].dataset.view, direction === "left" ? "right" : "left");
+}
+// the simulator (in a frame) reports its own swipes
+window.addEventListener("message", (e) => {
+  if (e.origin === location.origin && e.data && (e.data.gasSwipe === "left" || e.data.gasSwipe === "right")) swipeTab(e.data.gasSwipe);
+});
+
 // swipe left or right on the page to move to the next or the previous tab. The listeners are passive, so they never
 // get in the way of the vertical scroll. Inputs, the tab bar, dialogs and the overview strip of a chart are left alone.
 (function () {
@@ -1130,9 +1225,7 @@ document.querySelectorAll("#viewTabs button").forEach((b) => b.addEventListener(
     const t = e.changedTouches[0], dx = t.clientX - start.x, dy = t.clientY - start.y, quick = Date.now() - start.time < 700;
     start = null;
     if (!quick || Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.8) return;
-    const buttons = [...document.querySelectorAll("#viewTabs button")];
-    const now = buttons.findIndex((b) => b.classList.contains("active")), next = now + (dx < 0 ? 1 : -1);
-    if (now >= 0 && next >= 0 && next < buttons.length) showView(buttons[next].dataset.view, dx < 0 ? "right" : "left");
+    swipeTab(dx < 0 ? "left" : "right");
   }, { passive: true });
 })();
 
