@@ -576,7 +576,7 @@ function update() {
 
   // battery discharge test
   const hasTest = v["bt/pin_mv"] !== undefined;
-  $("#btCard").hidden = !hasTest;
+  $("#btCard").hidden = true;                         // the details of the test live in the Battery tab
   const btTab = document.querySelector('.tabs button[data-kind="bt"]');
   if (btTab) btTab.hidden = !hasTest;
   if (hasTest) {
@@ -1513,7 +1513,7 @@ function buildBattery() {
     b.addEventListener("click", () => { battery.source = src; loadBattery(); });
     srcTabs.append(b);
   }
-  card([
+  const nowCard = card([
     el("h2", { "data-i18n": "bTitle" }), srcTabs,
     el("div", { class: "big", id: "bVolt" }), el("div", { class: "muted small", "data-i18n": "bVolts" }),
     el("div", { class: "bar" }, [el("div", { id: "bSocBar" })]),
@@ -1526,6 +1526,12 @@ function buildBattery() {
     el("p", { class: "hint", "data-i18n": "bCapHint" }),
     el("p", { class: "hint", id: "bTestNote", "data-i18n": "bTestNote" }),
   ]);
+  // the details of the discharge test (pin voltage, time, state, divider factor) belong to the same card, not to a second one
+  {
+    const old = $("#btCard"), box = el("div", { id: "bTestBox", hidden: "", style: "margin-top:10px" });
+    for (const part of old.querySelectorAll(":scope > .kv, :scope > .row")) box.append(part);
+    nowCard.querySelector(".kv").before(box);
+  }
 
 
   const saved = (k, d) => { try { return localStorage.getItem(k) || d; } catch (e) { return d; } };
@@ -1700,6 +1706,7 @@ async function loadBattery() {
   if (!hasTest) battery.source = "meter";
   document.querySelectorAll("#bSrcTabs button").forEach((b) => { b.hidden = b.dataset.src === "bt" && !hasTest; });
   document.querySelectorAll("#bSrcTabs button").forEach((b) => b.classList.toggle("active", b.dataset.src === battery.source));
+  $("#bTestBox").hidden = battery.source !== "bt";
   try {
     const factor = Number(($("#btFactor") || {}).value) || 2.044;
     const ma = Number(($("#bTestMa") || {}).value) || 0, cells = Number(($("#bTestCells") || {}).value) || 1;

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.21.1
+
+* Zakładka Bateria: osobna karta „Test rozładowania baterii” (drugie to samo napięcie) zniknęła. Szczegóły testu (napięcie na pinie, czas, stan, WiFi, współczynnik dzielnika) są teraz w jednej karcie „Bateria teraz” po wybraniu widoku „Test rozładowania”.
+
 ## 0.21.0
 
 * **Procent baterii zawsze na wierzchu:** zakładka Przegląd pokazuje teraz naładowanie z krzywej apki (nauczonej z Twojego testu) razem z szacowanym czasem pracy.
