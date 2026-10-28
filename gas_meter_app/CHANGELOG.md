@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.3
+
+* Nazwa apki w sklepie i w pasku bocznym: **Energia Gazomierz** (żeby była obok „Energia Woda” w kolejności alfabetycznej).
+
 ## 0.9.2
 
 * Naprawa: po aktualizacji panel mógł zostać na „Ładowanie…”, bo przeglądarka (albo aplikacja HA) trzymała starą kopię

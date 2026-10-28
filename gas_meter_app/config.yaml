@@ -1,5 +1,5 @@
-name: "Gazomierz"
-version: "0.9.2"
+name: "Energia Gazomierz"
+version: "0.9.3"
 slug: "gas_meter"
 description: "Panel i ustawienia gazomierza na baterii (ESP32, MQTT): odczyty, historia, bateria z prognozą żywotności, powiadomienia."
 url: "https://github.com/VoyteckPL/gas-meter-arduino"
@@ -14,7 +14,7 @@ ingress: true
 homeassistant_api: true
 ingress_port: 8099
 panel_icon: "mdi:meter-gas"
-panel_title: "Gazomierz"
+panel_title: "Energia Gazomierz"
 panel_admin: false
 services:
   - mqtt:want

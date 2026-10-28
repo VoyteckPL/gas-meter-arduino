@@ -1,4 +1,4 @@
-# Gazomierz
+# Energia Gazomierz
 
 Panel w pasku bocznym Home Assistant dla gazomierza na baterii (ESP32, kontaktron, MQTT; firmware w tym repozytorium).
 Pokazuje odczyty, historię i baterię z prognozą żywotności, pozwala zmieniać ustawienia gazomierza i wysyła powiadomienia o baterii.
@@ -10,8 +10,8 @@ Styl interfejsu i logo nawiązują do ORLEN. Aplikacja jest nieoficjalna i nie m
 
 1. W Home Assistant otwórz **Ustawienia → Dodatki → Sklep z dodatkami**.
 2. Menu **⋮** (prawy górny róg) → **Repozytoria** i dodaj `https://github.com/VoyteckPL/gas-meter-arduino`.
-3. Znajdź **Gazomierz**, kliknij **Zainstaluj**, **Uruchom** i włącz **Pokaż na pasku bocznym**.
-4. Otwórz **Gazomierz** z paska bocznego.
+3. Znajdź **Energia Gazomierz**, kliknij **Zainstaluj**, **Uruchom** i włącz **Pokaż na pasku bocznym**.
+4. Otwórz **Energia Gazomierz** z paska bocznego.
 
 ## Połączenie MQTT
 
