@@ -4,6 +4,7 @@ Pure functions, so they can be tested without Home Assistant."""
 import bisect
 import time
 
+import meterclean
 import weather
 
 
@@ -23,8 +24,18 @@ def reading_at(meter, ts):
 
 
 def meter_usage(meter, t0, t1):
-    a, b = reading_at(meter, t0), reading_at(meter, t1)
-    return None if a is None or b is None or b < a else b - a
+    """Gas used between t0 and t1 from the meter readings; impossible jumps (counter restarts) are skipped."""
+    a = reading_at(meter, t0)
+    if a is None or reading_at(meter, t1) is None:
+        return None
+    total, prev, prev_t = 0.0, a, t0
+    for ts, value in meter:
+        if ts <= t0 or ts > t1:
+            continue
+        if meterclean.step_ok(value - prev, ts - prev_t):
+            total += value - prev
+        prev, prev_t = value, ts
+    return total
 
 
 def entry_m3(entry, factor):

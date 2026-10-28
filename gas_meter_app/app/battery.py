@@ -14,6 +14,8 @@ curve learned from the discharge test (firmware/battery_test) as soon as one run
 import calendar
 import time
 
+import meterclean
+
 # (volts, % charge): same table as batteryPercent() in the firmware
 GENERIC_CURVE = [(3.00, 0), (3.30, 4), (3.50, 10), (3.60, 20), (3.70, 35), (3.80, 50),
                  (3.90, 65), (4.00, 80), (4.10, 90), (4.20, 100)]
@@ -111,15 +113,15 @@ def counter_delta(points, since):
 
 
 def meter_delta(points, since):
-    """Increase of the meter reading (never decreasing) inside the window."""
-    total, prev = 0.0, None
+    """Increase of the meter reading (never decreasing, no impossible jumps) inside the window."""
+    total, prev, prev_ts = 0.0, None, None
     for ts, value in points:
         if ts < since:
-            prev = value
+            prev, prev_ts = value, ts
             continue
-        if prev is not None and value >= prev:
+        if prev is not None and meterclean.step_ok(value - prev, ts - prev_ts):
             total += value - prev
-        prev = value
+        prev, prev_ts = value, ts
     return total
 
 

@@ -7,6 +7,8 @@ Pure functions only: server.py does the sending.
 """
 import time
 
+import meterclean
+
 HOUR = 3600
 
 
@@ -55,15 +57,16 @@ def build_rows(monthly, factor, meter_points, now, state=None):
                     rows.append({"start": h, "sum": total, "state": total})
         # the sum has to stop growing at the start of the live data
         total = rows[-1]["sum"] if rows else 0.0
-        prev = None
+        prev, prev_t = None, None
     else:
         total, prev = state["last_sum"], state["last_reading"]
+        prev_t = state["last_start"]
         live_hours = [h for h in live_hours if h > state["last_start"]]
     for h in live_hours:
         reading = readings[h]
-        if prev is not None and reading > prev:
+        if prev is not None and reading > prev and meterclean.step_ok(reading - prev, h - (prev_t if prev_t is not None else h - 3600)):
             total += reading - prev
-        prev = reading
+        prev, prev_t = reading, h
         rows.append({"start": h, "sum": total, "state": reading})
     if not rows:
         return [], state

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.21.6
+
+* Odporność na restarty licznika: skoki odczytu, których gazomierz nie mógłby wykonać (powyżej około 8 m³ na godzinę), nie są liczone jako zużycie. Dotyczy panelu Energia, prognozy rachunku i modelu baterii. Przyczyna: stara, zatrzymana wartość retained na brokerze naprzemiennie z nowym licznikiem dawała w danych „zużycie” rzędu 400 m³.
+
 ## 0.21.5
 
 * Wykres temperatury i zużycia: oś temperatury jest odwrócona (zimno u góry), więc linia temperatury biegnie zgodnie ze słupkami zużycia (im zimniej, tym więcej gazu). Strefa mrozu (poniżej 0 °C) ma jasnoniebieskie tło, linię zera i oznaczenie ❄.
