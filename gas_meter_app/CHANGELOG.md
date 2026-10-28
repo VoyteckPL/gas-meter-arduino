@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.16.0
+
+* **Ładniejszy wykres zużycia miesięcznego:** zaokrąglone słupki z gradientem i odstępami, podpisy miesięcy i lat na osi,
+  szare tło sezonu grzewczego (październik–kwiecień), przerywana linia średniej z 12 miesięcy, podświetlany słupek pod palcem/myszą
+  i tooltip z m³, kWh, kosztem w zł i ceną za kWh.
+* **Nowa karta „Porównanie lat”:** ten sam miesiąc z ostatnich 4 lat obok siebie, z tooltipem po najechaniu.
+
 ## 0.15.0
 
 * **Połączenie z integracją Orlen gas sensor** (HACS, `pawelhulek/pgnig-sensor`): apka sama znajduje jej encje po atrybutach,

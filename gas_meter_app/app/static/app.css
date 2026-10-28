@@ -199,3 +199,7 @@ html, body { overflow-x: clip; }
 .confirm-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; flex-wrap: wrap; }
 button.danger { background: #a31503; }
 button.danger:disabled { opacity: .45; }
+
+#uCanvas { height: 340px; touch-action: pan-y; }
+#uYoyCanvas { height: 300px; touch-action: pan-y; }
+@media (max-width: 560px) { #uCanvas { height: 300px; } #uYoyCanvas { height: 260px; } }

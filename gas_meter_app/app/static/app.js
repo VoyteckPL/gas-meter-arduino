@@ -915,6 +915,11 @@ function buildUsage() {
     el("p", { class: "hint", id: "uHint" }),
   ], true);
 
+  const yoy = el("canvas", { id: "uYoyCanvas" });
+  yoy.addEventListener("pointermove", (e) => { usage.yoyHover = e.clientX - yoy.getBoundingClientRect().left; drawYearCompare(); });
+  yoy.addEventListener("pointerleave", () => { usage.yoyHover = null; drawYearCompare(); });
+  yoy.addEventListener("pointerdown", (e) => { usage.yoyHover = e.clientX - yoy.getBoundingClientRect().left; drawYearCompare(); });
+  card([el("h2", { text: "Porównanie lat" }), el("p", { class: "hint", style: "margin:0 0 6px", text: "Ten sam miesiąc w kolejnych latach: widać, czy zima była zimniejsza albo oszczędniejsza." }), yoy], true);
   card([el("h2", { text: "Profil sezonowy (średnio na miesiąc)" }), el("div", { id: "uSeason" }),
         el("p", { class: "hint", text: "Średnia ze wszystkich lat z faktur. Impulsy na dobę to to, co gazomierz będzie liczył w danym miesiącu, więc od tego zależy zużycie baterii." })]);
   card([el("h2", { text: "Rocznie" }), el("div", { id: "uYears", style: "overflow-x:auto" })]);
@@ -1074,22 +1079,101 @@ function renderUsage() {
 
 function usageValue(e) { return usage.unit === "kwh" ? e.kwh : usage.unit === "cost" ? e.cost : monthM3(e); }
 
+const MONTH_FULL = ["styczeń", "luty", "marzec", "kwiecień", "maj", "czerwiec", "lipiec", "sierpień", "wrzesień", "październik", "listopad", "grudzień"];
+const UNIT_LABEL = { m3: "m³", kwh: "kWh", cost: "zł" };
+
 function drawUsage() {
   const d = usage.data, canvas = $("#uCanvas");
   if (!d || !canvas || $("#usageView").hidden) return;
-  if (!usage.chart) usage.chart = new TimeChart(canvas, { dec: 0, onView: (a, b) => { $("#uRange").textContent = t("visibleRange") + ": " + dateText(a, true) + " – " + dateText(b, true); } });
-  const chart = usage.chart, unit = usage.unit;
+  if (!usage.chart) usage.chart = new TimeChart(canvas, { dec: 0, monthlyTicks: true, barLabels: true, onView: (a, b) => { $("#uRange").textContent = t("visibleRange") + ": " + dateText(a, true) + " – " + dateText(b, true); } });
+  const chart = usage.chart, unit = usage.unit, label = UNIT_LABEL[unit];
+  const byTs = new Map(d.monthly.map((e) => [monthStart(e.month), e]));
   const points = d.monthly.map((e) => [monthStart(e.month), Math.round(usageValue(e) * 100) / 100]);
-  Object.assign(chart.o, { unit: unit === "m3" ? "m³" : unit === "kwh" ? "kWh" : "zł", emptyText: "Brak faktur", emptyHint: "Wklej tabelę z eBOK w karcie „Faktury z eBOK” poniżej." });
+
+  // 12-month moving average (needs at least 10 of the 12 months)
+  const average = [];
+  d.monthly.forEach((e) => {
+    const y = Number(e.month.slice(0, 4)), m = Number(e.month.slice(5, 7));
+    const span12 = d.monthly.filter((x) => { const k = (Number(x.month.slice(0, 4)) - y) * 12 + Number(x.month.slice(5, 7)) - m; return k <= 0 && k > -12; });
+    if (span12.length >= 10) average.push([monthStart(e.month) + 15 * 86400, Math.round(sumBy(span12, usageValue) / span12.length * 100) / 100]);
+  });
+
+  Object.assign(chart.o, { unit: label, yTitle: label + " na miesiąc", emptyText: "Brak faktur", emptyHint: "Wklej tabelę z eBOK w karcie „Faktury z eBOK” poniżej." });
   const first = points.length ? points[0][0] : Date.now() / 1000, lastM = d.monthly.length ? d.monthly[d.monthly.length - 1].month : null;
   const end = lastM ? monthStart(lastM) + 31 * 86400 : first + 86400;
+  // the heating season (October to April) gets a light background
+  const bands = [];
+  for (let y = new Date(first * 1000).getFullYear() - 1; y <= new Date(end * 1000).getFullYear(); y++) {
+    bands.push({ from: new Date(y, 9, 1).getTime() / 1000, to: new Date(y + 1, 4, 1).getTime() / 1000, color: cssColor("--accent") + "12" });
+  }
+  chart.o.bands = bands;
+  const fmtVal = (e, u) => (u === "m3" ? num(monthM3(e), 0) + " m³" : u === "kwh" ? num(e.kwh, 0) + " kWh" : num(e.cost, 0) + " zł");
+  const barSeries = { name: "Zużycie", color: cssColor("--accent"), points, kind: "bars",
+    title: (p) => { const e = byTs.get(p[0]); return e ? MONTH_FULL[Number(e.month.slice(5, 7)) - 1] + " " + e.month.slice(0, 4) : ""; },
+    tooltip: (p) => { const e = byTs.get(p[0]); return e ? [fmtVal(e, "m3"), fmtVal(e, "kwh"), fmtVal(e, "cost") + " · " + num(e.cost / e.kwh, 2) + " zł/kWh"] : []; } };
+  const lineSeries = { name: "Średnia 12 mies.", color: cssColor("--text"), points: average, kind: "line", width: 2, dashed: true,
+    tooltip: (p) => ["Średnia 12 mies.: " + num(p[1], 0) + " " + label] };
   const fresh = !usage.chartReady || (!usage.hadData && points.length > 0);
   usage.hadData = points.length > 0;
-  chart.setSeries([{ name: unit === "m3" ? "Zużycie" : unit === "kwh" ? "Energia" : "Koszt", color: cssColor("--accent"), points, kind: "bars" }], [first, end], !fresh);
+  chart.setSeries([barSeries, lineSeries], [first, end], !fresh);
   if (fresh) { usage.chartReady = true; applyUsageRange(false); }
   document.querySelectorAll("#uUnits button").forEach((b) => b.classList.toggle("active", b.dataset.unit === unit));
   document.querySelectorAll("#uRanges button").forEach((b) => b.classList.toggle("active", Number(b.dataset.days) === usage.days));
-  $("#uHint").textContent = "Faktura jest przypisana do miesiąca poprzedzającego termin płatności, więc to przybliżenie. " + (unit === "m3" ? "Przeliczenie: " + Number(d.factor).toFixed(2) + " kWh na m³." : "");
+  $("#uHint").textContent = "Faktura jest przypisana do miesiąca poprzedzającego termin płatności, więc to przybliżenie. Szare tło to sezon grzewczy (październik–kwiecień), linia przerywana to średnia z 12 miesięcy. " +
+    (unit === "m3" ? "m³ pochodzą z faktur, a gdy faktura ich nie podaje, są przeliczone (" + Number(d.factor).toFixed(2) + " kWh na m³)." : "");
+  drawYearCompare();
+}
+
+// the same month of the last years side by side
+function drawYearCompare() {
+  const d = usage.data, canvas = $("#uYoyCanvas");
+  if (!d || !canvas || $("#usageView").hidden) return;
+  const ratio = window.devicePixelRatio || 1, W = canvas.clientWidth, H = canvas.clientHeight;
+  if (!W || !H) return;
+  canvas.width = Math.round(W * ratio); canvas.height = Math.round(H * ratio);
+  const ctx = canvas.getContext("2d"); ctx.setTransform(ratio, 0, 0, ratio, 0, 0); ctx.clearRect(0, 0, W, H);
+  const muted = cssColor("--muted"), line = cssColor("--line"), text = cssColor("--text"), card = cssColor("--card");
+  const byYear = {};
+  for (const e of d.monthly) { const y = Number(e.month.slice(0, 4)); (byYear[y] = byYear[y] || Array(12).fill(null))[Number(e.month.slice(5, 7)) - 1] = usageValue(e); }
+  const years = Object.keys(byYear).map(Number).sort((a, b) => a - b).slice(-4);
+  ctx.font = "11px system-ui, sans-serif";
+  if (!years.length) { ctx.fillStyle = muted; ctx.textAlign = "center"; ctx.fillText("Brak faktur", W / 2, H / 2); return; }
+  const palette = [cssColor("--accent"), "#6c6c78", "#a3a3b2", "#d0d0da"], colorOf = (y) => palette[years.length - 1 - years.indexOf(y)] || palette[3];
+  const left = 40, right = 8, top = 30, bottom = 22, plotW = W - left - right, plotH = H - top - bottom;
+  const max = Math.max(1, ...years.flatMap((y) => byYear[y].filter((v) => v !== null)));
+  const rawStep = max / 4, mag = Math.pow(10, Math.floor(Math.log10(rawStep))), norm = rawStep / mag;
+  const step = (norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10) * mag, top_ = Math.ceil(max / step) * step;
+  const sy = (v) => top + plotH - v / top_ * plotH;
+  ctx.textAlign = "right"; ctx.strokeStyle = line; ctx.fillStyle = muted; ctx.lineWidth = 1;
+  for (let v = 0; v <= top_ + 1e-9; v += step) { const y = Math.round(sy(v)) + 0.5; ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(left + plotW, y); ctx.stroke(); ctx.fillText(String(Math.round(v)), left - 6, y + 4); }
+  // legend
+  ctx.textAlign = "left"; let lx = left;
+  for (const y of [...years].reverse()) { ctx.fillStyle = colorOf(y); ctx.beginPath(); ctx.roundRect ? ctx.roundRect(lx, 8, 12, 12, 3) : ctx.rect(lx, 8, 12, 12); ctx.fill(); ctx.fillStyle = text; ctx.fillText(String(y), lx + 17, 18); lx += 62; }
+  ctx.fillStyle = muted; ctx.fillText(UNIT_LABEL[usage.unit] + " na miesiąc", lx + 6, 18);
+  const gw = plotW / 12, bw = Math.max(3, Math.min(24, (gw - 8) / years.length));
+  const hover = usage.yoyHover === null || usage.yoyHover === undefined ? -1 : Math.floor((usage.yoyHover - left) / gw);
+  for (let m = 0; m < 12; m++) {
+    const gx = left + m * gw, start = gx + (gw - bw * years.length) / 2;
+    if (m === hover) { ctx.fillStyle = muted; ctx.globalAlpha = 0.12; ctx.fillRect(gx + 2, top, gw - 4, plotH); ctx.globalAlpha = 1; }
+    ctx.fillStyle = m === hover ? text : muted; ctx.textAlign = "center"; ctx.fillText(MONTH_NAMES[m], gx + gw / 2, H - 6);
+    years.forEach((y, i) => {
+      const v = byYear[y][m]; if (v === null) return;
+      const x = start + i * bw + 1, yy = sy(v), h = top + plotH - yy, r = Math.min(4, (bw - 2) / 2, h);
+      ctx.fillStyle = colorOf(y); ctx.beginPath();
+      ctx.moveTo(x, top + plotH); ctx.lineTo(x, yy + r); ctx.quadraticCurveTo(x, yy, x + r, yy); ctx.lineTo(x + bw - 2 - r, yy); ctx.quadraticCurveTo(x + bw - 2, yy, x + bw - 2, yy + r); ctx.lineTo(x + bw - 2, top + plotH); ctx.closePath(); ctx.fill();
+    });
+  }
+  if (hover >= 0 && hover < 12) {
+    const rows = [...years].reverse().filter((y) => byYear[y][hover] !== null).map((y) => [y, byYear[y][hover]]);
+    const lines = [MONTH_FULL[hover][0].toUpperCase() + MONTH_FULL[hover].slice(1), ...rows.map(([y, v]) => y + ": " + num(v, 0) + " " + UNIT_LABEL[usage.unit])];
+    ctx.font = "12px system-ui, sans-serif";
+    const w = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 24, h = lines.length * 17 + 10, gx = left + hover * gw;
+    let bx = gx + gw + 4; if (bx + w > W - 4) bx = gx - w - 4;
+    ctx.fillStyle = card; ctx.strokeStyle = line; ctx.shadowColor = "rgba(0,0,0,.18)"; ctx.shadowBlur = 8; ctx.shadowOffsetY = 2;
+    ctx.beginPath(); ctx.roundRect ? ctx.roundRect(Math.max(4, bx), 30, w, h, 8) : ctx.rect(Math.max(4, bx), 30, w, h); ctx.fill(); ctx.shadowColor = "transparent"; ctx.stroke();
+    ctx.textAlign = "left";
+    lines.forEach((l, i) => { ctx.fillStyle = i === 0 ? muted : (colorOf(rows[i - 1][0])); ctx.font = (i === 0 ? "11px" : "600 12px") + " system-ui, sans-serif"; ctx.fillText(l, Math.max(4, bx) + 10, 30 + 17 + i * 17 - (i === 0 ? 1 : 0)); });
+  }
 }
 
 function applyUsageRange(animate) {

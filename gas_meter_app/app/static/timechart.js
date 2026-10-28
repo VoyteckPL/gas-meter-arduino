@@ -67,7 +67,8 @@
       canvas._timeChart = this;
       this.ctx = canvas.getContext("2d");
       this.o = Object.assign({ unit: "", dec: 2, nav: true, thresholds: [], now: null, zeroBase: false, includeY: [],
-                               onSettled: null, minSpan: 30, emptyText: "Brak danych", emptyHint: "" }, options || {});
+                               onSettled: null, minSpan: 30, emptyText: "Brak danych", emptyHint: "",
+                               monthlyTicks: false, barLabels: false, bands: [], yTitle: "" }, options || {});
       this.series = [];
       this.full = [0, 1];
       this.view = [0, 1];
@@ -360,17 +361,42 @@
         ctx.fillText(v.toFixed(decimals), left - 6, y + 4);
       }
       ctx.textAlign = "center";
-      const maxTicks = Math.max(2, Math.floor(plotW / 78));
-      const { ticks, step } = timeTicks(v0, v1, maxTicks);
-      for (const t of ticks) {
-        const x = Math.round(sx(t)) + 0.5;
-        ctx.strokeStyle = line; ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, plotBottom); ctx.stroke();
-        ctx.fillStyle = muted; ctx.fillText(tickLabel(t, step), Math.min(Math.max(x, left + 18), left + plotW - 18), plotBottom + 15);
+      if (this.o.monthlyTicks) {
+        // one tick per month (or every 2, 3, 6, 12 months when it gets crowded); January carries the year
+        const perMonth = plotW / ((v1 - v0) / (30.4 * DAY));
+        const every = [1, 2, 3, 6, 12].find((n) => perMonth * n >= 30) || 12;
+        const d = new Date(v0 * 1000); d.setDate(1); d.setHours(0, 0, 0, 0);
+        d.setMonth(Math.floor(d.getMonth() / every) * every);
+        for (; d.getTime() / 1000 <= v1; d.setMonth(d.getMonth() + every)) {
+          const t = d.getTime() / 1000;
+          if (t < v0 - 15 * DAY) continue;
+          const x = Math.round(sx(t)) + 0.5, january = d.getMonth() === 0;
+          ctx.strokeStyle = january ? muted : line; ctx.globalAlpha = january ? 0.5 : 1;
+          ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, plotBottom); ctx.stroke(); ctx.globalAlpha = 1;
+          const label = MONTHS[d.getMonth()] + (january || every >= 12 ? " " + d.getFullYear() : "");
+          ctx.fillStyle = january ? text : muted; ctx.font = (january ? "600 " : "") + "11px system-ui, sans-serif";
+          if (x > left + 8 && x < left + plotW - 8) ctx.fillText(label, x + (perMonth * every) / 2 > left + plotW ? x : x + Math.min(perMonth * every, 60) / 2 - 2, plotBottom + 15);
+          ctx.font = "11px system-ui, sans-serif";
+        }
+      } else {
+        const maxTicks = Math.max(2, Math.floor(plotW / 78));
+        const { ticks, step } = timeTicks(v0, v1, maxTicks);
+        for (const t of ticks) {
+          const x = Math.round(sx(t)) + 0.5;
+          ctx.strokeStyle = line; ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, plotBottom); ctx.stroke();
+          ctx.fillStyle = muted; ctx.fillText(tickLabel(t, step), Math.min(Math.max(x, left + 18), left + plotW - 18), plotBottom + 15);
+        }
       }
+      if (this.o.yTitle) { ctx.fillStyle = muted; ctx.textAlign = "left"; ctx.fillText(this.o.yTitle, left + 4, top + 11); ctx.textAlign = "center"; }
 
       // ---- series (clipped to the plot)
       ctx.save();
       ctx.beginPath(); ctx.rect(left, top - 2, plotW, plotH + 4); ctx.clip();
+      for (const band of this.o.bands || []) {
+        if (band.to < v0 || band.from > v1) continue;
+        ctx.fillStyle = band.color || (accent + "10");
+        ctx.fillRect(sx(band.from), top, sx(band.to) - sx(band.from), plotH);
+      }
       const base = sy((barsOrArea || this.o.zeroBase) && lo <= 0 && hi >= 0 ? 0 : lo);
       for (const { s, pts } of prepared) {
         if (!pts.length) continue;
@@ -380,10 +406,25 @@
           const dts = []; for (let i = 1; i < pts.length && dts.length < 20; i++) dts.push(pts[i][0] - pts[i - 1][0]);
           dts.sort((a, b) => a - b);
           const dt = dts.length ? dts[dts.length >> 1] : 3600;
-          const w = Math.max(1, dt / (v1 - v0) * plotW - 1.5);
-          ctx.globalAlpha = 0.9;
-          for (const p of pts) { const x = sx(p[0]), y = sy(p[1]); ctx.fillRect(x, y, w, base - y); }
-          ctx.globalAlpha = 1;
+          const full = dt / (v1 - v0) * plotW;
+          const gap = full > 10 ? Math.min(7, full * 0.2) : 0.8, bw = Math.max(1, full - gap), radius = Math.min(6, bw / 2);
+          const g = ctx.createLinearGradient(0, top, 0, plotBottom);
+          g.addColorStop(0, color); g.addColorStop(1, color + "aa");
+          ctx.fillStyle = g;
+          for (const p of pts) {
+            const x = sx(p[0]) + gap / 2, y = sy(p[1]), h = base - y;
+            if (h <= 0.5) continue;
+            const r = Math.min(radius, h);
+            ctx.beginPath();
+            ctx.moveTo(x, base); ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y);
+            ctx.lineTo(x + bw - r, y); ctx.quadraticCurveTo(x + bw, y, x + bw, y + r); ctx.lineTo(x + bw, base); ctx.closePath();
+            ctx.fill();
+          }
+          if (this.o.barLabels && bw >= 26) {
+            ctx.fillStyle = muted; ctx.textAlign = "center"; ctx.font = "10px system-ui, sans-serif";
+            for (const p of pts) if (p[1] > 0 && sx(p[0]) > left - bw && sx(p[0]) < left + plotW) ctx.fillText(p[1].toFixed(this.o.barLabelDec || 0), sx(p[0]) + gap / 2 + bw / 2, sy(p[1]) - 4);
+            ctx.font = "11px system-ui, sans-serif";
+          }
           continue;
         }
         const path = new Path2D();
@@ -441,17 +482,31 @@
       }
       if (!anchor) return;
       const x = c.sx(anchor[0]);
-      ctx.strokeStyle = c.muted; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, c.top); ctx.lineTo(Math.round(x) + 0.5, c.plotBottom); ctx.stroke();
+      const barRow = rows.find(({ s }) => s.kind === "bars");
+      if (barRow) {
+        // a bar series: light up the whole bar under the cursor instead of a crosshair
+        const dts = [], pts = barRow.s.points;
+        for (let i = 1; i < pts.length && dts.length < 20; i++) dts.push(pts[i][0] - pts[i - 1][0]);
+        dts.sort((a, b) => a - b);
+        const full = (dts.length ? dts[dts.length >> 1] : 3600) / (c.v1 - c.v0) * c.plotW;
+        ctx.fillStyle = c.muted; ctx.globalAlpha = 0.14;
+        ctx.fillRect(c.sx(barRow.p[0]), c.top, full, c.plotBottom - c.top); ctx.globalAlpha = 1;
+      } else {
+        ctx.strokeStyle = c.muted; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, c.top); ctx.lineTo(Math.round(x) + 0.5, c.plotBottom); ctx.stroke();
+      }
       for (const { s, p } of rows) {
+        if (s.kind === "bars") continue;
         ctx.fillStyle = s.color || c.accent; ctx.strokeStyle = c.card; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.arc(c.sx(p[0]), c.sy(p[1]), 4.5, 0, 7); ctx.fill(); ctx.stroke();
       }
       const fmt = (v) => v.toFixed(this.o.dec) + (this.o.unit ? " " + this.o.unit : "");
-      const lines = [fullTime(anchor[0], c.v1 - c.v0), ...rows.map(({ s, p }) => (s.name ? s.name + ": " : "") + fmt(p[1]))];
+      const titled = rows.find(({ s }) => s.title);
+      const lines = [titled ? titled.s.title(titled.p) : fullTime(anchor[0], c.v1 - c.v0),
+                     ...rows.flatMap(({ s, p }) => (s.tooltip ? s.tooltip(p) : [(s.name ? s.name + ": " : "") + fmt(p[1])]))];
       ctx.font = "12px system-ui, sans-serif";
       const w = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 20, h = lines.length * 17 + 10;
-      let bx = x + 12; if (bx + w > c.W - 4) bx = x - 12 - w;
+      let bx = x + 14; if (bx + w > c.W - 4) bx = x - 14 - w;
       bx = Math.max(4, bx);
       const by = c.top + 6;
       ctx.fillStyle = c.card; ctx.strokeStyle = c.line; ctx.lineWidth = 1;
