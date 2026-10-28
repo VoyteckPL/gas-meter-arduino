@@ -1207,10 +1207,10 @@ function drawWeatherTime() {
   const temp = { name: "Temperatura", color: "#2f7fd0", kind: "line", axis: "right", width: 2, points: list.map((x) => [mid(x.month), x.mean]),
     tooltip: (p) => ["Temperatura: " + num(p[1], 1) + " °C"] };
   if (!weatherState.chart) {
-    weatherState.chart = new TimeChart($("#wTime"), { dec: 0, unit: "m³", monthlyTicks: true, rightUnit: "°", yTitle: "m³ / miesiąc", minSpan: 90 * 86400 });
+    weatherState.chart = new TimeChart($("#wTime"), { dec: 0, unit: "m³", monthlyTicks: true, rightUnit: "°", rightInvert: true, rightZero: true, yTitle: "m³ / miesiąc", minSpan: 90 * 86400 });
   }
   const fresh = !weatherState.chartReady;
-  setLegend($("#wTime"), legendOf([bars, model, temp].map((x) => Object.assign({}, x, x === model ? { name: "Zużycie wg modelu (z pogody)" } : x === temp ? { name: "Temperatura (°C, prawa oś)" } : { name: "Zużycie z faktur (m³)" })), []));
+  setLegend($("#wTime"), legendOf([bars, model, temp].map((x) => Object.assign({}, x, x === model ? { name: "Zużycie wg modelu (z pogody)" } : x === temp ? { name: "Temperatura (°C, prawa oś, zimno u góry)" } : { name: "Zużycie z faktur (m³)" })), []));
   weatherState.chart.setSeries([bars, model, temp], [monthStart(first), monthStart(list[list.length - 1].month) + 31 * 86400], !fresh);
   if (fresh) { weatherState.chartReady = true; weatherState.chart.setView(weatherState.chart.full[1] - 3 * 365 * 86400, weatherState.chart.full[1], false); }
 }

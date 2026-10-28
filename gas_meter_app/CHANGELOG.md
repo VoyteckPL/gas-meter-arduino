@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.21.5
+
+* Wykres temperatury i zużycia: oś temperatury jest odwrócona (zimno u góry), więc linia temperatury biegnie zgodnie ze słupkami zużycia (im zimniej, tym więcej gazu). Strefa mrozu (poniżej 0 °C) ma jasnoniebieskie tło, linię zera i oznaczenie ❄.
+
 ## 0.21.4
 
 * Progi baterii: zatrzymanie WiFi przy **3,00 V** (było 3,10 V), a hibernacja dopiero przy **2,85 V** (było 3,00 V). Dzięki temu między zatrzymaniem WiFi a hibernacją nadal zostaje zapas, w którym gazomierz liczy impulsy. Zmiana jest w firmware (`BATTERY_STOP_WIFI_V`, `BATTERY_CUTOFF_V`), więc wymaga wgrania szkicu; apka ma już nowe progi w prognozach.

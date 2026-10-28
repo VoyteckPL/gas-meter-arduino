@@ -68,7 +68,7 @@
       this.ctx = canvas.getContext("2d");
       this.o = Object.assign({ unit: "", dec: 2, nav: true, thresholds: [], now: null, zeroBase: false, includeY: [],
                                onSettled: null, minSpan: 30, emptyText: "Brak danych", emptyHint: "",
-                               monthlyTicks: false, barLabels: false, bands: [], yTitle: "", rightUnit: "" }, options || {});
+                               monthlyTicks: false, barLabels: false, bands: [], yTitle: "", rightUnit: "", rightInvert: false, rightZero: false }, options || {});
       this.series = [];
       this.full = [0, 1];
       this.view = [0, 1];
@@ -356,7 +356,7 @@
       if (!isFinite(rlo)) { rlo = 0; rhi = 1; }
       const rStep = niceStep(Math.max(rhi - rlo, 1), Math.max(3, Math.floor(plotH / 46)));
       rlo = Math.floor(rlo / rStep) * rStep; rhi = Math.max(Math.ceil(rhi / rStep) * rStep, rlo + rStep);
-      const syR = (v) => top + plotH - (v - rlo) / (rhi - rlo) * plotH;
+      const syR = this.o.rightInvert ? (v) => top + (v - rlo) / (rhi - rlo) * plotH : (v) => top + plotH - (v - rlo) / (rhi - rlo) * plotH;
 
       // ---- grid and labels
       const yStep = niceStep(hi - lo, Math.max(3, Math.floor(plotH / 46)));
@@ -413,6 +413,16 @@
           ctx.fillRect(sx(t0), top, sx(n.getTime() / 1000) - sx(t0), plotH);
         }
         ctx.globalAlpha = 1;
+      }
+      if (hasRight && this.o.rightZero && rlo < 0 && rhi > 0) {
+        // frost zone: everything below 0 degrees (above the zero line when the axis is inverted)
+        const y0 = syR(0), frostTop = this.o.rightInvert ? top : plotBottom, frostH = frostTop - y0;
+        ctx.fillStyle = "#2f7fd0"; ctx.globalAlpha = 0.07; ctx.fillRect(left, Math.min(y0, frostTop), plotW, Math.abs(frostH)); ctx.globalAlpha = 1;
+        ctx.strokeStyle = "#2f7fd0"; ctx.lineWidth = 1.2; ctx.setLineDash([2, 4]);
+        ctx.beginPath(); ctx.moveTo(left, Math.round(y0) + 0.5); ctx.lineTo(left + plotW, Math.round(y0) + 0.5); ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle = "#2f7fd0"; ctx.textAlign = "left"; ctx.font = "600 11px system-ui, sans-serif";
+        ctx.fillText("❄ mróz (poniżej 0°)", left + 6, this.o.rightInvert ? y0 - 5 : y0 + 13);
+        ctx.font = "11px system-ui, sans-serif";
       }
       for (const band of this.o.bands || []) {
         if (band.to < v0 || band.from > v1) continue;
