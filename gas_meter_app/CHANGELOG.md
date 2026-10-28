@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.21.4
+
+* Progi baterii: zatrzymanie WiFi przy **3,00 V** (było 3,10 V), a hibernacja dopiero przy **2,85 V** (było 3,00 V). Dzięki temu między zatrzymaniem WiFi a hibernacją nadal zostaje zapas, w którym gazomierz liczy impulsy. Zmiana jest w firmware (`BATTERY_STOP_WIFI_V`, `BATTERY_CUTOFF_V`), więc wymaga wgrania szkicu; apka ma już nowe progi w prognozach.
+
 ## 0.21.3
 
 * Prognoza w teście rozładowania: przy szybkim rozładowaniu (powyżej 25 % na dobę) trend jest liczony z ostatnich 4 godzin i startuje od prawdziwego naładowania. Wcześniej długi trend wychodził poniżej rzeczywistości, czas do 3,0 V wychodził 0 i linia prognozy w ogóle nie powstawała.

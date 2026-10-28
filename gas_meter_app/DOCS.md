@@ -114,7 +114,7 @@ Apka obserwuje baterię i wysyła wiadomości przez Home Assistant (powiadomieni
 
 * **Raport** (co tydzień albo co miesiąc, pierwszy zaraz po pierwszych danych): naładowanie, napięcie, szacunkowa żywotność z modelu
   i z trendu oraz data, do której warto naładować. Data jest liczona z ostrożniejszej z dwóch prognoz.
-* **Ostrzeżenie**, gdy do napięcia zatrzymania WiFi (3,10 V) zostaje mniej niż `battery_warn_days` dni, powtarzane co 7 dni.
+* **Ostrzeżenie**, gdy do napięcia zatrzymania WiFi (3,00 V) zostaje mniej niż `battery_warn_days` dni, powtarzane co 7 dni.
   Poniżej `battery_critical_days` komunikat jest mocniejszy i wraca co 2 dni. Napięcia 3,50 V / 3,30 V wywołują te same ostrzeżenia,
   nawet gdy prognozy brakuje.
 * **Naładowano**, gdy napięcie wzrosło o 0,25 V po ostrzeżeniu (to też kasuje ostrzeżenie).
