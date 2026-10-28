@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.21.8
+
+* „Ustaw stan licznika” przyjmuje teraz także **0** (wcześniej pole odrzucało zero).
+
 ## 0.21.7
 
 * Test rozładowania zakończony wcześniej niż przy 3,0 V (szkic testowy liczył ze starym współczynnikiem 1,887 zamiast 2,044 i wyłączył się przy faktycznych około 3,25 V): apka przyjmuje taki przebieg, gdy test ma stan „finished”. Brakujący ogon krzywej (kilka procent) bierze z krzywej ogólnej i uwzględnia go w pojemności.

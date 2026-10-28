@@ -445,7 +445,7 @@ function build() {
   const counterSave = el("button", { text: t("save") });
   counterSave.addEventListener("click", () => {
     const perM3 = Number(cfg("pulses_per_m3")) || 100, reading = Number(counterInput.value);
-    if (counterInput.value.trim() === "" || !Number.isFinite(reading) || reading <= 0) { toast("Wpisz poprawny stan licznika (m³).", true); return; }
+    if (counterInput.value.trim() === "" || !Number.isFinite(reading) || reading < 0) { toast("Wpisz poprawny stan licznika (m³), może być 0.", true); return; }
     send("counter", Math.round(reading * perM3));
   });
   views.settings.append(el("section", { class: "card" }, [
