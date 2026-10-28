@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.17.1
+
+* Karta „Pogoda a zużycie": nowy wykres **temperatury i zużycia w czasie** (słupki z faktur, niebieska linia średniej temperatury miesiąca,
+  przerywana linia zużycia przewidywanego przez model). Wykres punktowy dostał opis, co oznaczają osie.
+
 ## 0.17.0
 
 * **Pogoda a zużycie:** apka pobiera dobowe temperatury z darmowego archiwum Open-Meteo (bez konta i klucza; wysyła tylko współrzędne

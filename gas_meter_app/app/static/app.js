@@ -928,6 +928,10 @@ function buildUsage() {
   refBtn.addEventListener("click", () => weatherAction({ action: "refresh" }));
   card([el("h2", { text: "Pogoda a zużycie" }),
         el("p", { class: "hint", style: "margin:0 0 8px", id: "wSummary", text: "Pobieram temperatury…" }),
+        el("h3", { text: "Temperatura i zużycie w czasie" }),
+        el("canvas", { id: "wTime" }),
+        el("p", { class: "hint", id: "wTimeHint" }),
+        el("h3", { text: "Zależność: im zimniej, tym więcej gazu" }),
         el("canvas", { id: "wScatter" }),
         el("p", { class: "hint", id: "wScatterHint" }),
         el("h3", { text: "Prognoza na najbliższe 12 miesięcy" }),
@@ -1072,14 +1076,40 @@ function renderWeather() {
     (d.days ? "Temperatury z " + d.days + " dni" + (d.fetched ? ", pobrane " + new Date(d.fetched * 1000).toLocaleDateString("pl-PL") : "") + "." : "Brak temperatur. Sprawdź lokalizację i połączenie z internetem.");
   if (!m) {
     $("#wSummary").textContent = d.days ? "Potrzeba co najmniej 6 miesięcy z fakturami i temperaturą, żeby policzyć model." : "Czekam na temperatury i faktury.";
-    for (const id of ["wScatter", "wForecast"]) { const c = $("#" + id); c.style.display = "none"; }
+    for (const id of ["wTime", "wScatter", "wForecast"]) { const c = $("#" + id); c.style.display = "none"; }
     $("#wSeasons").textContent = ""; $("#wScatterHint").textContent = "";
     return;
   }
-  for (const id of ["wScatter", "wForecast"]) $("#" + id).style.display = "";
+  for (const id of ["wTime", "wScatter", "wForecast"]) $("#" + id).style.display = "";
   $("#wSummary").textContent = "Stałe zużycie (woda, kuchnia): " + num(m.base, 0) + " m³ na miesiąc. Ogrzewanie: " + num(m.per_hdd, 2) + " m³ na każdy stopniodzień. " +
     "Dopasowanie R² = " + num(m.r2, 2) + " (" + m.months + " miesięcy, typowy błąd ±" + num(m.residual_sd, 0) + " m³).";
   const textC = cssColor("--text"), muted = cssColor("--muted"), line = cssColor("--line"), accent = cssColor("--accent");
+  // time chart: monthly usage bars, model line and the temperature
+  const tc = plainCanvas($("#wTime"));
+  if (tc && d.months.length) {
+    const { ctx, W, H } = tc, left = 40, right = 40, top = 22, bottom = 22, pw = W - left - right, ph = H - top - bottom;
+    const first = d.rows[0].month, list = d.months.filter((x) => x.month >= first);
+    const byM = new Map(d.rows.map((r) => [r.month, r]));
+    const my = niceMax(Math.max(...d.rows.map((r) => r.m3), 1));
+    const tmin = Math.floor(Math.min(...list.map((x) => x.mean)) / 5) * 5, tmax = Math.ceil(Math.max(...list.map((x) => x.mean)) / 5) * 5;
+    const sy = (v) => top + ph - v / my.top * ph, st = (v) => top + ph - (v - tmin) / (tmax - tmin) * ph;
+    const gw = pw / list.length, bw = Math.max(2, gw * 0.7);
+    ctx.strokeStyle = line; ctx.fillStyle = muted; ctx.textAlign = "right";
+    for (let v = 0; v <= my.top + 1e-9; v += my.step) { const y = Math.round(sy(v)) + 0.5; ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(left + pw, y); ctx.stroke(); ctx.fillText(String(Math.round(v)), left - 6, y + 4); }
+    ctx.textAlign = "left";
+    for (let v = tmin; v <= tmax; v += 5) ctx.fillText(v + "°", left + pw + 6, st(v) + 4);
+    ctx.textAlign = "left"; ctx.fillText("m³ / miesiąc (słupki)", left, 12); ctx.fillStyle = "#2f7fd0"; ctx.textAlign = "right"; ctx.fillText("średnia temperatura (linia)", W - right, 12);
+    list.forEach((x, i) => {
+      const r = byM.get(x.month), cx = left + i * gw + gw / 2;
+      if (r) { ctx.fillStyle = accent; ctx.globalAlpha = 0.85; ctx.fillRect(cx - bw / 2, sy(r.m3), bw, top + ph - sy(r.m3)); ctx.globalAlpha = 1; }
+      if (x.month.endsWith("-01")) { ctx.fillStyle = muted; ctx.textAlign = "center"; ctx.fillText(x.month.slice(0, 4), cx, H - 6); ctx.strokeStyle = line; ctx.beginPath(); ctx.moveTo(cx - gw / 2, top); ctx.lineTo(cx - gw / 2, top + ph); ctx.stroke(); }
+    });
+    ctx.strokeStyle = "#2f7fd0"; ctx.lineWidth = 2; ctx.beginPath();
+    list.forEach((x, i) => { const px = left + i * gw + gw / 2; i ? ctx.lineTo(px, st(x.mean)) : ctx.moveTo(px, st(x.mean)); }); ctx.stroke();
+    ctx.strokeStyle = textC; ctx.lineWidth = 1.5; ctx.setLineDash([4, 3]); ctx.beginPath(); let started = false;
+    list.forEach((x, i) => { if (!byM.has(x.month)) return; const px = left + i * gw + gw / 2, py = sy(m.base + m.per_hdd * x.hdd); started ? ctx.lineTo(px, py) : ctx.moveTo(px, py); started = true; }); ctx.stroke(); ctx.setLineDash([]); ctx.lineWidth = 1;
+  }
+  $("#wTimeHint").textContent = "Czerwone słupki to zużycie gazu z faktur, niebieska linia to średnia temperatura miesiąca (prawa oś), przerywana linia to zużycie, jakie przewiduje model z samej pogody. Gdy słupek jest wyraźnie nad linią, zużyłeś więcej, niż wynika z zimna.";
   // scatter: degree days vs m³
   const sc = plainCanvas($("#wScatter"));
   if (sc) {
@@ -1090,13 +1120,13 @@ function renderWeather() {
     for (let v = 0; v <= maxY.top + 1e-9; v += maxY.step) { const y = Math.round(sy(v)) + 0.5; ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(left + pw, y); ctx.stroke(); ctx.fillText(String(Math.round(v)), left - 6, y + 4); }
     ctx.textAlign = "center";
     for (let v = 0; v <= maxX.top + 1e-9; v += maxX.step) ctx.fillText(String(Math.round(v)), sx(v), H - 8);
-    ctx.textAlign = "left"; ctx.fillText("m³ / miesiąc", left + 4, 10); ctx.textAlign = "right"; ctx.fillText("oś pozioma: stopniodni w miesiącu", W - right, 10);
+    ctx.textAlign = "left"; ctx.fillText("m³ / miesiąc", left + 4, 10); ctx.textAlign = "right"; ctx.fillText("stopniodni w miesiącu →", W - right, 10);
     ctx.strokeStyle = textC; ctx.setLineDash([5, 4]); ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(sx(0), sy(m.base)); ctx.lineTo(sx(maxX.top), sy(m.base + m.per_hdd * maxX.top)); ctx.stroke(); ctx.setLineDash([]);
     const lastYear = Number(d.rows[d.rows.length - 1].month.slice(0, 4));
     for (const r of d.rows) { ctx.globalAlpha = Number(r.month.slice(0, 4)) >= lastYear - 1 ? 0.95 : 0.45; ctx.fillStyle = accent; ctx.beginPath(); ctx.arc(sx(r.hdd), sy(r.m3), 4, 0, 7); ctx.fill(); }
     ctx.globalAlpha = 1;
   }
-  $("#wScatterHint").textContent = "Każda kropka to miesiąc z faktury (ostatnie dwa lata wyraźniej). Im zimniej, tym więcej gazu; linia to dopasowany model.";
+  $("#wScatterHint").textContent = "Każda kropka to jeden miesiąc z faktury. Poziomo: jak zimny był miesiąc (stopniodni, 0 = ciepły, 600 = bardzo mroźny), pionowo: ile gazu zużyłeś. Kropki układają się wzdłuż linii, więc zużycie rośnie z zimnem; nachylenie linii to m³ na stopniodzień.";
   // forecast
   const fc = plainCanvas($("#wForecast"));
   if (fc && d.forecast.length) {
