@@ -893,6 +893,14 @@ function buildUsage() {
     tile("--muted", "📈", "Rok do roku", "uYoy", "względem poprzednich 12 mies."),
   ]));
 
+  card([el("h2", { text: "Prognoza rachunku" }),
+        el("div", { class: "kpis" }, [
+          tile("--accent", "🧾", "Najbliższa faktura", "fNext", ""),
+          tile("--accent", "📅", "Następne 12 miesięcy", "fYear", ""),
+          tile("--muted", "⚖️", "Cena gazu", "fPrice", "")]),
+        el("div", { id: "fTable", style: "overflow-x:auto;margin-top:8px" }),
+        el("p", { class: "hint", id: "fHint" })], true);
+
   const unitTabs = el("div", { class: "tabs", id: "uUnits" });
   for (const [unit, label] of [["m3", "m³"], ["kwh", "kWh"], ["cost", "zł"]]) {
     const b = el("button", { class: "secondary", "data-unit": unit, text: label });
@@ -1058,6 +1066,34 @@ async function loadUsage() {
   syncOrlen();
   loadWeather();
   api("energy").then(renderEnergy).catch(() => {});
+  loadForecast();
+}
+
+async function loadForecast() {
+  let d = null;
+  try { d = await api("forecast"); } catch (e) { d = null; }
+  const f = d && d.forecast;
+  if (!f) {
+    for (const id of ["fNext", "fYear", "fPrice"]) { $("#" + id).textContent = "—"; $("#" + id + "Sub").textContent = ""; }
+    $("#fTable").textContent = ""; $("#fHint").textContent = "Zaimportuj faktury z eBOK, żeby policzyć prognozę rachunku.";
+    return;
+  }
+  const n = f.next, label = (key) => MONTH_FULL[Number(key.slice(5, 7)) - 1] + " " + key.slice(0, 4), zl = (v) => num(v, 0) + " zł";
+  $("#fNext").textContent = "ok. " + zl(n.cost);
+  $("#fNextSub").textContent = "za " + label(n.month) + ", " + zl(n.low) + " – " + zl(n.high) + " · " + num(n.m3, 0) + " m³" +
+    (n.state === "in_progress" ? " (do dziś " + num(n.so_far_m3, 0) + " m³)" : n.state === "actual" ? " (miesiąc już zakończony)" : "");
+  $("#fYear").textContent = "ok. " + zl(f.year_cost);
+  $("#fYearSub").textContent = f.last_year_cost ? "rok wcześniej " + zl(f.last_year_cost) + " (" + (f.year_cost >= f.last_year_cost ? "+" : "−") + num(Math.abs(f.year_cost / f.last_year_cost - 1) * 100, 0) + " %)" : "kolejne " + f.year_months + " miesięcy";
+  $("#fPrice").textContent = num(f.price.avg, 2) + " zł/kWh";
+  $("#fPriceSub").textContent = f.price.fitted ? "opłata stała ok. " + zl(f.price.fixed) + "/mies. + " + num(f.price.per_kwh, 2) + " zł/kWh" : "średnio z ostatnich faktur";
+  const box = $("#fTable"); box.textContent = "";
+  const t = el("table", { class: "mini" }, [el("tr", {}, ["Miesiąc", "m³", "kWh", "Rachunek", "Zakres"].map((h) => el("th", { text: h })))]);
+  for (const r of f.months.slice(0, 6)) {
+    t.append(el("tr", {}, [label(r.month), num(r.m3, 0), num(r.kwh, 0), zl(r.cost), zl(r.low) + " – " + zl(r.high)].map((v) => el("td", { text: v }))));
+  }
+  box.append(t);
+  $("#fHint").textContent = "Faktura jest przypisana do miesiąca przed terminem płatności. Zużycie tego miesiąca liczone jest z odczytów gazomierza do dziś, a reszta z modelu pogody" +
+    (d.weather_model ? "" : " (jeszcze bez pogody, więc ze średniej z poprzednich lat)") + ". Cena = opłata stała + cena za kWh dopasowane do faktur z ostatnich 12 miesięcy; zakres to typowy błąd modelu. To szacunek, a nie wyliczenie Orlenu.";
 }
 
 async function energyAction(action) {

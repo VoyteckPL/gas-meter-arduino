@@ -46,6 +46,7 @@ import battery
 import notifier
 import weather
 import energy
+import billing
 
 log = logging.getLogger("gas_meter")
 
@@ -1291,6 +1292,21 @@ async def weather_loop(app):
         await asyncio.sleep(3600)
 
 
+def weather_analysis(app):
+    monthly, factor = bills_context(app)
+    months = weather.monthly_weather(app["weather"]["daily"])
+    return months, weather.analyse(monthly, months, time.strftime("%Y-%m"), factor)
+
+
+async def api_forecast(request):
+    app = request.app
+    monthly, factor = bills_context(app)
+    _, analysis = weather_analysis(app)
+    with app["store"].lock:
+        meter = [list(p) for p in app["store"].series("cubic_meters")]
+    result = billing.forecast(monthly, factor, analysis, meter, time.time())
+    return web.json_response({"forecast": result, "factor": factor, "weather_model": bool(analysis.get("model")), "invoices": len(monthly)})
+
 async def api_weather(request):
     app = request.app
     data = app["weather"]
@@ -1317,14 +1333,7 @@ async def api_weather(request):
             return web.json_response({"error": "unknown action"}, status=400)
     elif not data["daily"] and data.get("fetched") is None:
         status = await sync_weather(app)
-    monthly = monthly_from_bills(app["bills"]["bills"])
-    factor = app["bills"].get("factor", 11.0)
-    own = sorted(b["kwh"] / b["m3"] for b in app["bills"]["bills"] if b.get("kwh") and b.get("m3"))
-    if own and not app["bills"].get("factor_manual"):
-        factor = own[len(own) // 2]
-    months = weather.monthly_weather(data["daily"])
-    now_key = time.strftime("%Y-%m")
-    analysis = weather.analyse(monthly, months, now_key, factor)
+    months, analysis = weather_analysis(app)
     return web.json_response({"lat": data.get("lat"), "lon": data.get("lon"), "fetched": data.get("fetched"), "days": len(data["daily"]),
                               "status": status, "months": [dict(month=k, **v) for k, v in sorted(months.items())],
                               "base_c": weather.BASE_C, **analysis})
@@ -1539,6 +1548,7 @@ def create_app(options):
     app.router.add_get("/api/orlen", api_orlen)
     app.router.add_get("/api/bills", api_bills)
     app.router.add_post("/api/bills", api_bills)
+    app.router.add_get("/api/forecast", api_forecast)
     app.router.add_get("/api/energy", api_energy)
     app.router.add_post("/api/energy", api_energy)
     app.router.add_get("/api/weather", api_weather)
