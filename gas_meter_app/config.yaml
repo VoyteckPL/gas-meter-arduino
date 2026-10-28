@@ -1,5 +1,5 @@
 name: "Energia Gazomierz"
-version: "0.21.13"
+version: "0.22.0"
 slug: "gas_meter"
 description: "Panel i ustawienia gazomierza na baterii (ESP32, MQTT): odczyty, historia, bateria z prognozą żywotności, powiadomienia."
 url: "https://github.com/VoyteckPL/gas-meter-arduino"
@@ -35,6 +35,7 @@ options:
   battery_warn_days: 45
   battery_critical_days: 14
   silent_alert_hours: 48
+  boiler_entity: "sensor.ariston_genus_one_status_kotla"
   publish_discovery: true
   language: "auto"
 schema:
@@ -54,5 +55,6 @@ schema:
   battery_warn_days: "int(1,365)"
   battery_critical_days: "int(1,365)"
   silent_alert_hours: "int(0,720)"
+  boiler_entity: "str?"
   publish_discovery: "bool"
   language: "list(auto|pl|en)"

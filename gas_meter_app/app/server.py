@@ -15,6 +15,7 @@ import re
 import threading
 import time
 from datetime import datetime
+from urllib.parse import quote
 
 import paho.mqtt.client as mqtt
 from aiohttp import ClientSession, web
@@ -39,6 +40,7 @@ IMPORT_FILE = os.path.join(DATA_DIR, "imported.json")
 BILLS_FILE = os.path.join(DATA_DIR, "bills.json")
 WEATHER_FILE = os.path.join(DATA_DIR, "weather.json")
 ENERGY_FILE = os.path.join(DATA_DIR, "energy.json")
+BOILER_FILE = os.path.join(DATA_DIR, "boiler.json")
 ENERGY_ID = "gas_meter_app:gas_history"
 WEATHER_API = os.environ.get("WEATHER_API", "https://archive-api.open-meteo.com/v1/archive")
 
@@ -47,6 +49,7 @@ import notifier
 import weather
 import energy
 import billing
+import boiler
 
 log = logging.getLogger("gas_meter")
 
@@ -1534,6 +1537,84 @@ async def app_entities_loop(app):
         await asyncio.sleep(600)
 
 
+def load_boiler():
+    try:
+        with open(BOILER_FILE, encoding="utf-8") as handle:
+            return json.load(handle)
+    except (OSError, ValueError):
+        return {"transitions": [], "imported": False}
+
+
+def save_boiler(data):
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        with open(BOILER_FILE + ".tmp", "w", encoding="utf-8") as handle:
+            json.dump(data, handle)
+        os.replace(BOILER_FILE + ".tmp", BOILER_FILE)
+    except OSError as error:  # pragma: no cover
+        log.warning("cannot save boiler history: %s", error)
+
+
+def iso_ts(text):
+    return datetime.fromisoformat(str(text).replace("Z", "+00:00")).timestamp()
+
+
+def add_transition(data, ts, state):
+    """Appends a state change (in order, no repeats). Returns True when something was added."""
+    rows = data["transitions"]
+    if rows and (rows[-1][1] == state or ts < rows[-1][0] - 1):
+        return False
+    rows.append([round(ts, 1), state])
+    del rows[:-5000]
+    return True
+
+
+async def sync_boiler(app):
+    """Follows the state of the boiler entity (read only): the history Home Assistant still has, then every change."""
+    entity = (app["options"].get("boiler_entity") or "").strip()
+    data = app["boiler"]
+    if not entity or not core_token():
+        return
+    if not data.get("imported") or data.get("entity") != entity:
+        start = datetime.fromtimestamp(time.time() - 11 * 86400).astimezone().isoformat(timespec="seconds")
+        history = await core_get("/history/period/%s?filter_entity_id=%s&minimal_response&no_attributes" % (quote(start, safe=":-T"), quote(entity)))
+        if history is not None:
+            data.update(transitions=[], imported=True, entity=entity)
+            for row in (history[0] if history else []):
+                stamp = row.get("last_changed") or row.get("last_updated")
+                if stamp and row.get("state") is not None:
+                    add_transition(data, iso_ts(stamp), row["state"])
+            save_boiler(data)
+    state = await core_get("/states/" + entity)
+    if state and state.get("state") is not None:
+        if add_transition(data, iso_ts(state.get("last_changed") or state.get("last_updated")), state["state"]):
+            save_boiler(data)
+
+
+async def boiler_loop(app):
+    await asyncio.sleep(30)
+    while True:
+        try:
+            await sync_boiler(app)
+        except Exception as error:  # pragma: no cover
+            log.warning("boiler sync failed: %s", error)
+        await asyncio.sleep(20)
+
+
+async def api_boiler(request):
+    app = request.app
+    entity = (app["options"].get("boiler_entity") or "").strip()
+    data = app["boiler"]
+    _, factor = bills_context(app)
+    with app["store"].lock:
+        meter = [list(p) for p in app["store"].series("cubic_meters")]
+    result = boiler.analyse(data["transitions"], meter, time.time(), factor)
+    result.update(entity=entity, states=len(data["transitions"]),
+                  current=data["transitions"][-1][1] if data["transitions"] else None,
+                  current_mode=boiler.mode_of(data["transitions"][-1][1]) if data["transitions"] else None)
+    return web.json_response(result)
+
+
 async def api_set(request):
     app = request.app
     try:
@@ -1589,6 +1670,7 @@ async def on_startup(app):
     app["weather_task"] = asyncio.create_task(weather_loop(app))
     app["energy_task"] = asyncio.create_task(energy_loop(app))
     app["entities_task"] = asyncio.create_task(app_entities_loop(app))
+    app["boiler_task"] = asyncio.create_task(boiler_loop(app))
 
 
 async def on_cleanup(app):
@@ -1597,6 +1679,7 @@ async def on_cleanup(app):
     app["weather_task"].cancel()
     app["energy_task"].cancel()
     app["entities_task"].cancel()
+    app["boiler_task"].cancel()
     app["store"].save()
     app["bridge"].client.loop_stop()
     app["bridge"].client.disconnect()
@@ -1610,6 +1693,7 @@ def create_app(options):
     app["bills"] = load_bills()
     app["weather"] = load_weather()
     app["energy"] = load_energy()
+    app["boiler"] = load_boiler()
     app["notify_targets"] = load_targets()
     app["store"] = Store(options.get("root_topic") or "Gaz/Gazomierz",
                          options.get("battery_test_topic", "Gaz/BatteryTest"))
@@ -1620,6 +1704,7 @@ def create_app(options):
     app.router.add_get("/api/orlen", api_orlen)
     app.router.add_get("/api/bills", api_bills)
     app.router.add_post("/api/bills", api_bills)
+    app.router.add_get("/api/boiler", api_boiler)
     app.router.add_get("/api/forecast", api_forecast)
     app.router.add_get("/api/energy", api_energy)
     app.router.add_post("/api/energy", api_energy)

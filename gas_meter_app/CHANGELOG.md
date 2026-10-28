@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.22.0
+
+* Nowa karta „Piec: ciepła woda i ogrzewanie” w zakładce Zużycie. Apka czyta stan pieca z encji z Home Assistanta (domyślnie `sensor.ariston_genus_one_status_kotla`, opcja `boiler_entity`) i dzieli gaz na ciepłą wodę, ogrzewanie oraz postój i resztę. Gaz między zmianami stanu bierze z odczytów gazomierza, więc każdy tryb dostaje tyle, ile zużył w swoim czasie trwania. Karta pokazuje słupki na dobę, liczbę cykli, średni czas, gaz i moc kW.
+* Apka tylko czyta stan pieca i zapisuje go u siebie, niczego nie wysyła do pieca. Stany `unknown` i `unavailable` są pomijane. Recorder HA trzyma historię około 10 dni, więc starszych miesięcy nie da się podzielić wstecz.
+
 ## 0.21.13
 
 * Wykres baterii: przy widoku dłuższym niż około 5 miesięcy każdy miesiąc ma podpis i podziałkę, rok jest przy styczniu i przy pierwszym podpisie, a co drugi miesiąc ma jasne tło. Przy krótkich zakresach (dni, tygodnie) zostają dotychczasowe podpisy godzin i dni.

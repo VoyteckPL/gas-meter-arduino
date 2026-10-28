@@ -219,3 +219,4 @@ table.mini th, table.mini td { padding: 4px 12px 4px 0; text-align: left; border
 .legend .sw.dash { height: 0; background: none; border-top: 2px dashed var(--c); }
 .legend .sw.dot { width: 8px; height: 8px; border-radius: 50%; }
 .legend .sw.band { width: 14px; height: 10px; border: 1px solid var(--c); }
+#bhCanvas { height: 240px; touch-action: pan-y; width: 100%; }
