@@ -13,8 +13,8 @@
  *  - The chip sleeps (deep sleep) and wakes only on a reed edge or a timer.
  *  - Every pulse is counted, WiFi stays off while counting.
  *  - No pulse may be lost:
- *      * while sleeping the reed wakes the chip (a pulse shorter than the wake-up
- *        time is still counted, see COUNT_SHORT_PULSES),
+ *      * while sleeping the reed wakes the chip; a pulse is a closure of at least
+ *        MIN_CLOSED_MS, shorter touches (chatter, wires brushing) never count,
  *      * while awake (WiFi session) an interrupt counts the pulses,
  *      * the counter is kept in RTC memory and backed up in flash, so it survives
  *        a battery change, and it is restored from MQTT if both are lost.
@@ -38,7 +38,7 @@
 #include "driver/rtc_io.h"
 #include "esp_sleep.h"
 
-#define FW_VERSION "0.2.6"
+#define FW_VERSION "0.2.7"
 
 // ------------------------------- configuration -------------------------------
 // WiFi and MQTT credentials live in secrets.h (copy secrets.example.h, never commit it)
@@ -65,17 +65,16 @@ IPAddress DNS_SERVER(192, 168, 1, 1);
 #define BATTERY_GPIO     36             // battery divider (2 x 100k) on GPIO36 / A0
 
 #define PULSES_PER_M3         100       // 1 pulse = 0.01 m3
-#define DEBOUNCE_MS           300       // reed level must be stable this long (a hand touch on bare wires bounces for 100-300 ms)
-#define DEBOUNCE_MAX_MS       1500      // never wait longer than this for a stable level
+#define MIN_CLOSED_MS         150       // a closure counts only when the contact stays closed this long
+#define DEBOUNCE_MS           300       // after a pulse the contact must stay open this long before the next one can count
+#define DEBOUNCE_MAX_MS       1500      // never wait longer than this for a stable level at wake-up
 #define MIN_SEND_INTERVAL_S   0         // 0 = send every single pulse (TEST value, use 20 or more for the final installation)
 #define STATUS_INTERVAL_S     (6UL * 60UL * 60UL)   // status with its own WiFi session
 #define STATUS_PIGGYBACK_S    (5UL * 60UL)          // status added to a session that happens anyway
 
-// 1 = a wake-up by the reed counts as a pulse even if the contact is open again when the
-//     chip has started (pulse shorter than ~0.3 s). The status shows how often this happened
-//     (short_pulses). 0 = count only pulses that are still closed when the chip has started.
-#define COUNT_SHORT_PULSES    1
-#define SHORT_PULSE_MIN_MS    10     // closed at least this long (while starting) to count as a pulse
+// A pulse is a closure that lasts at least MIN_CLOSED_MS after the contact was open for DEBOUNCE_MS. Touches of a few
+// ms (contact chatter, wires brushing each other when they are let go, vibration) never count. A G4 meter closes the
+// reed for well over half a second even at its maximum flow, so nothing real is lost.
 
 // flutter protection: more than BURST_MAX_WAKES wake-ups within BURST_WINDOW_S seconds is
 // impossible for a gas meter (the fastest pulse is about 6 s) -> sleep CHATTER_LOCKOUT_S seconds
@@ -146,19 +145,43 @@ struct Cache {
 RTC_NOINIT_ATTR Cache cache;
 
 // ------------------------------- pulse interrupt -----------------------------
-// Counts closures of the reed while the chip is awake (WiFi session). It reacts to every edge:
-// a closure is counted only when the contact had been quiet for DEBOUNCE_MS before, so the
-// chatter of the contact when it closes AND when it opens never counts as a pulse.
-// It is armed only after the wake-up handling has read the reed level, so no pulse is counted twice.
+// Follows the reed while the chip is awake (WiFi session) with a small state machine:
+//   OPEN      -> contact closes                    -> CLOSING (timing the closure)
+//   CLOSING   -> still closed after MIN_CLOSED_MS  -> CLOSED, one pulse counted
+//   CLOSING   -> opens earlier                     -> OPEN, nothing counted (a touch, not a pulse)
+//   CLOSED    -> contact opens                     -> RELEASING
+//   RELEASING -> closes again                      -> CLOSED (still the same pulse)
+//   RELEASING -> still open after DEBOUNCE_MS      -> OPEN, ready for the next pulse
+// The time based steps are taken at the next edge or by reedSettle() / absorbInterruptPulses().
+// It is armed only after the wake-up handling has decided the level, so no pulse is counted twice.
+enum { R_OPEN = 0, R_CLOSING, R_CLOSED, R_RELEASING };
 static volatile bool     isrArmed = false;
 static volatile uint32_t isrPulses = 0;
-static volatile uint32_t isrLastMs = 0;
+static volatile uint8_t  isrState = R_OPEN;
+static volatile uint32_t isrSinceMs = 0;
+
+// time based steps; only valid while the contact is still at the level of the state (call with interrupts off)
+static inline void IRAM_ATTR reedAdvance(uint32_t t, int lvl) {
+  if (isrState == R_CLOSING && lvl == LOW && t - isrSinceMs >= MIN_CLOSED_MS) {
+    isrPulses++;
+    isrState = R_CLOSED;
+  } else if (isrState == R_RELEASING && lvl == HIGH && t - isrSinceMs >= DEBOUNCE_MS) {
+    isrState = R_OPEN;
+  }
+}
 
 void IRAM_ATTR reedIsr() {
   if (!isrArmed) return;
   uint32_t t = millis();
-  if (t - isrLastMs >= DEBOUNCE_MS && digitalRead(REED_GPIO) == LOW) isrPulses++;
-  isrLastMs = t;
+  int lvl = digitalRead(REED_GPIO);
+  // the level before this edge lasted until now: take the time based step first
+  reedAdvance(t, lvl == LOW ? HIGH : LOW);
+  switch (isrState) {
+    case R_OPEN:      if (lvl == LOW)  { isrState = R_CLOSING;   isrSinceMs = t; } break;
+    case R_CLOSING:   if (lvl == HIGH) { isrState = R_OPEN; }                      break;
+    case R_CLOSED:    if (lvl == HIGH) { isrState = R_RELEASING; isrSinceMs = t; } break;
+    case R_RELEASING: if (lvl == LOW)  { isrState = R_CLOSED; }                    break;
+  }
 }
 
 static void countPulses(uint32_t n) {
@@ -172,6 +195,7 @@ static void countPulses(uint32_t n) {
 // Adds the pulses counted by the interrupt to the counter.
 static void absorbInterruptPulses() {
   noInterrupts();
+  reedAdvance(millis(), digitalRead(REED_GPIO));
   uint32_t n = isrPulses;
   isrPulses = 0;
   interrupts();
@@ -233,24 +257,22 @@ static int batteryPercent(float v) {
   return 100;
 }
 
-// Returns the reed level once it was stable for DEBOUNCE_MS, but waits at most DEBOUNCE_MAX_MS.
-// lowMs is set to the total time the contact was seen closed (LOW) while waiting, so that a pulse
-// that started and ended during this wait (or during the start of the chip) is not overlooked.
-static int readReedStable(unsigned long &lowMs) {
-  lowMs = 0;
-  int level = digitalRead(REED_GPIO);
+// Returns the reed level at wake-up once it is clear: closed for MIN_CLOSED_MS or open for DEBOUNCE_MS, but waits at
+// most DEBOUNCE_MAX_MS. When the closure itself woke the chip, it has already lasted the start-up time of the chip
+// (about 0.2-0.3 s), so a contact that is still closed at the first read counts at once.
+static int readReedStable(bool wokeByClosure) {
   unsigned long start = millis();
-  unsigned long t0 = start;
-  unsigned long last = start;
-  while (millis() - t0 < DEBOUNCE_MS && millis() - start < DEBOUNCE_MAX_MS) {
+  int level = digitalRead(REED_GPIO);
+  if (level == LOW && wokeByClosure) return LOW;
+  unsigned long since = start;
+  while (millis() - start < DEBOUNCE_MAX_MS) {
     int l = digitalRead(REED_GPIO);
     unsigned long t = millis();
-    if (l == LOW) lowMs += t - last;
-    last = t;
     if (l != level) {
       level = l;
-      t0 = t;
+      since = t;
     }
+    if (t - since >= (unsigned long)(level == LOW ? MIN_CLOSED_MS : DEBOUNCE_MS)) break;
     delay(2);
   }
   return level;
@@ -628,33 +650,26 @@ void setup() {
 
   // ---- reed contact: one pulse = magnet arrives (level goes LOW) ----
   uint32_t pulsesAtWake = cache.pulsesTotal;      // to know whether this wake-up counted a pulse
-  bool armedForLow = (cache.lastLevel == HIGH);     // the reed woke us on LOW
-  unsigned long lowMs = 0;
-  int level = readReedStable(lowMs);
+  bool wokeByClosure = !coldStart && cache.lastLevel == HIGH && wakeCause == ESP_SLEEP_WAKEUP_EXT0;
+  int level = readReedStable(wokeByClosure);
   if (coldStart) {
     cache.lastLevel = level;
   } else if (level != cache.lastLevel) {
     cache.lastLevel = level;
     if (level == LOW) countPulses(1);
-  } else if (COUNT_SHORT_PULSES && armedForLow && level == HIGH &&
-             (wakeCause == ESP_SLEEP_WAKEUP_EXT0 || lowMs >= SHORT_PULSE_MIN_MS)) {
-    // the reed woke us on LOW (or was seen closed while the chip was starting), but the contact is
-    // open again: a very short pulse
-    countPulses(1);
-    cache.shortPulses++;
   }
+  // (a wake-up by a touch that is already over counts nothing: it was shorter than the start-up of the chip)
 
-  // start counting by interrupt; read the level once more without a gap (no edge can be missed)
+  // start following the reed by interrupt from the decided level; read it once more without a gap
   noInterrupts();
   isrPulses = 0;
-  isrLastMs = millis() - DEBOUNCE_MS;     // the level was stable for DEBOUNCE_MS, a closure counts at once
+  isrState = (cache.lastLevel == LOW) ? R_CLOSED : R_OPEN;
+  isrSinceMs = millis();
   isrArmed = true;
   int recheck = digitalRead(REED_GPIO);
+  if (recheck == LOW && isrState == R_OPEN) isrState = R_CLOSING;
+  else if (recheck == HIGH && isrState == R_CLOSED) isrState = R_RELEASING;
   interrupts();
-  if (recheck != cache.lastLevel) {
-    cache.lastLevel = recheck;
-    if (recheck == LOW) countPulses(1);
-  }
 
   // ---- decide whether a WiFi session is due ----
   uint32_t now = nowSeconds();
@@ -701,10 +716,20 @@ void setup() {
   // saves the counter, arms the wake-up sources and checks once more, with interrupts disabled,
   // that the reed did not move meanwhile. Only then the chip goes to sleep.
   for (int round = 0; round < 10; round++) {
+    // a closure that is being timed or an opening that is being confirmed is finished first (at most 2 s)
+    for (unsigned long w = millis(); millis() - w < 2000;) {
+      noInterrupts();
+      reedAdvance(millis(), digitalRead(REED_GPIO));
+      uint8_t st = isrState;
+      interrupts();
+      if (st == R_OPEN || st == R_CLOSED) break;
+      delay(5);
+    }
     noInterrupts();
+    reedAdvance(millis(), digitalRead(REED_GPIO));
     uint32_t extra = isrPulses;
     isrPulses = 0;
-    int endLevel = digitalRead(REED_GPIO);
+    int endLevel = (isrState == R_CLOSED || isrState == R_RELEASING) ? LOW : HIGH;   // the decided level, not a glitch
     interrupts();
     if (extra) countPulses(extra);
     cache.lastLevel = endLevel;
@@ -725,7 +750,7 @@ void setup() {
     }
     if (sleepS < 1) sleepS = 1;
     esp_sleep_enable_timer_wakeup(sleepS * 1000000ULL);
-    // wake on the opposite level of the one the reed has right now
+    // wake on the opposite level of the decided one (if the contact is already there, the chip wakes at once)
     esp_sleep_enable_ext0_wakeup(REED_PIN, endLevel ? 0 : 1);
 
     noInterrupts();

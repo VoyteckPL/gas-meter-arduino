@@ -61,10 +61,11 @@ after the next restart it reverts to the last working settings.
 ## Pulse accounting rules
 
 * One pulse = reed contact closes (pin goes LOW).
-* While sleeping the reed wakes the chip. A pulse that is already over when the chip has started is
-  still counted (`short_pulses`).
-* While awake (WiFi session) an interrupt counts the pulses. Contact chatter when closing and when
-  opening is ignored (a closure counts only after DEBOUNCE_MS of quiet).
+* A pulse is a closure of at least `MIN_CLOSED_MS` (150 ms) after the contact was open for `DEBOUNCE_MS` (300 ms).
+  Shorter touches (contact chatter, wires brushing each other, vibration) never count. While sleeping the reed wakes
+  the chip; a closure that is already over when the chip has started (shorter than about 0.3 s) is such a touch.
+  `short_pulses` stays 0 (kept for compatibility).
+* While awake (WiFi session) an interrupt follows the contact with the same rules.
 * The counter is kept in RTC memory and backed up in flash after every change, so it survives a
   battery change. If both are lost it is restored from the retained `counter` topic.
 * The counter is never published before it is known (no wrong small value, no jump in the Energy dashboard).
