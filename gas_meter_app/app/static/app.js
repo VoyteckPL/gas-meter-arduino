@@ -42,6 +42,11 @@ const TEXT = {
     nSent: "wysłano", nFailed: "nie dostarczono", nNotHa: "Apka nie działa w Home Assistant, komunikaty trafiają tylko do logu.",
     nRecipients: "Kto dostaje wiadomości (telefony z aplikacją Home Assistant)", nOther: "Inne telefony", nNoPhones: "Nie znaleziono telefonu z aplikacją Home Assistant. Zainstaluj aplikację na telefonie i zaloguj się, potem kliknij Odśwież.",
     nRefresh: "Odśwież", nNoneSelected: "Nikt nie jest wybrany: dostajesz tylko powiadomienie w Home Assistant.", nManual: "Dodatkowo ustawione w opcjach apki",
+    rangeAll: "Wszystko", zoomIn: "Powiększ", zoomOut: "Pomniejsz", zoomReset: "Cały zakres",
+    chartHint: "Przeciągnij, żeby przewijać. Kółko myszy albo szczypanie powiększa, dwuklik pokazuje cały zakres. Pasek na dole to przegląd całej historii.",
+    visibleRange: "Widoczny zakres", goBattery: "Przejdź do zakładki Bateria",
+    emptyBattery: "Gazomierz nie przysłał jeszcze danych baterii. Pojawią się po wgraniu szkicu gazomierza (firmware/gas_meter). Test rozładowania zobaczysz w zakładce Bateria.",
+    emptyGeneric: "W tym okresie nie ma jeszcze danych.",
     tabBattery: "Bateria", bTitle: "Bateria teraz", bSource: "Źródło", bMeter: "Gazomierz", bTest: "Test rozładowania",
     bVolts: "Napięcie", bSoc: "Naładowanie (szacunek)", bCurveGeneric: "Ogólna krzywa Li-ion", bCurveLearned: "Krzywa nauczona z Twojego testu rozładowania",
     bPredTitle: "Prognoza żywotności", bModel: "Model zużycia", bTrend: "Trend napięcia", bToWarn: "Do napięcia zatrzymania WiFi", bToCut: "Do napięcia odcięcia",
@@ -228,6 +233,15 @@ function build() {
     tile("", "--muted", "🕒", "lastData", "lastData", el("div", { class: "sub", "data-i18n": "lastSub" })),
   ]));
   root.append(el("p", { class: "hint wide", style: "grid-column:1/-1;margin:0", "data-i18n": "histHint" }));
+  // a click on a tile (or on a value of the battery test) opens its history
+  for (const [id, entity] of [["meter", "meter"], ["flow", "flow"], ["today", "hourly"], ["battery", "battery"], ["rssi", "rssi"],
+                              ["btVolt", "btVolt"], ["btPinMv", "btPin"]]) {
+    const node = $("#" + id);
+    if (!node) continue;
+    const target = node.closest(".kpi") || node;
+    target.classList.add("clickable");
+    target.addEventListener("click", () => openHistory(entity));
+  }
 
   // charts
   const tabs = el("div", { class: "tabs" });
@@ -531,65 +545,80 @@ async function drawChart() {
 
 // --------------------------------------------------------------- history dialog
 const HIST = {
-  meter:   { key: "hMeter",   kind: "meter",   unit: "m³",   dec: 2, step: true,  stat: "change" },
-  flow:    { key: "hFlow",    kind: "flow",    unit: "m³/h", dec: 2, area: true,  stat: "range" },
-  hourly:  { key: "hHourly",  kind: "hourly",  unit: "m³",   dec: 3, bars: true,  stat: "total", min24: true },
-  battery: { key: "hBattery", kind: "battery", unit: "V",    dec: 2, stat: "range" },
-  percent: { key: "hPercent", kind: "percent", unit: "%",    dec: 0, stat: "range" },
-  rssi:    { key: "hRssi",    kind: "rssi",    unit: "dBm",  dec: 0, stat: "range" },
-  btVolt:  { key: "hBtVolt",  kind: "bt",      unit: "V",    dec: 3, stat: "range", test: true },
-  btPin:   { key: "hBtPin",   kind: "bt_pin",  unit: "mV",   dec: 0, stat: "range", test: true },
+  meter:   { key: "hMeter",   kind: "meter",   unit: "m³",   dec: 2, line: "step", stat: "change", raw: true },
+  flow:    { key: "hFlow",    kind: "flow",    unit: "m³/h", dec: 2, area: true, zero: true, stat: "range",
+             fetch: "series?kind=flow&hours=336&bucket=900", span: 336 * 3600, view: 2 * 86400 },
+  hourly:  { key: "hHourly",  kind: "hourly",  unit: "m³",   dec: 3, bars: true, stat: "total",
+             fetch: "series?kind=hourly&hours=336", span: 336 * 3600, view: 2 * 86400 },
+  battery: { key: "hBattery", kind: "battery", unit: "V",    dec: 3, area: true, stat: "range", raw: true, battery: true },
+  percent: { key: "hPercent", kind: "percent", unit: "%",    dec: 0, area: true, stat: "range", raw: true, battery: true },
+  rssi:    { key: "hRssi",    kind: "rssi",    unit: "dBm",  dec: 0, stat: "range", raw: true },
+  btVolt:  { key: "hBtVolt",  kind: "bt",      unit: "V",    dec: 3, area: true, stat: "range", raw: true, test: true },
+  btPin:   { key: "hBtPin",   kind: "bt_pin",  unit: "mV",   dec: 0, stat: "range", raw: true, test: true },
 };
-const RANGES = [["range1h", 1], ["range6h", 6], ["range24h", 24], ["range7d", 168], ["range14d", 336]];
-const history = { entity: "meter", hours: 24, points: [], hover: null };
+const PRESETS = [["range1h", 3600], ["range6h", 6 * 3600], ["range24h", 86400], ["range7d", 7 * 86400], ["range14d", 14 * 86400], ["rangeAll", 0]];
+const history = { entity: "meter", chart: null, token: 0, detailToken: 0 };
 
-function histTime(ts, long) {
-  const d = new Date(ts * 1000), pad = (n) => String(n).padStart(2, "0");
-  const time = pad(d.getHours()) + ":" + pad(d.getMinutes());
-  return long ? d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + " " + time : time;
+const cssColor = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const dateText = (ts) => new Date(ts * 1000).toLocaleString("pl-PL", { day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" });
+
+function histEntityUrl(spec, extra) {
+  let path = "series?kind=" + spec.kind + extra;
+  if (spec.kind === "bt") path += "&factor=" + (Number(($("#btFactor") || {}).value) || 2.044);
+  return path;
 }
 
 function openHistory(entity) {
-  history.entity = entity; history.hover = null;
+  const hasMeterBattery = state.values.BatteryVoltage !== undefined, hasTest = state.values["bt/pin_mv"] !== undefined;
+  if ((entity === "battery" || entity === "percent") && !hasMeterBattery && hasTest) entity = "btVolt";
+  history.entity = entity;
   let dialog = $("#histDialog");
   if (!dialog) {
-    const tabs = el("div", { class: "tabs", id: "histEntities" });
-    const ranges = el("div", { class: "tabs", id: "histRanges" });
-    for (const [key, hours] of RANGES) {
-      const b = el("button", { class: "secondary", "data-hours": hours, "data-i18n": key });
-      b.addEventListener("click", () => { history.hours = hours; loadHistory(); });
-      ranges.append(b);
+    const mini = (text, title, handler) => { const bt = el("button", { class: "secondary", text, title }); bt.addEventListener("click", handler); return bt; };
+    const presets = el("div", { class: "tabs", id: "histRanges" });
+    for (const [key, seconds] of PRESETS) {
+      const bt = el("button", { class: "secondary", "data-seconds": seconds, "data-i18n": key });
+      bt.addEventListener("click", () => (seconds ? history.chart.showLast(seconds) : history.chart.reset()));
+      presets.append(bt);
     }
     const canvas = el("canvas", { id: "histCanvas" });
-    canvas.addEventListener("pointermove", (e) => {
-      const rect = canvas.getBoundingClientRect();
-      history.hover = e.clientX - rect.left; renderHistory();
-    });
-    canvas.addEventListener("pointerleave", () => { history.hover = null; renderHistory(); });
     const close = el("button", { class: "ghost", "data-i18n": "close" });
     close.addEventListener("click", closeHistory);
+    const toBattery = el("button", { id: "histEmptyBtn", class: "secondary", hidden: "", "data-i18n": "goBattery" });
+    toBattery.addEventListener("click", () => { closeHistory(); showView("battery"); });
     dialog = el("div", { class: "overlay", id: "histDialog" }, [
       el("div", { class: "dialog" }, [
         el("div", { class: "dialog-head" }, [el("h2", { id: "histTitle" }), close]),
-        tabs, ranges,
-        el("div", { class: "readout", id: "histReadout" }),
+        el("div", { class: "tabs", id: "histEntities" }),
+        el("div", { class: "chart-tools" }, [
+          presets,
+          el("div", { class: "tabs" }, [
+            mini("−", t("zoomOut"), () => history.chart.zoom(2, undefined, true)),
+            mini("+", t("zoomIn"), () => history.chart.zoom(0.5, undefined, true)),
+            mini("⟲", t("zoomReset"), () => history.chart.reset()),
+          ]),
+        ]),
+        el("div", { class: "muted small", id: "histRange" }),
         canvas,
+        toBattery,
+        el("p", { class: "hint", "data-i18n": "chartHint" }),
         el("div", { class: "kv", id: "histStats" }),
       ]),
     ]);
     dialog.addEventListener("click", (e) => { if (e.target === dialog) closeHistory(); });
     document.body.append(dialog);
     document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeHistory(); });
+    history.chart = new TimeChart(canvas, { nav: true, onView: histView, onSettled: histDetail });
   }
   dialog.hidden = false;
   document.body.classList.add("noscroll");
-  const hasTest = state.values["bt/pin_mv"] !== undefined;
+  const hasTestNow = state.values["bt/pin_mv"] !== undefined;
   const tabs = $("#histEntities");
   tabs.textContent = "";
   for (const [name, spec] of Object.entries(HIST)) {
-    if (spec.test && !hasTest) continue;
+    if (spec.test && !hasTestNow) continue;
     const b = el("button", { class: "secondary", "data-entity": name, text: t(spec.key) });
-    b.addEventListener("click", () => { history.entity = name; history.hover = null; loadHistory(); });
+    b.addEventListener("click", () => { history.entity = name; loadHistory(); });
     tabs.append(b);
   }
   applyLanguage();
@@ -602,105 +631,57 @@ function closeHistory() {
 }
 
 async function loadHistory() {
-  const spec = HIST[history.entity];
+  const spec = HIST[history.entity], token = ++history.token, chart = history.chart;
   $("#histTitle").textContent = t(spec.key);
-  document.querySelectorAll("#histEntities button").forEach((b) => {
-    b.classList.toggle("active", b.dataset.entity === history.entity); b.textContent = t(HIST[b.dataset.entity].key);
-  });
-  document.querySelectorAll("#histRanges button").forEach((b) => b.classList.toggle("active", Number(b.dataset.hours) === history.hours));
-  const hours = spec.min24 ? Math.max(24, history.hours) : history.hours;
-  let path = "series?kind=" + spec.kind + "&hours=" + hours;
-  if (spec.kind === "bt") path += "&factor=" + (Number(($("#btFactor") || {}).value) || 2.044);
-  try { history.points = await api(path); } catch (e) { history.points = []; }
-  history.span = hours * 3600;
-  renderHistory();
+  document.querySelectorAll("#histEntities button").forEach((b) => b.classList.toggle("active", b.dataset.entity === history.entity));
+  let points = [];
+  try { points = await api(spec.fetch ? histEntityUrl(spec, spec.fetch.replace(/^series\?kind=\w+/, "")) : histEntityUrl(spec, "&hours=9600&max=1500")); } catch (e) { points = []; }
+  if (token !== history.token) return;
+  const now = Date.now() / 1000;
+  Object.assign(chart.o, { unit: spec.unit, dec: spec.dec, zeroBase: !!spec.zero, emptyText: t("noData"),
+                           emptyHint: spec.battery ? t("emptyBattery") : t("emptyGeneric") });
+  const series = [{ name: "", color: cssColor("--accent"), points, kind: spec.bars ? "bars" : spec.line || "line", area: !!spec.area }];
+  chart.setSeries(series, [spec.span ? now - spec.span : (points.length ? points[0][0] : now - 86400), now]);
+  chart.setView(now - (spec.view || 7 * 86400), now, false);
+  $("#histEmptyBtn").hidden = !(spec.battery && !points.length);
+  histView(chart.view[0], chart.view[1]);
 }
 
-function renderHistory() {
-  const spec = HIST[history.entity], points = history.points;
-  const canvas = $("#histCanvas");
-  if (!canvas || $("#histDialog").hidden) return;
-  const ratio = window.devicePixelRatio || 1;
-  const width = canvas.clientWidth, height = canvas.clientHeight;
-  canvas.width = width * ratio; canvas.height = height * ratio;
-  const ctx = canvas.getContext("2d");
-  ctx.scale(ratio, ratio);
-  const css = getComputedStyle(document.documentElement);
-  const accent = css.getPropertyValue("--accent").trim(), muted = css.getPropertyValue("--muted").trim();
-  const line = css.getPropertyValue("--line").trim(), text = css.getPropertyValue("--text").trim();
-  ctx.font = "11px sans-serif";
+// numbers for the part of the chart that is visible, and the highlighted range button
+function histView(v0, v1) {
+  const spec = HIST[history.entity], chart = history.chart;
+  if (!spec || !chart || !chart.series.length) return;
+  $("#histRange").textContent = t("visibleRange") + ": " + dateText(v0) + " – " + dateText(v1);
+  const fullSpan = chart.full[1] - chart.full[0], span = v1 - v0;
+  document.querySelectorAll("#histRanges button").forEach((b) => {
+    const seconds = Number(b.dataset.seconds);
+    b.classList.toggle("active", seconds ? Math.abs(span - seconds) < seconds * 0.03 : Math.abs(span - fullSpan) < fullSpan * 0.02);
+  });
+  const ys = chart.series[0].points.filter((p) => p[0] >= v0 && p[0] <= v1).map((p) => p[1]);
   const stats = $("#histStats"); stats.textContent = "";
-  if (!points.length) {
-    ctx.fillStyle = muted; ctx.fillText(t("noData"), 12, 24);
-    $("#histReadout").textContent = "";
-    return;
-  }
-  const now = Date.now() / 1000, x0 = now - history.span, x1 = now;
-  const ys = points.map((p) => p[1]);
-  let lo = spec.bars || spec.area ? 0 : Math.min(...ys), hi = Math.max(...ys);
-  if (hi - lo < 1e-9) { hi = lo + 1; }
-  const pad = (hi - lo) * 0.08;
-  if (!spec.bars && !spec.area) lo -= pad;
-  hi += pad;
-  const left = 44, right = 10, top = 10, bottom = 22, plotW = width - left - right, plotH = height - top - bottom;
-  const sx = (x) => left + (x - x0) / (x1 - x0) * plotW;
-  const sy = (y) => top + plotH - (y - lo) / (hi - lo) * plotH;
-  ctx.strokeStyle = line; ctx.fillStyle = muted; ctx.lineWidth = 1;
-  for (let i = 0; i <= 4; i++) {
-    const value = lo + (hi - lo) * i / 4, y = sy(value);
-    ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(width - right, y); ctx.stroke();
-    ctx.fillText(value.toFixed(spec.dec > 0 && hi - lo < 1 ? spec.dec : Math.min(spec.dec, 1) || 0), 2, y + 4);
-  }
-  const long = history.span > 86400 * 1.5;
-  for (let i = 0; i <= 4; i++) {
-    const ts = x0 + (x1 - x0) * i / 4, label = long ? histTime(ts, true).slice(5, 10) + " " + histTime(ts).slice(0, 5) : histTime(ts);
-    ctx.fillText(label, Math.min(Math.max(left, sx(ts) - 24), width - 70), height - 6);
-  }
-  ctx.strokeStyle = accent; ctx.fillStyle = accent; ctx.lineWidth = 2;
-  if (spec.bars) {
-    const barW = Math.max(1.5, plotW / (history.span / 3600) - 1);
-    points.forEach((p) => { const y = sy(p[1]); ctx.fillRect(sx(p[0]) - barW, y, barW, top + plotH - y); });
-  } else {
-    ctx.beginPath();
-    points.forEach((p, i) => {
-      const x = sx(p[0]), y = sy(p[1]);
-      if (!i) ctx.moveTo(x, y);
-      else { if (spec.step) ctx.lineTo(x, sy(points[i - 1][1])); ctx.lineTo(x, y); }
-    });
-    if (spec.step) ctx.lineTo(sx(x1), sy(points[points.length - 1][1]));
-    ctx.stroke();
-    if (spec.area) {
-      ctx.lineTo(sx(points[points.length - 1][0]), sy(0)); ctx.lineTo(sx(points[0][0]), sy(0)); ctx.closePath();
-      ctx.globalAlpha = 0.15; ctx.fill(); ctx.globalAlpha = 1;
-    }
-  }
-  // hover readout
-  let readout = "";
-  if (history.hover !== null) {
-    let best = points[0], bestD = Infinity;
-    for (const p of points) { const d = Math.abs(sx(p[0]) - history.hover); if (d < bestD) { bestD = d; best = p; } }
-    ctx.strokeStyle = muted; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(sx(best[0]), top); ctx.lineTo(sx(best[0]), top + plotH); ctx.stroke();
-    ctx.fillStyle = text; ctx.beginPath(); ctx.arc(sx(best[0]), sy(best[1]), 4, 0, 7); ctx.fill();
-    readout = histTime(best[0], true) + "  —  " + best[1].toFixed(spec.dec) + " " + spec.unit;
-  } else {
-    const last = points[points.length - 1];
-    readout = histTime(last[0], true) + "  —  " + last[1].toFixed(spec.dec) + " " + spec.unit;
-  }
-  $("#histReadout").textContent = readout;
-  // statistics
-  const sum = ys.reduce((a, b) => a + b, 0);
+  if (!ys.length) return;
+  const sum = ys.reduce((x, y) => x + y, 0), f = (v) => v.toFixed(spec.dec) + " " + spec.unit;
   const row = (key, value) => stats.append(el("span", { text: t(key) }), el("span", { class: "v", text: value }));
-  const f = (v) => v.toFixed(spec.dec) + " " + spec.unit;
   if (spec.stat === "change") row("sChange", f(ys[ys.length - 1] - ys[0]));
   else if (spec.stat === "total") row("sTotal", f(sum));
   else { row("sMin", f(Math.min(...ys))); row("sMax", f(Math.max(...ys))); row("sAvg", f(sum / ys.length)); }
   row("sLast", f(ys[ys.length - 1])); row("sPoints", String(ys.length));
 }
 
+// finer data for the window after zooming in
+async function histDetail(v0, v1) {
+  const spec = HIST[history.entity], chart = history.chart, token = ++history.detailToken;
+  if (!spec || !spec.raw || !chart.series.length || !chart.series[0].points.length) return;
+  if (v1 - v0 > 0.7 * (chart.full[1] - chart.full[0])) { chart.setDetail(0, null); return; }
+  const pad = (v1 - v0) / 2, from = v0 - pad, to = v1 + pad;
+  try {
+    const points = await api(histEntityUrl(spec, "&from=" + Math.floor(from) + "&to=" + Math.ceil(to) + "&max=1800"));
+    if (token === history.detailToken && history.chart.series[0]) chart.setDetail(0, { from, to, points });
+  } catch (e) { /* keep the overview data */ }
+}
 
 // ------------------------------------------------------------------- battery view
-const battery = { source: "meter", days: 90, data: null, hover: null, built: false };
+const battery = { source: "meter", days: 90, data: null, built: false, chart: null, chartKey: null, detailToken: 0 };
 
 function fmtLife(days) {
   if (days === null || days === undefined || !Number.isFinite(days)) return "—";
@@ -770,17 +751,27 @@ function buildBattery() {
   ]);
 
   const rangeTabs = el("div", { class: "tabs", id: "bRangeTabs" });
-  for (const [days, key] of [[30, "bDays30"], [90, "bDays90"], [365, "bDays365"]]) {
+  for (const [days, key] of [[7, "range7d"], [30, "bDays30"], [90, "bDays90"], [365, "bDays365"], [0, "rangeAll"]]) {
     const b = el("button", { class: "secondary", "data-days": days, "data-i18n": key });
-    b.addEventListener("click", () => { battery.days = days; loadBattery(); });
+    b.addEventListener("click", () => { battery.days = days; applyBatteryPreset(true); });
     rangeTabs.append(b);
   }
+  const zoomBtn = (text, title, handler) => { const bt = el("button", { class: "secondary", text, title }); bt.addEventListener("click", handler); return bt; };
   const canvas = el("canvas", { id: "bCanvas" });
-  canvas.addEventListener("pointermove", (e) => { battery.hover = e.clientX - canvas.getBoundingClientRect().left; drawBattery(); });
-  canvas.addEventListener("pointerleave", () => { battery.hover = null; drawBattery(); });
   card([
-    el("h2", { "data-i18n": "bChartTitle" }), rangeTabs, el("div", { class: "readout", id: "bReadout" }), canvas,
+    el("h2", { "data-i18n": "bChartTitle" }),
+    el("div", { class: "chart-tools" }, [
+      rangeTabs,
+      el("div", { class: "tabs" }, [
+        zoomBtn("−", t("zoomOut"), () => battery.chart && battery.chart.zoom(2, undefined, true)),
+        zoomBtn("+", t("zoomIn"), () => battery.chart && battery.chart.zoom(0.5, undefined, true)),
+        zoomBtn("⟲", t("zoomReset"), () => { battery.days = 0; applyBatteryPreset(true); }),
+      ]),
+    ]),
+    el("div", { class: "muted small", id: "bReadout" }),
+    canvas,
     el("div", { class: "legend", id: "bLegend" }),
+    el("p", { class: "hint", "data-i18n": "chartHint" }),
   ], true);
 
   const slider = el("input", { type: "range", id: "bSlider", min: "0", max: "1000", step: "10", value: "266" });
@@ -900,11 +891,10 @@ async function loadBattery() {
   if (!hasTest) battery.source = "meter";
   document.querySelectorAll("#bSrcTabs button").forEach((b) => { b.hidden = b.dataset.src === "bt" && !hasTest; });
   document.querySelectorAll("#bSrcTabs button").forEach((b) => b.classList.toggle("active", b.dataset.src === battery.source));
-  document.querySelectorAll("#bRangeTabs button").forEach((b) => b.classList.toggle("active", Number(b.dataset.days) === battery.days));
   try {
     const factor = Number(($("#btFactor") || {}).value) || 2.044;
     const ma = Number(($("#bTestMa") || {}).value) || 0, cells = Number(($("#bTestCells") || {}).value) || 1;
-    battery.data = await api("battery?source=" + battery.source + "&days=" + battery.days + "&factor=" + factor +
+    battery.data = await api("battery?source=" + battery.source + "&days=30&history_days=400&factor=" + factor +
                              "&test_ma=" + ma + "&test_cells=" + cells);
   } catch (e) { battery.data = null; }
   renderBattery();
@@ -1005,72 +995,71 @@ function renderBattery() {
 function drawBattery() {
   const d = battery.data, canvas = $("#bCanvas");
   if (!d || !canvas || $("#batteryView").hidden) return;
-  const ratio = window.devicePixelRatio || 1, width = canvas.clientWidth, height = canvas.clientHeight;
-  canvas.width = width * ratio; canvas.height = height * ratio;
-  const ctx = canvas.getContext("2d"); ctx.scale(ratio, ratio);
-  const css = getComputedStyle(document.documentElement);
-  const color = (name) => css.getPropertyValue(name).trim();
-  ctx.font = "11px sans-serif";
+  if (!battery.chart) {
+    battery.chart = new TimeChart(canvas, { unit: "V", dec: 3, onView: batteryView, onSettled: batteryDetail });
+  }
+  const chart = battery.chart;
   const hist = d.history || [], fm = d.forecast_model || [], ft = d.forecast_trend || [];
+  const warnV = (d.model_params && d.model_params.warn_v) || 3.1, cutV = (d.model_params && d.model_params.cutoff_v) || 3.0;
+  const series = [{ name: t("bVolts"), color: cssColor("--accent"), points: hist, area: true }];
+  if (fm.length) series.push({ name: t("bForecastModel"), color: cssColor("--ok"), points: fm, dashed: true });
+  if (ft.length) series.push({ name: t("bForecastTrend"), color: cssColor("--warn"), points: ft, dashed: true });
+  chart.o.thresholds = [
+    { v: warnV, label: t("bWarnLine") + " " + warnV.toFixed(2) + " V", color: cssColor("--bad") },
+    { v: cutV, label: t("bCutLine") + " " + cutV.toFixed(2) + " V", color: cssColor("--bad") },
+  ];
+  chart.o.includeY = [cutV - 0.05];
+  chart.o.now = d.now;
+  chart.o.emptyText = t("bNoHistory");
+  chart.o.emptyHint = d.source === "bt" ? "" : t("emptyBattery");
+  const end = Math.max(d.now, ...[fm, ft].map((s) => (s.length ? s[s.length - 1][0] : 0)));
+  const fresh = battery.chartKey !== d.source;
+  chart.setSeries(series, [hist.length ? hist[0][0] : d.now - 86400, end], !fresh);
+  if (fresh) { battery.chartKey = d.source; applyBatteryPreset(false); }
+
   const legend = $("#bLegend"); legend.textContent = "";
   const addLegend = (c, text) => legend.append(el("span", {}, [el("i", { class: "swatch", style: "background:" + c }), text]));
-  addLegend(color("--accent"), t("bVolts"));
-  if (fm.length) addLegend(color("--ok"), t("bForecastModel"));
-  if (ft.length) addLegend(color("--warn"), t("bForecastTrend"));
-  if (!hist.length) { ctx.fillStyle = color("--muted"); ctx.fillText(t("bNoHistory"), 12, 24); return; }
-  const warnV = (d.model_params && d.model_params.warn_v) || 3.1, cutV = (d.model_params && d.model_params.cutoff_v) || 3.0;
-  const x0 = hist[0][0], now = d.now;
-  const x1 = Math.max(now, ...[fm, ft].map((s) => (s.length ? s[s.length - 1][0] : 0)), x0 + 3600);
-  const lo = Math.min(cutV - 0.05, ...hist.map((p) => p[1])), hi = Math.max(4.25, ...hist.map((p) => p[1]) );
-  const left = 44, right = 10, top = 10, bottom = 22, plotW = width - left - right, plotH = height - top - bottom;
-  const sx = (x) => left + (x - x0) / (x1 - x0) * plotW, sy = (y) => top + plotH - (y - lo) / (hi - lo) * plotH;
-  ctx.lineWidth = 1; ctx.strokeStyle = color("--line"); ctx.fillStyle = color("--muted");
-  for (let i = 0; i <= 5; i++) {
-    const v = lo + (hi - lo) * i / 5, y = sy(v);
-    ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(width - right, y); ctx.stroke();
-    ctx.fillText(v.toFixed(2), 2, y + 4);
-  }
-  const ticks = width < 500 ? 2 : 4;
-  for (let i = 0; i <= ticks; i++) {
-    const ts = x0 + (x1 - x0) * i / ticks;
-    const when = new Date(ts * 1000), loc = "pl-PL";
-    ctx.fillText(x1 - x0 < 3 * 86400 ? when.toLocaleString(loc, { day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" })
-                                     : when.toLocaleDateString(loc, { month: "short", day: "numeric", year: x1 - x0 > 300 * 86400 ? "2-digit" : undefined }),
-                 Math.min(Math.max(left, sx(ts) - 22), width - 70), height - 6);
-  }
-  ctx.setLineDash([5, 4]); ctx.lineWidth = 1.2;
-  for (const [v, text] of [[warnV, t("bWarnLine")], [cutV, t("bCutLine")]]) {
-    ctx.strokeStyle = color("--bad"); ctx.fillStyle = color("--bad");
-    ctx.beginPath(); ctx.moveTo(left, sy(v)); ctx.lineTo(width - right, sy(v)); ctx.stroke();
-    ctx.fillText(text + " " + v.toFixed(2) + " V", left + 4, sy(v) - 3);
-  }
-  ctx.beginPath(); ctx.strokeStyle = color("--muted"); ctx.moveTo(sx(now), top); ctx.lineTo(sx(now), top + plotH); ctx.stroke();
-  const path = (points, c, dashed) => {
-    ctx.setLineDash(dashed ? [6, 5] : []); ctx.strokeStyle = c; ctx.lineWidth = 2; ctx.beginPath();
-    points.forEach((p, i) => (i ? ctx.lineTo(sx(p[0]), sy(p[1])) : ctx.moveTo(sx(p[0]), sy(p[1]))));
-    ctx.stroke();
-  };
-  path(fm, color("--ok"), true); path(ft, color("--warn"), true); path(hist, color("--accent"), false);
-  ctx.setLineDash([]);
-  let readout = "";
-  const all = [["", hist], [t("bForecastModel"), fm], [t("bForecastTrend"), ft]];
-  if (battery.hover !== null) {
-    let best = null, bestD = Infinity;
-    for (const [label, series] of all) for (const p of series) {
-      const dist = Math.abs(sx(p[0]) - battery.hover);
-      if (dist < bestD) { bestD = dist; best = [label, p]; }
-    }
-    if (best) {
-      const [label, p] = best;
-      ctx.strokeStyle = color("--muted"); ctx.beginPath(); ctx.moveTo(sx(p[0]), top); ctx.lineTo(sx(p[0]), top + plotH); ctx.stroke();
-      ctx.fillStyle = color("--text"); ctx.beginPath(); ctx.arc(sx(p[0]), sy(p[1]), 4, 0, 7); ctx.fill();
-      readout = new Date(p[0] * 1000).toLocaleString("pl-PL") + " — " + p[1].toFixed(3) + " V" + (label ? " (" + label + ")" : "");
-    }
-  } else {
-    const last = hist[hist.length - 1];
-    readout = new Date(last[0] * 1000).toLocaleString("pl-PL") + " — " + last[1].toFixed(3) + " V";
-  }
-  $("#bReadout").textContent = readout;
+  addLegend(cssColor("--accent"), t("bVolts"));
+  if (fm.length) addLegend(cssColor("--ok"), t("bForecastModel"));
+  if (ft.length) addLegend(cssColor("--warn"), t("bForecastTrend"));
+  batteryView(chart.view[0], chart.view[1]);
+}
+
+// range buttons: the last N days with some room for the forecast, or everything
+function applyBatteryPreset(animate) {
+  const chart = battery.chart, d = battery.data;
+  if (!chart || !d) return;
+  const span = battery.days * 86400;
+  if (!span) chart.setView(chart.full[0], chart.full[1], animate);
+  else chart.setView(d.now - span, d.now + span * 0.4, animate);
+  batteryView(chart.view[0], chart.view[1]);
+}
+
+function batteryView(v0, v1) {
+  const chart = battery.chart;
+  if (!chart) return;
+  $("#bReadout").textContent = t("visibleRange") + ": " + dateText(v0) + " – " + dateText(v1);
+  document.querySelectorAll("#bRangeTabs button").forEach((b) => {
+    const days = Number(b.dataset.days), d = battery.data;
+    const active = days === battery.days && d && (days ? Math.abs((v1 - v0) - days * 86400 * 1.4) < days * 86400 * 0.15 : Math.abs((v1 - v0) - (chart.full[1] - chart.full[0])) < 3600);
+    b.classList.toggle("active", !!active);
+  });
+}
+
+// finer voltage data for the window after zooming in
+async function batteryDetail(v0, v1) {
+  const chart = battery.chart, d = battery.data, token = ++battery.detailToken;
+  if (!chart || !d || !chart.series[0] || !chart.series[0].points.length) return;
+  const hist = chart.series[0].points;
+  if (v1 - v0 > 0.7 * (hist[hist.length - 1][0] - hist[0][0])) { chart.setDetail(0, null); return; }
+  const pad = (v1 - v0) / 2, from = v0 - pad, to = Math.min(v1 + pad, d.now);
+  if (to <= from) return;
+  const kind = d.source === "bt" ? "bt" : "battery";
+  try {
+    const factor = Number(($("#btFactor") || {}).value) || 2.044;
+    const points = await api("series?kind=" + kind + "&from=" + Math.floor(from) + "&to=" + Math.ceil(to) + "&max=1800&factor=" + factor);
+    if (token === battery.detailToken && chart.series[0]) chart.setDetail(0, { from, to, points });
+  } catch (e) { /* keep the overview data */ }
 }
 
 // ------------------------------------------------------------------------ main
@@ -1090,7 +1079,7 @@ async function refresh() {
   }
 }
 
-window.addEventListener("resize", () => { if (built) { drawChart(); if ($("#histDialog")) renderHistory(); if (!$("#batteryView").hidden) drawBattery(); } });
+window.addEventListener("resize", () => { if (built) { drawChart(); if (!$("#batteryView").hidden) drawBattery(); } });
 
 // ---------------------------------------------------------------- panel / demo tabs
 const VIEW_NODES = { panel: "#root", battery: "#batteryView", settings: "#settingsView", network: "#networkView",

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.10.0
+
+* **Naprawa:** od wersji 0.9.0 kafelki w Przeglądzie nie otwierały historii po kliknięciu (przy przebudowie na kafelki
+  usunąłem obsługę kliknięcia). Teraz znów działają, a kafel Bateria pokazuje napięcie baterii.
+* Nowy interaktywny wykres w oknie historii i w zakładce Bateria: przewijanie przeciąganiem, zoom kółkiem myszy, szczypaniem
+  (telefon) i przyciskami +/−, dwuklik pokazuje cały zakres, pasek przeglądu całej historii z przesuwanym oknem,
+  podpowiedź z dokładną wartością i czasem, przyciski zakresów (od 1 godz. do wszystkiego), gradient pod linią,
+  słupki dla zużycia, linie progów i znacznik „teraz”. Po powiększeniu wykres dociąga dokładniejsze dane z wybranego okna.
+* Gdy gazomierz nie przysłał jeszcze danych baterii, okno historii to wyjaśnia i podpowiada zakładkę Bateria (jest tam test rozładowania).
+* Historia ma teraz więcej punktów (do 5000) i okno historii sięga do 400 dni wstecz.
+
 ## 0.9.3
 
 * Nazwa apki w sklepie i w pasku bocznym: **Energia Gazomierz** (żeby była obok „Energia Woda” w kolejności alfabetycznej).

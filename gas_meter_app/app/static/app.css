@@ -160,3 +160,9 @@ body.noscroll { overflow: hidden; }
   .kpi.big2 { grid-column: 1 / -1; }
   .kpi .val { font-size: 21px; } .kpi.big2 .val { font-size: 30px; }
 }
+
+/* ---- interactive chart ---- */
+.chart-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.chart-tools .tabs { margin-bottom: 0; }
+.dialog canvas, .bgrid #bCanvas { height: 360px; touch-action: pan-y; border-radius: 10px; }
+.dialog { width: min(980px, 100%); }

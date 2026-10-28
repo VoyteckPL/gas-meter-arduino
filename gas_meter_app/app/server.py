@@ -296,12 +296,12 @@ class Store:
                 buckets[hour] += v2 - v1
         return [[h * 3600, round(buckets[h], 3)] for h in sorted(buckets)]
 
-    def flow_series(self, hours):
+    def flow_series(self, hours, bucket=None):
         """Average flow (m3/h) per time bucket, derived from the meter reading history."""
         series = self.history.get("cubic_meters", [])
         now = time.time()
         span = hours * 3600
-        bucket = max(300.0, span / 120.0)
+        bucket = max(300.0, float(bucket) if bucket else span / 120.0)
         first = int((now - span) // bucket)
         count = int(span // bucket) + 1
         deltas = {i: 0.0 for i in range(first, first + count)}
@@ -492,39 +492,47 @@ def thin(points, limit=900):
 
 
 async def api_series(request):
+    """History of one value. hours: window ending now; from/to (unix seconds): an exact window (zoom detail);
+    max: at most this many points; bucket: seconds per point for the derived flow series."""
     store = request.app["store"]
-    kind = request.query.get("kind", "hourly")
+    query = request.query
+    kind = query.get("kind", "hourly")
     try:
-        hours = max(1, min(int(request.query.get("hours", "48")), 24 * 400))
+        hours = max(1, min(int(query.get("hours", "48")), 24 * 400))
+        limit = max(50, min(int(query.get("max", "900")), 5000))
+        t_from = float(query["from"]) if "from" in query else None
+        t_to = float(query["to"]) if "to" in query else None
+        bucket = float(query["bucket"]) if "bucket" in query else None
     except ValueError:
-        hours = 48
+        return web.json_response({"error": "bad parameter"}, status=400)
+    now = time.time()
+    lo = t_from if t_from is not None else now - hours * 3600
+    hi = t_to if t_to is not None else now + 1
     if kind == "hourly":
         with store.lock:
             return web.json_response(store.hourly(hours))
+    if kind == "flow":
+        with store.lock:
+            return web.json_response(store.flow_series(hours, bucket))
     if kind == "bt":
         # discharge test: raw pin voltage (mV) converted with the divider factor given by the UI
         try:
-            factor = float(request.query.get("factor", "2.044"))
+            factor = float(query.get("factor", "2.044"))
         except ValueError:
             factor = 2.044
-        since = time.time() - hours * 3600
         with store.lock:
-            raw = [p for p in store.history.get("bt/pin_mv", []) if p[0] >= since]
-        return web.json_response([[ts, round(mv / 1000.0 * factor, 3)] for ts, mv in raw])
-    if kind == "flow":
-        with store.lock:
-            return web.json_response(store.flow_series(hours))
+            raw = [p for p in store.history.get("bt/pin_mv", []) if lo <= p[0] <= hi]
+        return web.json_response(thin([[ts, round(mv / 1000.0 * factor, 3)] for ts, mv in raw], limit))
     name = {"battery": "BatteryVoltage", "percent": "BatteryPercent", "meter": "cubic_meters",
             "rssi": "RSSI", "bt_pin": "bt/pin_mv"}.get(kind)
     if name is None:
         return web.json_response({"error": "unknown series"}, status=400)
-    since = time.time() - hours * 3600
     with store.lock:
-        points = [p for p in store.history.get(name, []) if p[0] >= since]
-    return web.json_response(thin(points))
+        points = [p for p in store.history.get(name, []) if lo <= p[0] <= hi]
+    return web.json_response(thin(points, limit))
 
 
-def compute_battery(app, source="meter", days=30, factor=2.044, test_ma=None, test_cells=1):
+def compute_battery(app, source="meter", days=30, factor=2.044, test_ma=None, test_cells=1, history_days=None):
     """Statistics and predictions for the battery: source meter (the gas meter) or bt (discharge test)."""
     store, options = app["store"], app["options"]
     now = time.time()
@@ -563,9 +571,9 @@ def compute_battery(app, source="meter", days=30, factor=2.044, test_ma=None, te
         remaining = result["trend"]["days_to_cutoff"] * 24.0
         result["test_capacity"] = {"per_cell_mah": test_ma * (run_hours + remaining) / test_cells, "final": False}
     result["source"] = source
-    cut = now - days * 86400
+    cut = now - (history_days or days) * 86400
     history = [p for p in volts if p[0] >= cut]
-    result["history"] = [[round(t, 1), round(v, 3)] for t, v in thin(history, 700)]
+    result["history"] = [[round(t, 1), round(v, 3)] for t, v in thin(history, 2000)]
     result["curve_table"] = [list(p) for p in (curve or battery.GENERIC_CURVE)]
     # statistics of the WiFi link, over the same days
     since = now - days * 86400
@@ -584,10 +592,11 @@ async def api_battery(request):
         days = max(1, min(int(request.query.get("days", "30")), 400))
         test_ma = float(request.query.get("test_ma", "0")) or None
         test_cells = max(1, int(request.query.get("test_cells", "1")))
+        history_days = max(1, min(int(request.query.get("history_days", str(days))), 400))
     except ValueError:
-        factor, days, test_ma, test_cells = 2.044, 30, None, 1
+        factor, days, test_ma, test_cells, history_days = 2.044, 30, None, 1, 30
     source = request.query.get("source", "meter")
-    return web.json_response(compute_battery(request.app, source, days, factor, test_ma, test_cells))
+    return web.json_response(compute_battery(request.app, source, days, factor, test_ma, test_cells, history_days))
 
 
 # ------------------------------- notifications -------------------------------

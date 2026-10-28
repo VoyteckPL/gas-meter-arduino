@@ -34,6 +34,17 @@ Dane logowania przechowuje Home Assistant, nie to repozytorium.
 
 Mała pomarańczowa liczba przy zakładce oznacza, ile poleceń czeka, aż gazomierz je odbierze. Ostatnio użyta zakładka jest zapamiętywana.
 
+## Wykresy
+
+Kliknij kafelek w Przeglądzie (albo wartość w teście baterii), żeby zobaczyć jego historię. Wykres jest interaktywny:
+
+* **przeciągnij**, żeby przewijać w czasie,
+* **kółko myszy** (albo szczypanie na telefonie, albo przyciski +/−) powiększa i pomniejsza,
+* **dwuklik** (albo przycisk ⟲) pokazuje cały zakres,
+* **pasek na dole** to przegląd całej historii: przesuwaj w nim okno albo jego krawędzie,
+* przyciski zakresów (1 godz. … Wszystko) ustawiają widoczny okres,
+* po najechaniu (lub dotknięciu) widać dokładną wartość i czas, a pod wykresem minimum, maksimum i średnią z widocznego okresu.
+
 ## Zakładka Bateria
 
 Pokazuje historię napięcia z prognozą i dwie niezależne prognozy żywotności:
