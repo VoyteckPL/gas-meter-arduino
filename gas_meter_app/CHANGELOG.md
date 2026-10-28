@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.21.12
+
+* Model baterii uwzględnia teraz drugie wybudzenie każdego impulsu (przy rozwarciu kontaktronu, bez WiFi, około 0,35 s). Ma własny słupek „Wybudzenia przy rozwarciu” w podziale zużycia energii i wchodzi też do prognozy z sezonami.
+
 ## 0.21.11
 
 * Zakładka Bateria odświeża się od razu, gdy gazomierz wyśle nowe napięcie (np. po włożeniu ogniwa). Wcześniej trzeba było odświeżyć stronę (F5) albo czekać do minuty.

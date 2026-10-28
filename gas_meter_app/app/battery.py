@@ -52,6 +52,7 @@ def capacity(options, measured_per_cell=None):
             "usable_pct": usable, "source": source, "total_mah": cells * per_cell * usable / 100.0}
 DEFAULTS = {
     "capacity_mah": 5900.0,     # two 3500 mAh cells, reduced for cold and ageing
+    "wake_mah": 0.0025,         # the second wake-up of every pulse (the contact opens): 0.35 s of CPU at about 25 mA, no WiFi
     "session_mah": 0.015,       # one WiFi session: about 0.7 s at about 80 mA with the hex WPA key and a static IP (measured)
     "sleep_ua": 50.0,           # deep sleep of the whole board
     "selfdischarge_pct_month": 1.5,
@@ -205,8 +206,9 @@ def analyze(volts, series, options, curve=None, now=None, season=None):
     soc_warn, soc_cut = soc(cfg["warn_v"], curve), soc(cfg["cutoff_v"], curve)
     if sessions_for_model is not None:
         session_ma = sessions_for_model * session_mah / 24.0
-        i_model = sleep_ma + self_ma + session_ma
-        out["budget_ma"] = {"sleep": sleep_ma, "self": self_ma, "sessions": session_ma, "total": i_model}
+        wake_ma = (pulses_day or 0.0) * cfg["wake_mah"] / 24.0
+        i_model = sleep_ma + self_ma + session_ma + wake_ma
+        out["budget_ma"] = {"sleep": sleep_ma, "self": self_ma, "sessions": session_ma, "wakes": wake_ma, "total": i_model}
         remaining = cap * max(0.0, soc_now - soc_cut) / 100.0
         out["model"] = {
             "current_ma": i_model,
@@ -228,7 +230,7 @@ def analyze(volts, series, options, curve=None, now=None, season=None):
             m3 = season.get("%02d" % lt.tm_mon, mean_m3)
             pulses = m3 / calendar.monthrange(lt.tm_year, lt.tm_mon)[1] * ppm3
             sessions = cfg["status_sessions_per_day"] + spp_use * pulses
-            drain = (sleep_ma + self_ma + sessions * session_mah / 24.0) * 24 / cap * 100.0
+            drain = (sleep_ma + self_ma + sessions * session_mah / 24.0 + pulses * cfg["wake_mah"] / 24.0) * 24 / cap * 100.0
             sim_soc -= drain
             key = "%04d-%02d" % (lt.tm_year, lt.tm_mon)
             row = monthly.setdefault(key, {"month": key, "pct": 0.0, "sessions_day": sessions, "pulses_day": pulses})
