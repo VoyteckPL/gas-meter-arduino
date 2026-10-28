@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.21.13
+
+* Wykres baterii: przy widoku dłuższym niż około 5 miesięcy każdy miesiąc ma podpis i podziałkę, rok jest przy styczniu i przy pierwszym podpisie, a co drugi miesiąc ma jasne tło. Przy krótkich zakresach (dni, tygodnie) zostają dotychczasowe podpisy godzin i dni.
+
 ## 0.21.12
 
 * Model baterii uwzględnia teraz drugie wybudzenie każdego impulsu (przy rozwarciu kontaktronu, bez WiFi, około 0,35 s). Ma własny słupek „Wybudzenia przy rozwarciu” w podziale zużycia energii i wchodzi też do prognozy z sezonami.

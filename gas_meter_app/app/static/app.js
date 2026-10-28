@@ -1834,7 +1834,7 @@ function drawBattery() {
   const d = battery.data, canvas = $("#bCanvas");
   if (!d || !canvas || $("#batteryView").hidden) return;
   if (!battery.chart) {
-    battery.chart = new TimeChart(canvas, { unit: "V", dec: 3, onView: batteryView, onSettled: batteryDetail });
+    battery.chart = new TimeChart(canvas, { unit: "V", dec: 3, monthlyTicks: "auto", onView: batteryView, onSettled: batteryDetail });
   }
   const chart = battery.chart;
   const hist = d.history || [], fm = d.forecast_model || [], ft = d.forecast_trend || [];

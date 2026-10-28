@@ -309,6 +309,8 @@
       const plotBottom = H - navH - (this.o.nav ? 10 : 2) - axisH;
       const plotW = W - left - right, plotH = plotBottom - top;
       const [v0, v1] = this.view, [f0, f1] = this.full;
+      // "auto": month ticks (every month named, year at January and at the first one) when more than about 5 months are shown
+      const monthly = this.o.monthlyTicks === true || (this.o.monthlyTicks === "auto" && v1 - v0 > 150 * DAY);
       const sx = (t) => left + (t - v0) / (v1 - v0) * plotW;
       const L = this.layout = {
         left, plotW, plotH, plotBottom, navTop, W, H,
@@ -373,10 +375,11 @@
         for (let v = rlo; v <= rhi + 1e-9; v += rStep) ctx.fillText(Math.round(v * 10) / 10 + (this.o.rightUnit || ""), left + plotW + 6, syR(v) + 4);
       }
       ctx.textAlign = "center";
-      if (this.o.monthlyTicks) {
+      if (monthly) {
         // one tick per month (or every 2, 3, 6, 12 months when it gets crowded); January carries the year
         const perMonth = plotW / ((v1 - v0) / (30.4 * DAY));
         const every = [1, 2, 3, 6, 12].find((n) => perMonth * n >= 30) || 12;
+        let yearShown = false;
         const d = new Date(v0 * 1000); d.setDate(1); d.setHours(0, 0, 0, 0);
         d.setMonth(Math.floor(d.getMonth() / every) * every);
         for (; d.getTime() / 1000 <= v1; d.setMonth(d.getMonth() + every)) {
@@ -385,9 +388,9 @@
           const x = Math.round(sx(t)) + 0.5, january = d.getMonth() === 0;
           ctx.strokeStyle = january ? muted : line; ctx.globalAlpha = january ? 0.5 : 1;
           ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, plotBottom); ctx.stroke(); ctx.globalAlpha = 1;
-          const label = MONTHS[d.getMonth()] + (january || every >= 12 ? " " + d.getFullYear() : "");
+          const label = MONTHS[d.getMonth()] + (january || every >= 12 || !yearShown ? " " + d.getFullYear() : "");
           ctx.fillStyle = january ? text : muted; ctx.font = (january ? "600 " : "") + "11px system-ui, sans-serif";
-          if (x > left + 8 && x < left + plotW - 8) ctx.fillText(label, x + (perMonth * every) / 2 > left + plotW ? x : x + Math.min(perMonth * every, 60) / 2 - 2, plotBottom + 15);
+          if (x > left + 8 && x < left + plotW - 8) { yearShown = true; ctx.fillText(label, x + (perMonth * every) / 2 > left + plotW ? x : x + Math.min(perMonth * every, 60) / 2 - 2, plotBottom + 15); }
           ctx.font = "11px system-ui, sans-serif";
         }
       } else {
@@ -404,7 +407,7 @@
       // ---- series (clipped to the plot)
       ctx.save();
       ctx.beginPath(); ctx.rect(left, top - 2, plotW, plotH + 4); ctx.clip();
-      if (this.o.monthlyTicks) {                      // every other month lightly shaded, so the months read as blocks
+      if (monthly) {                                   // every other month lightly shaded, so the months read as blocks
         const d = new Date(v0 * 1000); d.setDate(1); d.setHours(0, 0, 0, 0);
         ctx.fillStyle = muted; ctx.globalAlpha = 0.07;
         for (; d.getTime() / 1000 <= v1; d.setMonth(d.getMonth() + 1)) {
