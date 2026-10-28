@@ -38,7 +38,7 @@
 #include "driver/rtc_io.h"
 #include "esp_sleep.h"
 
-#define FW_VERSION "0.2.7"
+#define FW_VERSION "0.2.8"
 
 // ------------------------------- configuration -------------------------------
 // WiFi and MQTT credentials live in secrets.h (copy secrets.example.h, never commit it)
@@ -51,10 +51,19 @@ const char *MQTT_PASS         = MQTT_PASSWORD;
 const char *MQTT_CLIENT_ID    = "gas-meter";
 const char *ROOT_TOPIC        = "Gaz/Gazomierz";
 
-// A static IP makes the WiFi connection faster (saves battery). 0 = use DHCP.
-#define USE_STATIC_IP    0
+// WPA key: with WIFI_PSK_HEX in secrets.h (64 hex characters) the chip does not have to derive the key from the
+// password at every connection (4096 rounds of SHA1, a large part of the connection time).
+#ifdef WIFI_PSK_HEX
+#define WIFI_KEY WIFI_PSK_HEX
+#else
+#define WIFI_KEY WIFI_PASSWORD
+#endif
+
+// A static IP skips DHCP and makes the WiFi connection faster (saves battery). 0 = use DHCP.
+// The address must be outside the DHCP range of the router (or reserved for the meter).
+#define USE_STATIC_IP    1
 #if USE_STATIC_IP
-IPAddress STATIC_IP(192, 168, 1, 50);
+IPAddress STATIC_IP(192, 168, 1, 230);
 IPAddress GATEWAY(192, 168, 1, 1);
 IPAddress SUBNET(255, 255, 255, 0);
 IPAddress DNS_SERVER(192, 168, 1, 1);
@@ -358,7 +367,7 @@ static bool wifiUp(unsigned long timeoutMs) {
 
   // fast path: reuse the channel and BSSID from the last successful connection
   if (cache.channel > 0) {
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD, cache.channel, cache.bssid);
+    WiFi.begin(WIFI_SSID, WIFI_KEY, cache.channel, cache.bssid);
     connected = waitForWifi(CACHED_WIFI_TIMEOUT_MS);
     if (!connected) WiFi.disconnect();
   }
@@ -367,7 +376,7 @@ static bool wifiUp(unsigned long timeoutMs) {
   // preferred access point on any channel first, then (if it is not reachable) the best one available
   if (!connected && havePreferred) {
     cache.channel = 0;
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD, 0, preferred);
+    WiFi.begin(WIFI_SSID, WIFI_KEY, 0, preferred);
     connected = waitForWifi(timeoutMs / 2);
     if (connected) {
       cache.channel = WiFi.channel();
@@ -380,7 +389,7 @@ static bool wifiUp(unsigned long timeoutMs) {
   // slow path: full scan, the strongest access point with this name wins
   if (!connected) {
     cache.channel = 0;
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    WiFi.begin(WIFI_SSID, WIFI_KEY);
     connected = waitForWifi(timeoutMs);
     if (connected) {
       memcpy(cache.bssid, WiFi.BSSID(), sizeof(cache.bssid));
