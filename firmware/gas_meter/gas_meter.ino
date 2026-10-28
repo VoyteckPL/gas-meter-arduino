@@ -38,7 +38,7 @@
 #include "driver/rtc_io.h"
 #include "esp_sleep.h"
 
-#define FW_VERSION "0.2.5"
+#define FW_VERSION "0.2.6"
 
 // ------------------------------- configuration -------------------------------
 // WiFi and MQTT credentials live in secrets.h (copy secrets.example.h, never commit it)
@@ -65,7 +65,7 @@ IPAddress DNS_SERVER(192, 168, 1, 1);
 #define BATTERY_GPIO     36             // battery divider (2 x 100k) on GPIO36 / A0
 
 #define PULSES_PER_M3         100       // 1 pulse = 0.01 m3
-#define DEBOUNCE_MS           100       // reed level must be stable this long
+#define DEBOUNCE_MS           300       // reed level must be stable this long (a hand touch on bare wires bounces for 100-300 ms)
 #define DEBOUNCE_MAX_MS       1500      // never wait longer than this for a stable level
 #define MIN_SEND_INTERVAL_S   0         // 0 = send every single pulse (TEST value, use 20 or more for the final installation)
 #define STATUS_INTERVAL_S     (6UL * 60UL * 60UL)   // status with its own WiFi session
