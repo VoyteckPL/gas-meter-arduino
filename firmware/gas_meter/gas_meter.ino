@@ -36,7 +36,7 @@
 #include "driver/rtc_io.h"
 #include "esp_sleep.h"
 
-#define FW_VERSION "0.2.0"
+#define FW_VERSION "0.2.1"
 
 // ------------------------------- configuration -------------------------------
 // WiFi and MQTT credentials live in secrets.h (copy secrets.example.h, never commit it)
@@ -413,6 +413,7 @@ static void restoreBase(MQTTClient &mqtt) {
   }
   mqtt.unsubscribe(counterTopic);
   mqtt.unsubscribe(overrideTopic);
+  mqtt.onMessage((MQTTClientCallbackSimpleFunction)([](String &, String &) -> void {}));   // the lambda above points to this function's locals
 
   if (gotOverride) {
     cache.counter = overrideValue;
@@ -454,6 +455,7 @@ static void checkRemoteCounter(MQTTClient &mqtt) {
     delay(10);
   }
   mqtt.unsubscribe(overrideTopic);
+  mqtt.onMessage((MQTTClientCallbackSimpleFunction)([](String &, String &) -> void {}));   // the lambda above points to this function's locals
   if (!got) return;
   absorbInterruptPulses();
   cache.counter = value;
@@ -473,6 +475,7 @@ static bool publishAll(bool sendStatus) {
     LOG("MQTT connection failed\r\n");
     return false;
   }
+  LOG("MQTT connected (fw %s), publishing counter %llu%s\r\n", FW_VERSION, (unsigned long long)cache.counter, sendStatus ? " + status" : "");
 
   if (!cache.mqttSynced) restoreBase(mqtt);
   else checkRemoteCounter(mqtt);
@@ -537,6 +540,7 @@ static bool publishAll(bool sendStatus) {
   mqtt.loop();
   delay(30);                       // let the TCP buffer drain before disconnecting
   mqtt.disconnect();
+  LOG("MQTT published and disconnected\r\n");
   return true;
 }
 
