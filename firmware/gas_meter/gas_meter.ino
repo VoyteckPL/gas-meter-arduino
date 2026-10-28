@@ -36,7 +36,7 @@
 #include "driver/rtc_io.h"
 #include "esp_sleep.h"
 
-#define FW_VERSION "0.2.3"
+#define FW_VERSION "0.2.4"
 
 // ------------------------------- configuration -------------------------------
 // WiFi and MQTT credentials live in secrets.h (copy secrets.example.h, never commit it)
@@ -91,7 +91,7 @@ IPAddress DNS_SERVER(192, 168, 1, 1);
 #define WIFI_TIMEOUT_MS        8000
 #define WIFI_TIMEOUT_FIRST_MS  20000
 #define MQTT_TIMEOUT_MS        2000
-#define CPU_MHZ                80
+#define CPU_MHZ                240      // TEST value: Wi-Fi connects about twice as fast than at 80 MHz (WPA key derivation); use 80 for the final installation
 
 #define DEBUG_SERIAL           1        // set to 0 for the final installation
 
@@ -724,6 +724,7 @@ void setup() {
     noInterrupts();
     bool moved = (isrPulses != 0) || (digitalRead(REED_GPIO) != endLevel);
     if (!moved || round == 9) {
+      LOG("awake %lu ms (Wi-Fi %lu ms)\r\n", (unsigned long)millis(), (unsigned long)cache.lastWifiMs);
       LOG("counter=%llu pending=%lu, sleeping %llu s\r\n", (unsigned long long)cache.counter,
           (unsigned long)cache.pending, (unsigned long long)sleepS);
 #if DEBUG_SERIAL
