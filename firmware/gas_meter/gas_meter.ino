@@ -438,6 +438,31 @@ static void restoreBase(MQTTClient &mqtt) {
   cache.mqttSynced = 1;
 }
 
+// A counter value set from the app while the meter is already running: the retained command is read in sessions that
+// also send a status (at least every STATUS_INTERVAL_S, usually every few minutes when gas is used), so it takes effect
+// without a restart. Costs about 0.3 s of the session only in those sessions.
+static void checkRemoteCounter(MQTTClient &mqtt) {
+  String overrideTopic = topic("config/counter");
+  bool got = false;
+  uint64_t value = 0;
+  mqtt.onMessage((MQTTClientCallbackSimpleFunction)([&](String &t, String &payload) -> void {
+    if (t == overrideTopic && payload.length() > 0) { value = strtoull(payload.c_str(), NULL, 10); got = true; }
+  }));
+  mqtt.subscribe(overrideTopic);
+  for (unsigned long t = millis(); millis() - t < 400;) {
+    mqtt.loop();
+    delay(10);
+  }
+  mqtt.unsubscribe(overrideTopic);
+  if (!got) return;
+  absorbInterruptPulses();
+  cache.counter = value;
+  cache.baseKnown = 1;
+  mqtt.publish(overrideTopic, String(""), true, 0);        // used once
+  saveCounter();
+  LOG("Counter set remotely: %llu\r\n", (unsigned long long)cache.counter);
+}
+
 static bool publishAll(bool sendStatus) {
   WiFiClient net;
   MQTTClient mqtt(768);
@@ -450,6 +475,7 @@ static bool publishAll(bool sendStatus) {
   }
 
   if (!cache.mqttSynced) restoreBase(mqtt);
+  else if (sendStatus) checkRemoteCounter(mqtt);
   absorbInterruptPulses();                 // include pulses counted during the session so far
 
   char buf[48];
