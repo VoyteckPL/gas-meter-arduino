@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.1
+
+* Logo ORLEN w nagłówku i na ikonie apki (pliki dostarczone przez użytkownika), czerwień motywu dopasowana do logo (#D81E05).
+
 ## 0.9.0
 
 * Nowy wygląd w stylu ORLEN i układzie aplikacji GPK Szemud: czerwony nagłówek z logo, zakładki w nagłówku,

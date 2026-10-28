@@ -4,7 +4,7 @@ Panel w pasku bocznym Home Assistant dla gazomierza na baterii (ESP32, kontaktro
 Pokazuje odczyty, historię i baterię z prognozą żywotności, pozwala zmieniać ustawienia gazomierza i wysyła powiadomienia o baterii.
 Tworzy też zwykłe encje Home Assistant (stan licznika w m³, bateria, sygnał WiFi), więc gazomierz można dodać do panelu Energia.
 
-Styl interfejsu jest inspirowany kolorystyką ORLEN. Aplikacja jest nieoficjalna i nie ma związku z PKN ORLEN.
+Styl interfejsu i logo nawiązują do ORLEN. Aplikacja jest nieoficjalna i nie ma związku z PKN ORLEN. Nazwa i znak ORLEN należą do ich właściciela.
 
 ## Instalacja
 
@@ -109,4 +109,4 @@ Odczyty i **Ustaw stan licznika** działają z obecnym firmware.
   Panel nigdy nie pokazuje hasła.
 * Historia (stan licznika, bateria, sygnał) jest zapisywana w katalogu danych apki i przeżywa restarty oraz aktualizacje.
   Baterię, sygnał i liczniki sesji trzymamy ok. roku (jedna próbka na 15 minut).
-* Logo w pasku nagłówka to `static/logo.png`, ikona apki to `icon.png`. Możesz je podmienić na własne pliki o tych nazwach.
+* Logo w pasku nagłówka to `static/logo.png`, ikona apki to `icon.png`, a obraz w sklepie z dodatkami to `logo.png`. Możesz je podmienić na własne pliki o tych nazwach.

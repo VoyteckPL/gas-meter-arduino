@@ -26,9 +26,10 @@ Based on [Torxgewinde/Firebeetle-2-ESP32-E](https://github.com/Torxgewinde/Fireb
 
 ## Wygląd apki
 
-Interfejs apki jest po polsku, w kolorystyce inspirowanej ORLEN i w układzie aplikacji GPK Szemud (nagłówek z zakładkami, kafelki).
-Apka jest nieoficjalna i nie ma związku z PKN ORLEN. Logo i ikona w repozytorium są własne. Żeby użyć innego logo, podmień
-`gas_meter_app/app/static/logo.png` (nagłówek) oraz `gas_meter_app/icon.png` i `gas_meter_app/logo.png` (sklep z dodatkami).
+Interfejs apki jest po polsku, w kolorystyce ORLEN i w układzie aplikacji GPK Szemud (nagłówek z zakładkami, kafelki).
+Logo ORLEN w nagłówku i na ikonie zostało dodane na życzenie właściciela repozytorium. Apka jest nieoficjalna i nie ma związku
+z PKN ORLEN, a nazwa i znak ORLEN należą do ich właściciela. Żeby użyć innego logo, podmień `gas_meter_app/app/static/logo.png`
+(nagłówek) oraz `gas_meter_app/icon.png` i `gas_meter_app/logo.png` (sklep z dodatkami).
 
 ## Simulator
 

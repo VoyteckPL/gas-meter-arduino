@@ -1,5 +1,5 @@
 name: "Gazomierz"
-version: "0.9.0"
+version: "0.9.1"
 slug: "gas_meter"
 description: "Panel i ustawienia gazomierza na baterii (ESP32, MQTT): odczyty, historia, bateria z prognozą żywotności, powiadomienia."
 url: "https://github.com/VoyteckPL/gas-meter-arduino"
