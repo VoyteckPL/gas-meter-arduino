@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.12.1
+
+* Delikatny efekt przejścia między zakładkami (gest w bok albo kliknięcie zakładki): stara zakładka lekko odsuwa się i blednie,
+  nowa płynnie wjeżdża z kierunku gestu, a podkreślenie aktywnej zakładki w nagłówku płynnie przesuwa się pod nową.
+  Efekt wyłącza się przy ustawieniu systemu „ogranicz animacje”.
+* Gest w bok nie jest już ignorowany na polach tekstowych (tylko na polu, które właśnie edytujesz, na suwakach i listach wyboru),
+  bo na stronie Ustawienia wyglądało to jak „gest czasem nie działa”.
+
 ## 0.12.0
 
 * **Potwierdzenia wrażliwych akcji.** Przed wysłaniem do gazomierza apka pyta o potwierdzenie przy: restarcie gazomierza,

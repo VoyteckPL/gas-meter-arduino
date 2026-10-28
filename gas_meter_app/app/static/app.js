@@ -1169,22 +1169,50 @@ window.addEventListener("resize", () => { if (built) { drawChart(); if (!$("#bat
 // ---------------------------------------------------------------- panel / demo tabs
 const VIEW_NODES = { panel: "#root", battery: "#batteryView", settings: "#settingsView", network: "#networkView",
                      service: "#serviceView", demo: "#demoView" };
+const VIEW_ORDER = ["panel", "battery", "settings", "network", "service", "demo"];
+const reducedMotion = () => !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
+let viewSwap = null;
+
+// the underline under the active tab glides to the new tab
+function moveIndicator(animate) {
+  const ind = $("#tabInd"), active = document.querySelector("#viewTabs button.active");
+  if (!ind || !active) return;
+  if (!animate || reducedMotion()) ind.style.transition = "none";
+  ind.style.width = active.offsetWidth + "px";
+  ind.style.transform = "translateX(" + active.offsetLeft + "px)";
+  if (!animate || reducedMotion()) { void ind.offsetWidth; ind.style.transition = ""; }
+}
+
+// from: the side the new tab comes from ("right" after a swipe to the left). The old tab drifts out and fades,
+// then the new one glides in. Without `from` (first load, links) the tab just appears.
 function showView(view, from) {
   if (!VIEW_NODES[view]) view = "panel";
-  for (const [name, selector] of Object.entries(VIEW_NODES)) $(selector).hidden = name !== view;
-  if (from) {
-    const node = $(VIEW_NODES[view]);
-    node.classList.remove("slide-from-left", "slide-from-right");
-    void node.offsetWidth;
-    node.classList.add(from === "right" ? "slide-from-right" : "slide-from-left");
-    node.addEventListener("animationend", () => node.classList.remove("slide-from-left", "slide-from-right"), { once: true });
-    window.scrollTo(0, 0);
+  if (viewSwap) { clearTimeout(viewSwap.timer); viewSwap.run(); viewSwap = null; }
+  const current = Object.values(VIEW_NODES).map((s) => $(s)).find((n) => !n.hidden);
+  const next = $(VIEW_NODES[view]);
+  const reveal = () => {
+    for (const [name, selector] of Object.entries(VIEW_NODES)) $(selector).hidden = name !== view;
+    if (from && !reducedMotion()) {
+      next.classList.remove("slide-from-left", "slide-from-right");
+      void next.offsetWidth;
+      next.classList.add(from === "right" ? "slide-from-right" : "slide-from-left");
+      next.addEventListener("animationend", () => next.classList.remove("slide-from-left", "slide-from-right"), { once: true });
+    }
+    if (from) window.scrollTo(0, 0);
+    if (view === "battery") loadBattery();
+  };
+  if (from && current && current !== next && !reducedMotion()) {
+    current.classList.add(from === "right" ? "slide-out-left" : "slide-out-right");
+    const run = () => { current.classList.remove("slide-out-left", "slide-out-right"); reveal(); };
+    viewSwap = { run, timer: setTimeout(() => { viewSwap = null; run(); }, 130) };
+  } else {
+    reveal();
   }
-  document.querySelectorAll("#viewTabs button").forEach((b) => {
-    b.classList.toggle("active", b.dataset.view === view);
-    if (b.dataset.view === view) b.scrollIntoView({ block: "nearest", inline: "nearest" });
+  document.querySelectorAll("#viewTabs button").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.view === view);
+    if (btn.dataset.view === view) btn.scrollIntoView({ block: "nearest", inline: "nearest" });
   });
-  if (view === "battery") loadBattery();
+  moveIndicator(!!from);
   if (view === "demo" && !$("#demoView iframe")) {
     const frame = el("iframe", { src: "static/simulator.html?v=" + (window.ASSET_V || ""), title: "simulator" });
     // same origin, so the frame can be sized to its content (no inner scrollbar)
@@ -1196,7 +1224,15 @@ function showView(view, from) {
   }
   try { localStorage.setItem("gasMeterView", view); } catch (e) { /* ignore */ }
 }
-document.querySelectorAll("#viewTabs button").forEach((b) => b.addEventListener("click", () => showView(b.dataset.view)));
+// a tap on a tab slides in the same direction as a swipe would
+document.querySelectorAll("#viewTabs button").forEach((btn) => btn.addEventListener("click", () => {
+  const current = document.querySelector("#viewTabs button.active");
+  const dir = current ? (VIEW_ORDER.indexOf(btn.dataset.view) > VIEW_ORDER.indexOf(current.dataset.view) ? "right" : "left") : undefined;
+  showView(btn.dataset.view, btn.dataset.view === (current && current.dataset.view) ? undefined : dir);
+}));
+window.addEventListener("resize", () => moveIndicator(false));
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => moveIndicator(false));
+if (window.ResizeObserver) new ResizeObserver(() => moveIndicator(false)).observe($("#viewTabs"));
 function swipeTab(direction) {
   const buttons = [...document.querySelectorAll("#viewTabs button")];
   const now = buttons.findIndex((b) => b.classList.contains("active")), next = now + (direction === "left" ? 1 : -1);
@@ -1208,11 +1244,12 @@ window.addEventListener("message", (e) => {
 });
 
 // swipe left or right on the page to move to the next or the previous tab. The listeners are passive, so they never
-// get in the way of the vertical scroll. Inputs, the tab bar, dialogs and the overview strip of a chart are left alone.
+// get in the way of the vertical scroll. Sliders, lists, the field being edited, the tab bar, dialogs and the overview strip of a chart are left alone.
 (function () {
   let start = null;
   const blocked = (e) => {
-    if (e.target.closest("input, select, textarea, .viewtabs, .overlay, .switch, [data-noswipe]")) return true;
+    if (e.target.closest("input[type=range], select, textarea, .viewtabs, .overlay, .switch, [data-noswipe]")) return true;
+    if (e.target.matches("input") && e.target === document.activeElement) return true;      // the field being edited
     const canvas = e.target.closest("canvas");
     return !!(canvas && canvas._timeChart && canvas._timeChart.inNav(e.touches[0].clientY));
   };

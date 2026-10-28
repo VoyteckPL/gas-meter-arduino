@@ -167,11 +167,26 @@ body.noscroll { overflow: hidden; }
 .dialog canvas, .bgrid #bCanvas { height: 360px; touch-action: pan-y; border-radius: 10px; }
 .dialog { width: min(980px, 100%); }
 
-/* ---- tab switching animation and compact tabs on a phone ---- */
-@keyframes slideFromRight { from { transform: translateX(32px); opacity: 0; } to { transform: none; opacity: 1; } }
-@keyframes slideFromLeft { from { transform: translateX(-32px); opacity: 0; } to { transform: none; opacity: 1; } }
-.slide-from-right { animation: slideFromRight .22s ease-out; }
-.slide-from-left { animation: slideFromLeft .22s ease-out; }
+/* ---- tab switching: the old tab drifts out, the new one glides in, the underline follows ---- */
+html, body { overflow-x: clip; }
+.viewtabs { position: relative; }
+.tab-ind {
+  position: absolute; left: 0; bottom: 0; height: 3px; width: 0; background: #fff; border-radius: 3px 3px 0 0; pointer-events: none;
+  transition: transform .3s cubic-bezier(.4, 0, .2, 1), width .3s cubic-bezier(.4, 0, .2, 1);
+}
+.viewtabs button.active { border-color: transparent; }
+@keyframes slideFromRight { from { transform: translateX(26px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes slideFromLeft { from { transform: translateX(-26px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes viewOutLeft { to { transform: translateX(-20px); opacity: 0; } }
+@keyframes viewOutRight { to { transform: translateX(20px); opacity: 0; } }
+.slide-from-right { animation: slideFromRight .3s cubic-bezier(.22, 1, .36, 1) both; }
+.slide-from-left { animation: slideFromLeft .3s cubic-bezier(.22, 1, .36, 1) both; }
+.slide-out-left { animation: viewOutLeft .13s ease-in forwards; }
+.slide-out-right { animation: viewOutRight .13s ease-in forwards; }
+@media (prefers-reduced-motion: reduce) {
+  .slide-from-right, .slide-from-left, .slide-out-left, .slide-out-right { animation: none; }
+  .tab-ind { transition: none; }
+}
 @media (max-width: 560px) {
   .viewtabs button { padding: 8px 8px; font-size: 13px; }
   .dialog canvas, .bgrid #bCanvas { height: 300px; }
