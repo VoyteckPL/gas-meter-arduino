@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.17.0
+
+* **Pogoda a zużycie:** apka pobiera dobowe temperatury z darmowego archiwum Open-Meteo (bez konta i klucza; wysyła tylko współrzędne
+  zaokrąglone do ok. 1 km, domyślnie z lokalizacji Home Assistanta, można je zmienić) i liczy stopniodni grzewcze (poniżej 15,5 °C).
+* **Model zużycia:** zużycie miesięczne z faktur = stałe (woda, kuchnia) + współczynnik × stopniodni, z wykresem punktowym i R².
+* **Prognoza na 12 miesięcy** przy typowej pogodzie z ostatnich lat oraz tabela **m³ na 1000 stopniodni** dla każdego sezonu grzewczego,
+  czyli porównanie lat niezależne od tego, czy zima była zimna.
+
 ## 0.16.0
 
 * **Ładniejszy wykres zużycia miesięcznego:** zaokrąglone słupki z gradientem i odstępami, podpisy miesięcy i lat na osi,

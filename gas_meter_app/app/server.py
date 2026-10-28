@@ -37,9 +37,12 @@ CORE_API = os.environ.get("CORE_API", "http://supervisor/core/api")
 CORE_WS = os.environ.get("CORE_WS") or CORE_API.replace("http://", "ws://").replace("https://", "wss://").replace("/core/api", "/core/websocket")
 IMPORT_FILE = os.path.join(DATA_DIR, "imported.json")
 BILLS_FILE = os.path.join(DATA_DIR, "bills.json")
+WEATHER_FILE = os.path.join(DATA_DIR, "weather.json")
+WEATHER_API = os.environ.get("WEATHER_API", "https://archive-api.open-meteo.com/v1/archive")
 
 import battery
 import notifier
+import weather
 
 log = logging.getLogger("gas_meter")
 
@@ -1219,6 +1222,111 @@ async def api_bills(request):
                               "readings": (data.get("readings") or [])[-12:]})
 
 
+def load_weather():
+    try:
+        with open(WEATHER_FILE, encoding="utf-8") as handle:
+            return json.load(handle)
+    except (OSError, ValueError):
+        return {"lat": None, "lon": None, "daily": {}, "fetched": None}
+
+
+def save_weather(data):
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        with open(WEATHER_FILE + ".tmp", "w", encoding="utf-8") as handle:
+            json.dump(data, handle)
+        os.replace(WEATHER_FILE + ".tmp", WEATHER_FILE)
+    except OSError as error:  # pragma: no cover
+        log.warning("cannot save weather: %s", error)
+
+
+async def sync_weather(app, force=False):
+    """Daily mean temperatures from the Open-Meteo archive for the place of the house. Only the missing days are fetched."""
+    data = app["weather"]
+    if data.get("lat") is None or data.get("lon") is None:
+        config = await core_get("/config") or {}
+        if config.get("latitude") is not None and config.get("longitude") is not None:
+            data["lat"], data["lon"] = round(float(config["latitude"]), 2), round(float(config["longitude"]), 2)   # ~1 km is plenty
+    if data.get("lat") is None:
+        return {"ok": False, "error": "Brak lokalizacji. Wpisz współrzędne domu."}
+    bills = [b["due"] for b in app["bills"]["bills"]]
+    start = (min(bills)[:4] + "-01-01") if bills else "%d-01-01" % (datetime.now().year - 3)
+    end = time.strftime("%Y-%m-%d", time.localtime(time.time() - 3 * 86400))      # the archive lags a few days
+    daily = data["daily"]
+    if daily and not force:
+        have = sorted(daily)
+        if have[0] <= start:
+            start = (datetime.fromisoformat(have[-1]).date().toordinal() - 7)
+            start = datetime.fromordinal(start).strftime("%Y-%m-%d")
+    if start > end:
+        return {"ok": True, "days": len(daily)}
+    params = {"latitude": data["lat"], "longitude": data["lon"], "start_date": start, "end_date": end,
+              "daily": "temperature_2m_mean", "timezone": "auto"}
+    try:
+        async with ClientSession() as session:
+            async with session.get(WEATHER_API, params=params, timeout=40) as response:
+                if response.status >= 300:
+                    raise RuntimeError("Open-Meteo odpowiedziało %s" % response.status)
+                payload = await response.json()
+    except Exception as error:
+        log.warning("weather sync failed: %s", error)
+        return {"ok": False, "error": "Nie udało się pobrać temperatur: %s" % error}
+    daily.update(weather.parse_archive(payload))
+    data["fetched"] = time.time()
+    save_weather(data)
+    return {"ok": True, "days": len(daily)}
+
+
+async def weather_loop(app):
+    await asyncio.sleep(20)
+    while True:
+        try:
+            if app["weather"].get("enabled", True) and (time.time() - (app["weather"].get("fetched") or 0) > 20 * 3600):
+                await sync_weather(app)
+        except Exception as error:  # pragma: no cover
+            log.warning("weather loop: %s", error)
+        await asyncio.sleep(3600)
+
+
+async def api_weather(request):
+    app = request.app
+    data = app["weather"]
+    status = None
+    if request.method == "POST":
+        try:
+            body = await request.json()
+            action = body.get("action")
+        except (ValueError, AttributeError):
+            return web.json_response({"error": "bad request"}, status=400)
+        if action == "location":
+            try:
+                lat, lon = float(body.get("lat")), float(body.get("lon"))
+                if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                    raise ValueError
+            except (TypeError, ValueError):
+                return web.json_response({"error": "Podaj szerokość (-90..90) i długość (-180..180) geograficzną"}, status=400)
+            data["lat"], data["lon"], data["daily"] = round(lat, 2), round(lon, 2), {}
+            save_weather(data)
+            status = await sync_weather(app, force=True)
+        elif action == "refresh":
+            status = await sync_weather(app, force=True)
+        else:
+            return web.json_response({"error": "unknown action"}, status=400)
+    elif not data["daily"] and data.get("fetched") is None:
+        status = await sync_weather(app)
+    monthly = monthly_from_bills(app["bills"]["bills"])
+    factor = app["bills"].get("factor", 11.0)
+    own = sorted(b["kwh"] / b["m3"] for b in app["bills"]["bills"] if b.get("kwh") and b.get("m3"))
+    if own and not app["bills"].get("factor_manual"):
+        factor = own[len(own) // 2]
+    months = weather.monthly_weather(data["daily"])
+    now_key = time.strftime("%Y-%m")
+    analysis = weather.analyse(monthly, months, now_key, factor)
+    return web.json_response({"lat": data.get("lat"), "lon": data.get("lon"), "fetched": data.get("fetched"), "days": len(data["daily"]),
+                              "status": status, "months": [dict(month=k, **v) for k, v in sorted(months.items())],
+                              "base_c": weather.BASE_C, **analysis})
+
+
 async def api_set(request):
     app = request.app
     try:
@@ -1271,11 +1379,13 @@ async def on_startup(app):
     app["bridge"] = bridge
     app["saver"] = asyncio.create_task(saver(app))
     app["notifier"] = asyncio.create_task(notifier_loop(app))
+    app["weather_task"] = asyncio.create_task(weather_loop(app))
 
 
 async def on_cleanup(app):
     app["saver"].cancel()
     app["notifier"].cancel()
+    app["weather_task"].cancel()
     app["store"].save()
     app["bridge"].client.loop_stop()
     app["bridge"].client.disconnect()
@@ -1287,6 +1397,7 @@ def create_app(options):
     app["notify_state"] = load_notify_state()
     app["notify_log"] = []
     app["bills"] = load_bills()
+    app["weather"] = load_weather()
     app["notify_targets"] = load_targets()
     app["store"] = Store(options.get("root_topic") or "Gaz/Gazomierz",
                          options.get("battery_test_topic", "Gaz/BatteryTest"))
@@ -1297,6 +1408,8 @@ def create_app(options):
     app.router.add_get("/api/orlen", api_orlen)
     app.router.add_get("/api/bills", api_bills)
     app.router.add_post("/api/bills", api_bills)
+    app.router.add_get("/api/weather", api_weather)
+    app.router.add_post("/api/weather", api_weather)
     app.router.add_get("/api/ha_stats", api_ha_stats)
     app.router.add_post("/api/ha_stats", api_ha_stats)
     app.router.add_get("/api/notify", api_notify)

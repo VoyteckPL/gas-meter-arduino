@@ -168,3 +168,10 @@ Odczyty i **Ustaw stan licznika** działają z obecnym firmware.
 * Historia (stan licznika, bateria, sygnał) jest zapisywana w katalogu danych apki i przeżywa restarty oraz aktualizacje.
   Baterię, sygnał i liczniki sesji trzymamy ok. roku (jedna próbka na 15 minut).
 * Logo w pasku nagłówka to `static/logo.png`, ikona apki to `icon.png`, a obraz w sklepie z dodatkami to `logo.png`. Możesz je podmienić na własne pliki o tych nazwach.
+
+## Pogoda a zużycie (zakładka Zużycie)
+
+Apka pobiera dobowe średnie temperatury z archiwum Open-Meteo (darmowe, bez klucza). Wysyłane są wyłącznie współrzędne zaokrąglone do ok. 1 km,
+domyślnie z lokalizacji ustawionej w Home Assistancie; można je zmienić w karcie „Pogoda a zużycie". Temperatury są zapisywane w `/data/weather.json`.
+Na ich podstawie liczone są stopniodni grzewcze (suma różnic poniżej 15,5 °C) i model „zużycie = stałe + współczynnik × stopniodni"
+dopasowany do miesięcy z faktur. Daje to prognozę na 12 miesięcy i porównanie sezonów grzewczych (m³ na 1000 stopniodni). Potrzeba co najmniej 6 miesięcy z fakturami.

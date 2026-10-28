@@ -920,6 +920,22 @@ function buildUsage() {
   yoy.addEventListener("pointerleave", () => { usage.yoyHover = null; drawYearCompare(); });
   yoy.addEventListener("pointerdown", (e) => { usage.yoyHover = e.clientX - yoy.getBoundingClientRect().left; drawYearCompare(); });
   card([el("h2", { text: "Porównanie lat" }), el("p", { class: "hint", style: "margin:0 0 6px", text: "Ten sam miesiąc w kolejnych latach: widać, czy zima była zimniejsza albo oszczędniejsza." }), yoy], true);
+  const lat = el("input", { type: "number", id: "wLat", step: "0.01", placeholder: "52.23", style: "width:110px" });
+  const lon = el("input", { type: "number", id: "wLon", step: "0.01", placeholder: "21.01", style: "width:110px" });
+  const locBtn = el("button", { class: "secondary", text: "Zapisz lokalizację" });
+  locBtn.addEventListener("click", () => weatherAction({ action: "location", lat: lat.value, lon: lon.value }));
+  const refBtn = el("button", { class: "ghost", text: "Pobierz temperatury" });
+  refBtn.addEventListener("click", () => weatherAction({ action: "refresh" }));
+  card([el("h2", { text: "Pogoda a zużycie" }),
+        el("p", { class: "hint", style: "margin:0 0 8px", id: "wSummary", text: "Pobieram temperatury…" }),
+        el("canvas", { id: "wScatter" }),
+        el("p", { class: "hint", id: "wScatterHint" }),
+        el("h3", { text: "Prognoza na najbliższe 12 miesięcy" }),
+        el("canvas", { id: "wForecast" }),
+        el("div", { id: "wSeasons", style: "overflow-x:auto" }),
+        el("p", { class: "hint", id: "wStatus" }),
+        el("div", { class: "field", style: "gap:8px;flex-wrap:wrap;align-items:center" }, [el("span", { class: "muted small", text: "Szer./dł. geogr.:" }), lat, lon, locBtn, refBtn]),
+        el("p", { class: "hint", text: "Temperatury dobowe pochodzą z darmowego archiwum Open-Meteo (bez konta i klucza); wysyłane są tylko współrzędne zaokrąglone do ok. 1 km. Stopniodni = suma różnic poniżej 15,5 °C. Model to zużycie = stałe + współczynnik × stopniodni, dopasowane do miesięcy z faktur." })], true);
   card([el("h2", { text: "Profil sezonowy (średnio na miesiąc)" }), el("div", { id: "uSeason" }),
         el("p", { class: "hint", text: "Średnia ze wszystkich lat z faktur. Impulsy na dobę to to, co gazomierz będzie liczył w danym miesiącu, więc od tego zależy zużycie baterii." })]);
   card([el("h2", { text: "Rocznie" }), el("div", { id: "uYears", style: "overflow-x:auto" })]);
@@ -1013,7 +1029,102 @@ async function loadUsage() {
   try { usage.data = await api("bills"); } catch (e) { usage.data = null; return; }
   renderUsage();
   syncOrlen();
+  loadWeather();
 }
+
+const weatherState = { data: null };
+
+async function loadWeather() {
+  try { weatherState.data = await api("weather"); } catch (e) { weatherState.data = null; }
+  renderWeather();
+}
+
+async function weatherAction(body) {
+  try {
+    const r = await api("weather", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    weatherState.data = r;
+    toast(r.status && r.status.ok === false ? r.status.error : "Zapisano", !!(r.status && r.status.ok === false));
+    renderWeather();
+  } catch (e) { toast(e.message, true); }
+}
+
+function plainCanvas(canvas) {
+  const ratio = window.devicePixelRatio || 1, W = canvas.clientWidth, H = canvas.clientHeight;
+  if (!W || !H) return null;
+  canvas.width = Math.round(W * ratio); canvas.height = Math.round(H * ratio);
+  const ctx = canvas.getContext("2d"); ctx.setTransform(ratio, 0, 0, ratio, 0, 0); ctx.clearRect(0, 0, W, H);
+  ctx.font = "11px system-ui, sans-serif";
+  return { ctx, W, H };
+}
+
+function niceMax(max) {
+  const raw = max / 4, mag = Math.pow(10, Math.floor(Math.log10(raw))), norm = raw / mag;
+  const step = (norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10) * mag;
+  return { step, top: Math.ceil(max / step) * step };
+}
+
+function renderWeather() {
+  const d = weatherState.data;
+  if (!d || $("#usageView").hidden) { if (!d) $("#wSummary").textContent = "Nie udało się pobrać danych pogodowych."; return; }
+  if (d.lat !== null && d.lat !== undefined && document.activeElement !== $("#wLat")) { $("#wLat").value = d.lat; $("#wLon").value = d.lon; }
+  const m = d.model;
+  $("#wStatus").textContent = (d.status && d.status.ok === false ? d.status.error + " " : "") +
+    (d.days ? "Temperatury z " + d.days + " dni" + (d.fetched ? ", pobrane " + new Date(d.fetched * 1000).toLocaleDateString("pl-PL") : "") + "." : "Brak temperatur. Sprawdź lokalizację i połączenie z internetem.");
+  if (!m) {
+    $("#wSummary").textContent = d.days ? "Potrzeba co najmniej 6 miesięcy z fakturami i temperaturą, żeby policzyć model." : "Czekam na temperatury i faktury.";
+    for (const id of ["wScatter", "wForecast"]) { const c = $("#" + id); c.style.display = "none"; }
+    $("#wSeasons").textContent = ""; $("#wScatterHint").textContent = "";
+    return;
+  }
+  for (const id of ["wScatter", "wForecast"]) $("#" + id).style.display = "";
+  $("#wSummary").textContent = "Stałe zużycie (woda, kuchnia): " + num(m.base, 0) + " m³ na miesiąc. Ogrzewanie: " + num(m.per_hdd, 2) + " m³ na każdy stopniodzień. " +
+    "Dopasowanie R² = " + num(m.r2, 2) + " (" + m.months + " miesięcy, typowy błąd ±" + num(m.residual_sd, 0) + " m³).";
+  const textC = cssColor("--text"), muted = cssColor("--muted"), line = cssColor("--line"), accent = cssColor("--accent");
+  // scatter: degree days vs m³
+  const sc = plainCanvas($("#wScatter"));
+  if (sc) {
+    const { ctx, W, H } = sc, left = 40, right = 10, top = 14, bottom = 26, pw = W - left - right, ph = H - top - bottom;
+    const maxX = niceMax(Math.max(...d.rows.map((r) => r.hdd), 1)), maxY = niceMax(Math.max(...d.rows.map((r) => r.m3), m.base + m.per_hdd * maxX.top, 1));
+    const sx = (v) => left + v / maxX.top * pw, sy = (v) => top + ph - v / maxY.top * ph;
+    ctx.strokeStyle = line; ctx.fillStyle = muted; ctx.textAlign = "right";
+    for (let v = 0; v <= maxY.top + 1e-9; v += maxY.step) { const y = Math.round(sy(v)) + 0.5; ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(left + pw, y); ctx.stroke(); ctx.fillText(String(Math.round(v)), left - 6, y + 4); }
+    ctx.textAlign = "center";
+    for (let v = 0; v <= maxX.top + 1e-9; v += maxX.step) ctx.fillText(String(Math.round(v)), sx(v), H - 8);
+    ctx.textAlign = "left"; ctx.fillText("m³ / miesiąc", left + 4, 10); ctx.textAlign = "right"; ctx.fillText("oś pozioma: stopniodni w miesiącu", W - right, 10);
+    ctx.strokeStyle = textC; ctx.setLineDash([5, 4]); ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(sx(0), sy(m.base)); ctx.lineTo(sx(maxX.top), sy(m.base + m.per_hdd * maxX.top)); ctx.stroke(); ctx.setLineDash([]);
+    const lastYear = Number(d.rows[d.rows.length - 1].month.slice(0, 4));
+    for (const r of d.rows) { ctx.globalAlpha = Number(r.month.slice(0, 4)) >= lastYear - 1 ? 0.95 : 0.45; ctx.fillStyle = accent; ctx.beginPath(); ctx.arc(sx(r.hdd), sy(r.m3), 4, 0, 7); ctx.fill(); }
+    ctx.globalAlpha = 1;
+  }
+  $("#wScatterHint").textContent = "Każda kropka to miesiąc z faktury (ostatnie dwa lata wyraźniej). Im zimniej, tym więcej gazu; linia to dopasowany model.";
+  // forecast
+  const fc = plainCanvas($("#wForecast"));
+  if (fc && d.forecast.length) {
+    const { ctx, W, H } = fc, left = 40, right = 8, top = 12, bottom = 34, pw = W - left - right, ph = H - top - bottom;
+    const mx = niceMax(Math.max(...d.forecast.map((f) => f.m3), 1)), sy = (v) => top + ph - v / mx.top * ph, gw = pw / d.forecast.length, bw = Math.max(6, gw - 8);
+    ctx.strokeStyle = line; ctx.fillStyle = muted; ctx.textAlign = "right";
+    for (let v = 0; v <= mx.top + 1e-9; v += mx.step) { const y = Math.round(sy(v)) + 0.5; ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(left + pw, y); ctx.stroke(); ctx.fillText(String(Math.round(v)), left - 6, y + 4); }
+    ctx.textAlign = "center";
+    d.forecast.forEach((f, i) => {
+      const x = left + i * gw + (gw - bw) / 2, y = sy(f.m3), r = Math.min(4, bw / 2);
+      ctx.fillStyle = accent; ctx.globalAlpha = 0.85; ctx.beginPath();
+      ctx.moveTo(x, top + ph); ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.lineTo(x + bw - r, y); ctx.quadraticCurveTo(x + bw, y, x + bw, y + r); ctx.lineTo(x + bw, top + ph); ctx.fill(); ctx.globalAlpha = 1;
+      ctx.fillStyle = textC; ctx.fillText(MONTH_NAMES[Number(f.month.slice(5, 7)) - 1], x + bw / 2, H - 20);
+      ctx.fillStyle = muted; ctx.fillText(Math.round(f.mean) + "°", x + bw / 2, H - 6);
+      if (gw > 34) { ctx.fillStyle = textC; ctx.fillText(String(Math.round(f.m3)), x + bw / 2, y - 4); }
+    });
+  }
+  const total = sumBy(d.forecast, (f) => f.m3);
+  const box = $("#wSeasons"); box.textContent = "";
+  if (d.forecast.length) box.append(el("p", { class: "hint", text: "Typowa pogoda z ostatnich lat daje na najbliższe 12 miesięcy ok. " + num(total, 0) + " m³ (pod każdym słupkiem średnia temperatura miesiąca)." }));
+  if (d.yearly.length) {
+    const t = el("table", { class: "mini" }, [el("tr", {}, ["Sezon grzewczy", "m³", "stopniodni", "m³ na 1000 stopniodni"].map((h) => el("th", { text: h })))]);
+    for (const y of d.yearly) t.append(el("tr", {}, [y.season + "/" + String(y.season + 1).slice(2), num(y.m3, 0), num(y.hdd, 0), num(y.per_1000, 0)].map((v) => el("td", { text: v }))));
+    box.append(el("h3", { text: "Czy dom jest oszczędniejszy? (zużycie przy tej samej zimie)" }), t,
+      el("p", { class: "hint", text: "Mniejsza liczba m³ na 1000 stopniodni to mniej gazu przy takim samym mrozie, więc lepsza izolacja lub niższe ogrzewanie. Sezon liczony od października do kwietnia, tylko pełne sezony." }));
+  }
+}
+
 
 function sumBy(entries, fn) { return entries.reduce((s, e) => s + fn(e), 0); }
 
