@@ -98,3 +98,57 @@ def analyse(transitions, meter, now, factor=11.0, days=14):
         "heating": {"cycles": len(heating), "avg_minutes": avg(heating, "minutes"), "avg_m3": avg(heating, "m3"), "avg_kw": avg(heating, "kw")},
         "recent": sorted(cycles, key=lambda c: -c["start"])[:12],
     }
+
+
+def hourly(transitions, meter, now, after=None):
+    """Gas per completed hour split into hot water, heating and the rest: [{"start", "dhw", "heating", "rest", "total"}].
+    Hours without a trustworthy meter value are skipped; the rest is everything the boiler states do not explain."""
+    if not transitions or not meter:
+        return []
+    points = [p for p in meter if p[0] >= transitions[0][0] - 7200]
+    times = [p[0] for p in points]
+    spans = intervals(transitions, now)
+    first = int(transitions[0][0] // 3600) * 3600
+    first = max(first, (int(after // 3600) + 1) * 3600) if after is not None else first
+    rows = []
+    for h in range(first, int(now // 3600) * 3600, 3600):
+        total = gas_in(points, times, h, h + 3600)
+        if total is None:
+            continue
+        part = {"dhw": 0.0, "heating": 0.0}
+        for start, stop, mode in spans:
+            if mode in part and start < h + 3600 and stop > h:
+                m3 = gas_in(points, times, max(start, h), min(stop, h + 3600))
+                if m3:
+                    part[mode] += m3
+        used = part["dhw"] + part["heating"]
+        if used > total and used > 0:
+            part = {k: v * total / used for k, v in part.items()}
+            used = total
+        rows.append({"start": h, "dhw": part["dhw"], "heating": part["heating"], "rest": total - used, "total": total})
+    return rows
+
+
+def merge_daily(stored, days, today):
+    """Keeps the per-day split for good (the raw states are only kept for a while). A day is replaced only by a better covered one."""
+    for d in days:
+        if d["day"] > today:
+            continue
+        new = sum(d["hours"].values())
+        old = stored.get(d["day"])
+        if old is None or new >= old.get("covered", 0):
+            stored[d["day"]] = {m: round(d[m], 4) for m in MODES} | {"covered": round(new, 2)}
+    return stored
+
+
+def months(stored):
+    """Per month totals from the stored days: [{"month", "dhw", "heating", "other", "days"}] with other = idle + the rest."""
+    out = {}
+    for day in sorted(stored):
+        d = stored[day]
+        m = out.setdefault(day[:7], {"month": day[:7], "dhw": 0.0, "heating": 0.0, "other": 0.0, "days": 0})
+        m["dhw"] += d["dhw"]
+        m["heating"] += d["heating"]
+        m["other"] += d["idle"] + d["other"]
+        m["days"] += 1
+    return list(out.values())

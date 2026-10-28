@@ -969,7 +969,16 @@ function buildUsage() {
         el("p", { class: "hint", style: "margin:0 0 8px", id: "bhSummary", text: "Czytam stany pieca…" }),
         el("canvas", { id: "bhCanvas" }),
         el("div", { id: "bhTable", style: "overflow-x:auto;margin-top:8px" }),
-        el("p", { class: "hint", id: "bhHint" })], true);
+        el("p", { class: "hint", id: "bhHint" }),
+        el("h3", { text: "Miesiące i sezony" }),
+        el("canvas", { id: "bmCanvas" }),
+        el("div", { id: "bmTable", style: "overflow-x:auto;margin-top:8px" }),
+        el("h3", { text: "Panel Energia: woda, ogrzewanie, reszta" }),
+        el("p", { class: "hint", style: "margin:0 0 8px", text: "Trzy osobne statystyki gazu godzina po godzinie: „Gaz – ciepła woda”, „Gaz – ogrzewanie” i „Gaz – postój i reszta”. Razem dają zużycie gazomierza. Dodaj je w Ustawienia → Pulpity → Energia jako źródła gazu. Zaczynają się od pierwszej godziny, dla której apka zna stany pieca (HA trzyma je ok. 10 dni), a nowe godziny są dopisywane co godzinę." }),
+        el("div", { id: "beStatus", class: "muted small" }),
+        el("div", { class: "field", style: "gap:8px;flex-wrap:wrap;margin-top:8px" }, [
+          eBtn("Wyślij do panelu Energia", "", () => boilerEnergy("energy_import")),
+          eBtn("Usuń z Home Assistanta", "secondary", () => { if (confirm("Usunąć trzy statystyki gazu z Home Assistanta?")) boilerEnergy("energy_clear"); })])], true);
   card([el("h2", { text: "Panel Energia w Home Assistant" }),
         el("p", { class: "hint", style: "margin:0 0 8px", text: "Apka może wysłać do Home Assistanta całą historię zużycia gazu jako statystykę „Gazomierz (z historią)”: miesiące z faktur sprzed pierwszych odczytów, potem odczyty gazomierza godzina po godzinie. Dodaj ją w Ustawienia → Pulpity → Energia → Dodaj źródło gazu. Dane z faktur są rozłożone równo na godziny miesiąca, więc dobre są do widoku miesięcznego i rocznego." }),
         el("div", { id: "eStatus", class: "muted small" }), el("div", { id: "ePreview", class: "muted small", style: "margin-top:6px" }),
@@ -1127,7 +1136,60 @@ function drawBoiler() {
     for (const [name, v] of rows) t.append(el("tr", {}, [name, String(v.cycles), num(v.avg_minutes, 1), num(v.avg_m3, 2), num(v.avg_kw, 1)].map((x) => el("td", { text: x }))));
     table.append(t);
   }
+  drawBoilerMonths(d);
+  renderBoilerEnergy(d.energy);
   hint.textContent = "Gaz między zmianami stanu pieca jest czytany z odczytów gazomierza, więc tryb dostaje dokładnie tyle gazu, ile zużyto w jego trakcie (dokładność około 0,01 m³ na granicę). „Moc” to średnie m³ na godzinę razy kWh/m³ z faktur. Dane o piecu apka tylko czyta i zapisuje u siebie.";
+}
+
+function drawBoilerMonths(d) {
+  const canvas = $("#bmCanvas"), table = $("#bmTable");
+  if (!canvas) return;
+  table.textContent = "";
+  const ms = (d.months || []).slice(-24);
+  canvas.style.display = ms.length ? "" : "none";
+  if (!ms.length) return;
+  const MIN = ["sty", "lut", "mar", "kwi", "maj", "cze", "lip", "sie", "wrz", "paź", "lis", "gru"];
+  setLegend(canvas, [{ label: "Ciepła woda", color: "#2f7fd0", kind: "box" }, { label: "Ogrzewanie", color: cssColor("--accent"), kind: "box" }, { label: "Postój i reszta", color: "#a3a3b2", kind: "box" }]);
+  const pc = plainCanvas(canvas);
+  if (pc) {
+    const { ctx, W, H } = pc, left = 40, right = 8, top = 12, bottom = 24, pw = W - left - right, ph = H - top - bottom;
+    const muted = cssColor("--muted"), line = cssColor("--line");
+    const max = niceMax(Math.max(...ms.map((x) => x.dhw + x.heating + x.other), 0.1)), sy = (v) => top + ph - v / max.top * ph, gw = pw / ms.length, bw = Math.max(6, gw - 6);
+    ctx.strokeStyle = line; ctx.fillStyle = muted; ctx.textAlign = "right";
+    for (let v = 0; v <= max.top + 1e-9; v += max.step) { const y = Math.round(sy(v)) + 0.5; ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(left + pw, y); ctx.stroke(); ctx.fillText(String(Math.round(v * 10) / 10), left - 6, y + 4); }
+    ctx.textAlign = "center";
+    ms.forEach((x, i) => {
+      let y0 = top + ph;
+      for (const [key, color] of [["dhw", "#2f7fd0"], ["heating", cssColor("--accent")], ["other", "#a3a3b2"]]) {
+        const h = x[key] / max.top * ph; if (h <= 0.3) continue;
+        ctx.fillStyle = color; ctx.fillRect(left + i * gw + (gw - bw) / 2, y0 - h, bw, h); y0 -= h;
+      }
+      ctx.fillStyle = muted; if (gw > 26 || i % 2 === 0) ctx.fillText(MIN[Number(x.month.slice(5, 7)) - 1] + (x.month.slice(5, 7) === "01" || i === 0 ? " " + x.month.slice(2, 4) : ""), left + i * gw + gw / 2, H - 6);
+    });
+    ctx.textAlign = "left"; ctx.fillStyle = muted; ctx.fillText("m³ w miesiącu (tylko dni ze stanami pieca)", left + 4, 10);
+  }
+  const t = el("table", { class: "mini" }, [el("tr", {}, ["Miesiąc", "Dni", "Woda m³", "Ogrz. m³", "Reszta m³", "Woda %"].map((h) => el("th", { text: h })))]);
+  for (const x of ms.slice().reverse()) {
+    const sum = x.dhw + x.heating + x.other;
+    t.append(el("tr", {}, [x.month, String(x.days), num(x.dhw, 1), num(x.heating, 1), num(x.other, 1), sum ? Math.round(x.dhw / sum * 100) + " %" : "—"].map((c) => el("td", { text: c }))));
+  }
+  table.append(t);
+}
+
+function renderBoilerEnergy(st) {
+  const box = $("#beStatus");
+  if (!box) return;
+  box.textContent = !st || !st.in_ha ? "Dostępne tylko, gdy apka działa w Home Assistant." :
+    st.on && st.last_start ? "Wysłano " + st.rows + " godzin, ostatnia z " + new Date(st.last_start * 1000).toLocaleString("pl-PL") + ". Sumy: woda " + num(st.sums.dhw, 1) + " m³, ogrzewanie " + num(st.sums.heating, 1) + " m³, reszta " + num(st.sums.rest, 1) + " m³. Nowe godziny są dopisywane co godzinę." :
+    "Jeszcze nic nie wysłano.";
+}
+
+async function boilerEnergy(action) {
+  try {
+    const r = await api("boiler", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) });
+    toast(action === "energy_import" ? "Wysłano statystyki do Home Assistanta" : "Usunięto statystyki");
+    renderBoilerEnergy(r);
+  } catch (e) { toast(e.message, true); }
 }
 
 async function loadForecast() {

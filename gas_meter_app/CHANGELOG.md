@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.23.0
+
+* Karta pieca ma widok „Miesiące i sezony”: gaz na ciepłą wodę, ogrzewanie oraz postój i resztę w każdym miesiącu, z udziałem wody w procentach. Podział dni apka zapisuje na stałe, więc historia rośnie, choć Home Assistant trzyma stany pieca tylko około 10 dni.
+* Trzy nowe statystyki do panelu Energia: „Gaz – ciepła woda”, „Gaz – ogrzewanie” i „Gaz – postój i reszta”. Razem dają zużycie gazomierza. Przycisk „Wyślij do panelu Energia” wysyła je od pierwszej znanej godziny, potem nowe godziny dopisują się co godzinę.
+
 ## 0.22.0
 
 * Nowa karta „Piec: ciepła woda i ogrzewanie” w zakładce Zużycie. Apka czyta stan pieca z encji z Home Assistanta (domyślnie `sensor.ariston_genus_one_status_kotla`, opcja `boiler_entity`) i dzieli gaz na ciepłą wodę, ogrzewanie oraz postój i resztę. Gaz między zmianami stanu bierze z odczytów gazomierza, więc każdy tryb dostaje tyle, ile zużył w swoim czasie trwania. Karta pokazuje słupki na dobę, liczbę cykli, średni czas, gaz i moc kW.

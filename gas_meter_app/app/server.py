@@ -1403,10 +1403,10 @@ def iso_hour(ts):
     return datetime.utcfromtimestamp(ts).strftime("%Y-%m-%dT%H:00:00+00:00")
 
 
-async def send_energy(rows):
+async def send_energy(rows, statistic_id=ENERGY_ID, name="Gazomierz (z historią)"):
     """Sends hourly rows as the external statistic; a Home Assistant that does not know unit_class gets it without."""
-    metadata = {"has_mean": False, "has_sum": True, "name": "Gazomierz (z historią)", "source": "gas_meter_app",
-                "statistic_id": ENERGY_ID, "unit_of_measurement": "m³", "unit_class": "volume"}
+    metadata = {"has_mean": False, "has_sum": True, "name": name, "source": "gas_meter_app",
+                "statistic_id": statistic_id, "unit_of_measurement": "m³", "unit_class": "volume"}
     for start in range(0, len(rows), 3000):
         stats = [{"start": iso_hour(r["start"]), "sum": round(r["sum"], 4), "state": round(r["state"], 4)} for r in rows[start:start + 3000]]
         try:
@@ -1537,12 +1537,21 @@ async def app_entities_loop(app):
         await asyncio.sleep(600)
 
 
+BOILER_STATS = (("dhw", "gas_meter_app:gas_dhw", "Gaz – ciepła woda"), ("heating", "gas_meter_app:gas_heating", "Gaz – ogrzewanie"),
+                ("rest", "gas_meter_app:gas_rest", "Gaz – postój i reszta"))
+
+
 def load_boiler():
     try:
         with open(BOILER_FILE, encoding="utf-8") as handle:
-            return json.load(handle)
+            data = json.load(handle)
     except (OSError, ValueError):
-        return {"transitions": [], "imported": False}
+        data = {}
+    data.setdefault("transitions", [])
+    data.setdefault("imported", False)
+    data.setdefault("daily", {})
+    data.setdefault("energy", {"on": False})
+    return data
 
 
 def save_boiler(data):
@@ -1565,7 +1574,7 @@ def add_transition(data, ts, state):
     if rows and (rows[-1][1] == state or ts < rows[-1][0] - 1):
         return False
     rows.append([round(ts, 1), state])
-    del rows[:-5000]
+    del rows[:-100000]
     return True
 
 
@@ -1591,11 +1600,62 @@ async def sync_boiler(app):
             save_boiler(data)
 
 
+def boiler_meter(app):
+    with app["store"].lock:
+        return [list(p) for p in app["store"].series("cubic_meters")]
+
+
+def boiler_daily_update(app):
+    data = app["boiler"]
+    if not data["transitions"]:
+        return
+    _, factor = bills_context(app)
+    full = boiler.analyse(data["transitions"], boiler_meter(app), time.time(), factor, days=3650)
+    boiler.merge_daily(data["daily"], full["days"], time.strftime("%Y-%m-%d"))
+
+
+def boiler_energy_status(app):
+    e = app["boiler"]["energy"]
+    return {"in_ha": bool(core_token()), "on": bool(e.get("on")), "rows": e.get("rows", 0), "last_start": e.get("last_start"),
+            "sums": {key: e.get(key, {}).get("last_sum") for key, _, _ in BOILER_STATS}, "ids": [sid for _, sid, _ in BOILER_STATS]}
+
+
+async def boiler_energy_update(app, full=False):
+    """Sends the completed hours as three statistics (hot water, heating, the rest) so that together they equal the meter."""
+    data = app["boiler"]
+    e = data["energy"]
+    if full:
+        await core_ws_call([{"type": "recorder/clear_statistics", "statistic_ids": [sid for _, sid, _ in BOILER_STATS]}])
+        e.clear()
+        e["on"] = True
+    rows = boiler.hourly(data["transitions"], boiler_meter(app), time.time(), e.get("last_start"))
+    if rows:
+        for key, sid, name in BOILER_STATS:
+            total = e.get(key, {}).get("last_sum", 0.0)
+            out = []
+            for r in rows:
+                total += r[key]
+                out.append({"start": r["start"], "sum": total, "state": total})
+            await send_energy(out, sid, name)
+            e[key] = {"last_sum": total}
+        e["last_start"] = rows[-1]["start"]
+        e["rows"] = e.get("rows", 0) + len(rows)
+    save_boiler(data)
+    return len(rows)
+
+
 async def boiler_loop(app):
     await asyncio.sleep(30)
+    checked = 0
     while True:
         try:
             await sync_boiler(app)
+            if time.time() - checked > 3600:
+                checked = time.time()
+                boiler_daily_update(app)
+                if app["boiler"]["energy"].get("on") and core_token():
+                    await boiler_energy_update(app)
+                save_boiler(app["boiler"])
         except Exception as error:  # pragma: no cover
             log.warning("boiler sync failed: %s", error)
         await asyncio.sleep(20)
@@ -1603,13 +1663,38 @@ async def boiler_loop(app):
 
 async def api_boiler(request):
     app = request.app
+    if request.method == "POST":
+        try:
+            action = (await request.json()).get("action")
+        except (ValueError, AttributeError):
+            return web.json_response({"error": "bad request"}, status=400)
+        if not core_token():
+            return web.json_response({"error": "Apka nie działa w Home Assistant"}, status=409)
+        try:
+            if action == "energy_import":
+                if not app["boiler"]["transitions"]:
+                    return web.json_response({"error": "Brak jeszcze stanów pieca."}, status=409)
+                n = await boiler_energy_update(app, full=True)
+                if not n:
+                    return web.json_response({"error": "Brak jeszcze pełnych godzin z odczytami gazomierza i stanami pieca."}, status=409)
+            elif action == "energy_clear":
+                await core_ws_call([{"type": "recorder/clear_statistics", "statistic_ids": [sid for _, sid, _ in BOILER_STATS]}])
+                app["boiler"]["energy"] = {"on": False}
+                save_boiler(app["boiler"])
+            else:
+                return web.json_response({"error": "unknown action"}, status=400)
+        except Exception as error:
+            log.warning("boiler %s failed: %s", action, error)
+            return web.json_response({"error": str(error)}, status=502)
+        return web.json_response(boiler_energy_status(app))
     entity = (app["options"].get("boiler_entity") or "").strip()
     data = app["boiler"]
     _, factor = bills_context(app)
-    with app["store"].lock:
-        meter = [list(p) for p in app["store"].series("cubic_meters")]
+    meter = boiler_meter(app)
     result = boiler.analyse(data["transitions"], meter, time.time(), factor)
-    result.update(entity=entity, states=len(data["transitions"]),
+    if data["transitions"]:
+        boiler_daily_update(app)
+    result.update(months=boiler.months(data["daily"]), energy=boiler_energy_status(app), entity=entity, states=len(data["transitions"]),
                   current=data["transitions"][-1][1] if data["transitions"] else None,
                   current_mode=boiler.mode_of(data["transitions"][-1][1]) if data["transitions"] else None)
     return web.json_response(result)
@@ -1705,6 +1790,7 @@ def create_app(options):
     app.router.add_get("/api/bills", api_bills)
     app.router.add_post("/api/bills", api_bills)
     app.router.add_get("/api/boiler", api_boiler)
+    app.router.add_post("/api/boiler", api_boiler)
     app.router.add_get("/api/forecast", api_forecast)
     app.router.add_get("/api/energy", api_energy)
     app.router.add_post("/api/energy", api_energy)
