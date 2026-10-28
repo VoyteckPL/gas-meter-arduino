@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.21.11
+
+* Zakładka Bateria odświeża się od razu, gdy gazomierz wyśle nowe napięcie (np. po włożeniu ogniwa). Wcześniej trzeba było odświeżyć stronę (F5) albo czekać do minuty.
+
 ## 0.21.10
 
 * Prognoza baterii działa od pierwszego dnia: dopóki nie ma historii licznika i sesji WiFi, liczba impulsów na dobę jest brana z zużycia gazu w tym miesiącu według faktur. Wcześniej przez pierwsze godziny po starcie (albo po wymianie baterii) prognozy były puste.

@@ -547,9 +547,16 @@ function setPending(name) {
   box.append(link);
 }
 
+let lastBatteryUpdate = null;
 function update() {
   const v = state.values;
   const now = state.now;
+  // a new battery reading (for example after a battery change) refreshes the Battery tab at once, not only once a minute
+  const batteryTs = state.updated && state.updated.BatteryVoltage;
+  if (batteryTs && batteryTs !== lastBatteryUpdate) {
+    if (lastBatteryUpdate !== null && battery.built && !$("#batteryView").hidden) loadBattery();
+    lastBatteryUpdate = batteryTs;
+  }
 
   $("#connTxt").textContent = state.connected ? t("connected") : t("disconnected");
   $("#connDot").className = "dot " + (state.connected ? "ok" : "err");
