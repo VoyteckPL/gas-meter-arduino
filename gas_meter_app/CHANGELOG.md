@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.21.9
+
+* Zakładka Bateria pokazywała napięcie z historii, która zapisuje jeden punkt na 15 minut, więc nowy odczyt (np. po włożeniu innego ogniwa) pojawiał się dopiero po kwadransie. Teraz „Bateria teraz”, procent i prognozy biorą zawsze najnowszy odczyt.
+
 ## 0.21.8
 
 * „Ustaw stan licznika” przyjmuje teraz także **0** (wcześniej pole odrzucało zero).

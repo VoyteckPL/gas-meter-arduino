@@ -595,6 +595,13 @@ def compute_battery(app, source="meter", days=30, factor=2.044, test_ma=None, te
             store.learn_curve(factor, test_ma, test_cells)
         else:
             volts = [list(p) for p in store.series("BatteryVoltage")]
+            # the history keeps one point per 15 minutes; the newest reading must still be the current value
+            latest, latest_ts = store.number("BatteryVoltage"), store.updated.get("BatteryVoltage")
+            if latest is not None and latest_ts:
+                if not volts or latest_ts - volts[-1][0] >= 1:
+                    volts.append([latest_ts, latest])
+                elif latest_ts >= volts[-1][0] - 1:
+                    volts[-1] = [volts[-1][0], latest]
         series = {
             "sessions": [list(p) for p in store.history.get("WifiSessions", [])],
             "wakes": [list(p) for p in store.history.get("Wakes", [])],
