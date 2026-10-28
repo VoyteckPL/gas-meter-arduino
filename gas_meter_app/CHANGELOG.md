@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.21.2
+
+* Test rozładowania: wykres od razu pokazuje cały przebieg testu razem z prognozą (wcześniej okno 90 dni było tak szerokie, że prognoza na kilka godzin była niewidoczna).
+
 ## 0.21.1
 
 * Zakładka Bateria: osobna karta „Test rozładowania baterii” (drugie to samo napięcie) zniknęła. Szczegóły testu (napięcie na pinie, czas, stan, WiFi, współczynnik dzielnika) są teraz w jednej karcie „Bateria teraz” po wybraniu widoku „Test rozładowania”.

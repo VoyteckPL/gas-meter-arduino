@@ -1866,7 +1866,11 @@ function applyBatteryPreset(animate) {
   if (!chart || !d) return;
   const span = battery.days * 86400;
   if (!span) chart.setView(chart.full[0], chart.full[1], animate);
-  else chart.setView(d.now - span, d.now + span * 0.4, animate);
+  else if (d.source === "bt") {
+    // a discharge test ends within hours or days: show the whole run and its forecast, not an empty 90 day window
+    const end = chart.full[1], start = Math.max(chart.full[0], d.now - span);
+    chart.setView(start, end + (end - start) * 0.05, animate);
+  } else chart.setView(d.now - span, d.now + span * 0.4, animate);
   batteryView(chart.view[0], chart.view[1]);
 }
 
