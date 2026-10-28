@@ -152,7 +152,7 @@ RTC_NOINIT_ATTR Cache cache;
 //   CLOSED    -> contact opens                     -> RELEASING
 //   RELEASING -> closes again                      -> CLOSED (still the same pulse)
 //   RELEASING -> still open after DEBOUNCE_MS      -> OPEN, ready for the next pulse
-// The time based steps are taken at the next edge or by reedSettle() / absorbInterruptPulses().
+// The time based steps are taken at the next edge, in absorbInterruptPulses() and in the wait before sleep.
 // It is armed only after the wake-up handling has decided the level, so no pulse is counted twice.
 enum { R_OPEN = 0, R_CLOSING, R_CLOSED, R_RELEASING };
 static volatile bool     isrArmed = false;
