@@ -240,6 +240,16 @@ def analyze(volts, series, options, curve=None, now=None, season=None):
         xs = [(t - now) / DAY for t, _ in use]
         ys = [soc(v, curve) for _, v in use]
         slope, intercept, r2 = fit_line(xs, ys)           # % per day, intercept = soc at `now`
+        fast = None
+        if -slope > 25.0:
+            # a discharge test (or a short circuit) empties the cell within days and the curve is bent: the long fit lags behind.
+            # Use the last hours and start from the real charge now
+            recent = [(t, v) for t, v in use if t >= now - 4 * 3600]
+            if len(recent) >= 6 and recent[-1][0] - recent[0][0] >= 1800:
+                fx = [(t - now) / DAY for t, _ in recent]
+                fs, fi, fr2 = fit_line(fx, [soc(v, curve) for _, v in recent])
+                if fs < 0:
+                    fast = (fs, soc_now, fr2)
         span = use[-1][0] - use[0][0]
         out["trend"] = {"pct_per_day": -slope, "mv_per_day": None, "r2": r2, "span_days": span / DAY,
                         "implied_ma": max(0.0, -slope) * cap / 100.0 / 24.0}
@@ -251,6 +261,12 @@ def analyze(volts, series, options, curve=None, now=None, season=None):
             confidence = "high"
         out["trend"]["confidence"] = confidence
         soc_fit = max(0.0, min(100.0, intercept))
+        if fast:
+            slope, soc_fit, r2 = fast
+            out["trend"]["pct_per_day"] = -slope
+            out["trend"]["r2"] = r2
+            out["trend"]["implied_ma"] = max(0.0, -slope) * cap / 100.0 / 24.0
+            out["trend"]["recent_hours"] = 4
         if slope < -1e-4:
             rate = -slope
             out["trend"]["days_to_cutoff"] = max(0.0, (soc_fit - soc_cut) / rate)

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.21.3
+
+* Prognoza w teście rozładowania: przy szybkim rozładowaniu (powyżej 25 % na dobę) trend jest liczony z ostatnich 4 godzin i startuje od prawdziwego naładowania. Wcześniej długi trend wychodził poniżej rzeczywistości, czas do 3,0 V wychodził 0 i linia prognozy w ogóle nie powstawała.
+
 ## 0.21.2
 
 * Test rozładowania: wykres od razu pokazuje cały przebieg testu razem z prognozą (wcześniej okno 90 dni było tak szerokie, że prognoza na kilka godzin była niewidoczna).
