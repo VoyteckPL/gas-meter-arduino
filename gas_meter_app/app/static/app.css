@@ -208,4 +208,7 @@ button.danger:disabled { opacity: .45; }
 #wForecast { height: 220px; touch-action: pan-y; width: 100%; }
 table.mini { border-collapse: collapse; font-size: 13px; }
 table.mini th, table.mini td { padding: 4px 12px 4px 0; text-align: left; border-bottom: 1px solid var(--line); }
-#wTime { height: 260px; touch-action: pan-y; width: 100%; }
+#wTime { height: 320px; touch-action: pan-y; width: 100%; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
+.chip { padding: 4px 12px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--muted); font-size: 13px; cursor: pointer; }
+.chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }

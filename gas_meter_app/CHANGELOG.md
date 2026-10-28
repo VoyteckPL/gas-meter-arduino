@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.18.0
+
+* **Porównanie lat:** każdy rok z faktur ma przycisk, który włącza lub ukrywa jego słupki (do 8 lat naraz, każdy rok ma swój kolor), a nie tylko ostatnie 4 lata.
+* **Wykres temperatury i zużycia w czasie** jest teraz w pełni interaktywny (przewijanie, kółko i dwa palce do przybliżania, przyciski, pasek przeglądu)
+  i ma drugą oś (°C) po prawej. Wykres `TimeChart` obsługuje serie na prawej osi.
+* Wykres punktowy (stopniodni a zużycie) i prognoza 12 miesięcy pokazują szczegóły po najechaniu lub dotknięciu.
+
 ## 0.17.1
 
 * Karta „Pogoda a zużycie": nowy wykres **temperatury i zużycia w czasie** (słupki z faktur, niebieska linia średniej temperatury miesiąca,

@@ -68,7 +68,7 @@
       this.ctx = canvas.getContext("2d");
       this.o = Object.assign({ unit: "", dec: 2, nav: true, thresholds: [], now: null, zeroBase: false, includeY: [],
                                onSettled: null, minSpan: 30, emptyText: "Brak danych", emptyHint: "",
-                               monthlyTicks: false, barLabels: false, bands: [], yTitle: "" }, options || {});
+                               monthlyTicks: false, barLabels: false, bands: [], yTitle: "", rightUnit: "" }, options || {});
       this.series = [];
       this.full = [0, 1];
       this.view = [0, 1];
@@ -303,7 +303,8 @@
       ctx.font = "11px system-ui, sans-serif";
 
       const navH = this.o.nav ? 42 : 0;
-      const left = 50, right = 12, top = 12, axisH = 22;
+      const hasRight = this.series.some((s) => s.axis === "right" && s.points.length);
+      const left = 50, right = hasRight ? 42 : 12, top = 12, axisH = 22;
       const navTop = H - navH - 2;
       const plotBottom = H - navH - (this.o.nav ? 10 : 2) - axisH;
       const plotW = W - left - right, plotH = plotBottom - top;
@@ -336,11 +337,13 @@
       // ---- visible data and the value range
       const prepared = this.series.map((s) => ({ s, pts: this.visible(this.active(s, v0, v1), v0, v1, plotW) }));
       let lo = Infinity, hi = -Infinity;
+      let rlo = Infinity, rhi = -Infinity;
       for (const { s, pts } of prepared) for (const p of pts) {
+        if (s.axis === "right") { if (p[0] >= v0 && p[0] <= v1) { rlo = Math.min(rlo, p[1]); rhi = Math.max(rhi, p[1]); } continue; }
         if (p[0] < v0 - (v1 - v0) * 0.02 || p[0] > v1 + (v1 - v0) * 0.02) continue;
         lo = Math.min(lo, p[1]); hi = Math.max(hi, p[1]);
       }
-      if (!isFinite(lo)) for (const { pts } of prepared) for (const p of pts) { lo = Math.min(lo, p[1]); hi = Math.max(hi, p[1]); }
+      if (!isFinite(lo)) for (const { s, pts } of prepared) for (const p of pts) { if (s.axis === "right") continue; lo = Math.min(lo, p[1]); hi = Math.max(hi, p[1]); }
       for (const v of this.o.includeY) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
       const barsOrArea = this.series.some((s) => s.kind === "bars" || s.area);
       if (this.o.zeroBase || this.series.some((s) => s.kind === "bars")) lo = Math.min(lo, 0);
@@ -349,7 +352,11 @@
       const padY = (hi - lo) * 0.08;
       if (!(this.o.zeroBase || this.series.some((s) => s.kind === "bars")) || lo < 0) lo -= padY;
       hi += padY;
-      const sy = (v) => top + plotH - (v - lo) / (hi - lo) * plotH;
+      const sy = (v) => top + plotH - (v - lo) / (hi - lo) * plotH, sy0 = sy;
+      if (!isFinite(rlo)) { rlo = 0; rhi = 1; }
+      const rStep = niceStep(Math.max(rhi - rlo, 1), Math.max(3, Math.floor(plotH / 46)));
+      rlo = Math.floor(rlo / rStep) * rStep; rhi = Math.max(Math.ceil(rhi / rStep) * rStep, rlo + rStep);
+      const syR = (v) => top + plotH - (v - rlo) / (rhi - rlo) * plotH;
 
       // ---- grid and labels
       const yStep = niceStep(hi - lo, Math.max(3, Math.floor(plotH / 46)));
@@ -359,6 +366,11 @@
         const y = Math.round(sy(v)) + 0.5;
         ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(left + plotW, y); ctx.stroke();
         ctx.fillText(v.toFixed(decimals), left - 6, y + 4);
+      }
+      if (hasRight) {
+        const rs = this.series.find((x) => x.axis === "right");
+        ctx.textAlign = "left"; ctx.fillStyle = rs.color || accent;
+        for (let v = rlo; v <= rhi + 1e-9; v += rStep) ctx.fillText(Math.round(v * 10) / 10 + (this.o.rightUnit || ""), left + plotW + 6, syR(v) + 4);
       }
       ctx.textAlign = "center";
       if (this.o.monthlyTicks) {
@@ -400,7 +412,7 @@
       const base = sy((barsOrArea || this.o.zeroBase) && lo <= 0 && hi >= 0 ? 0 : lo);
       for (const { s, pts } of prepared) {
         if (!pts.length) continue;
-        const color = s.color || accent;
+        const color = s.color || accent, sy = s.axis === "right" ? syR : sy0;
         ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineJoin = "round"; ctx.lineCap = "round";
         if (s.kind === "bars") {
           const dts = []; for (let i = 1; i < pts.length && dts.length < 20; i++) dts.push(pts[i][0] - pts[i - 1][0]);
@@ -461,7 +473,7 @@
       ctx.restore();
 
       // ---- crosshair and tooltip
-      if (this.hoverX !== null) this.drawTooltip(ctx, { sx, sy, left, plotW, plotBottom, top, W, v0, v1, text, muted, card, line, accent }, prepared);
+      if (this.hoverX !== null) this.drawTooltip(ctx, { sx, sy, syR, left, plotW, plotBottom, top, W, v0, v1, text, muted, card, line, accent }, prepared);
 
       // ---- overview strip
       if (this.o.nav) this.drawNav(ctx, L, { f0, f1, muted, line, accent, card });
@@ -498,7 +510,7 @@
       for (const { s, p } of rows) {
         if (s.kind === "bars") continue;
         ctx.fillStyle = s.color || c.accent; ctx.strokeStyle = c.card; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.arc(c.sx(p[0]), c.sy(p[1]), 4.5, 0, 7); ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.arc(c.sx(p[0]), (s.axis === "right" ? c.syR : c.sy)(p[1]), 4.5, 0, 7); ctx.fill(); ctx.stroke();
       }
       const fmt = (v) => v.toFixed(this.o.dec) + (this.o.unit ? " " + this.o.unit : "");
       const titled = rows.find(({ s }) => s.title);

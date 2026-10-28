@@ -919,7 +919,8 @@ function buildUsage() {
   yoy.addEventListener("pointermove", (e) => { usage.yoyHover = e.clientX - yoy.getBoundingClientRect().left; drawYearCompare(); });
   yoy.addEventListener("pointerleave", () => { usage.yoyHover = null; drawYearCompare(); });
   yoy.addEventListener("pointerdown", (e) => { usage.yoyHover = e.clientX - yoy.getBoundingClientRect().left; drawYearCompare(); });
-  card([el("h2", { text: "Porównanie lat" }), el("p", { class: "hint", style: "margin:0 0 6px", text: "Ten sam miesiąc w kolejnych latach: widać, czy zima była zimniejsza albo oszczędniejsza." }), yoy], true);
+  card([el("h2", { text: "Porównanie lat" }), el("p", { class: "hint", style: "margin:0 0 6px", text: "Ten sam miesiąc w kolejnych latach: widać, czy zima była zimniejsza albo oszczędniejsza. Kliknij rok, żeby go dodać lub ukryć." }), el("div", { id: "uYoyChips", class: "chips" }), yoy], true);
+  const wzoom = (text, handler) => { const bt = el("button", { class: "secondary", text }); bt.addEventListener("click", handler); return bt; };
   const lat = el("input", { type: "number", id: "wLat", step: "0.01", placeholder: "52.23", style: "width:110px" });
   const lon = el("input", { type: "number", id: "wLon", step: "0.01", placeholder: "21.01", style: "width:110px" });
   const locBtn = el("button", { class: "secondary", text: "Zapisz lokalizację" });
@@ -929,6 +930,11 @@ function buildUsage() {
   card([el("h2", { text: "Pogoda a zużycie" }),
         el("p", { class: "hint", style: "margin:0 0 8px", id: "wSummary", text: "Pobieram temperatury…" }),
         el("h3", { text: "Temperatura i zużycie w czasie" }),
+        el("div", { class: "chart-tools" }, [el("div", { class: "tabs" }, [
+          wzoom("−", () => weatherState.chart && weatherState.chart.zoom(2, undefined, true)),
+          wzoom("+", () => weatherState.chart && weatherState.chart.zoom(0.5, undefined, true)),
+          wzoom("3 lata", () => weatherState.chart && weatherState.chart.showLast(3 * 365 * 86400)),
+          wzoom("Wszystko", () => weatherState.chart && weatherState.chart.reset())])]),
         el("canvas", { id: "wTime" }),
         el("p", { class: "hint", id: "wTimeHint" }),
         el("h3", { text: "Zależność: im zimniej, tym więcej gazu" }),
@@ -1036,9 +1042,21 @@ async function loadUsage() {
   loadWeather();
 }
 
-const weatherState = { data: null };
+const weatherState = { data: null, chart: null, chartReady: false, scatterHover: null, forecastHover: null };
+
+function bindWeatherHover() {
+  const sc = $("#wScatter"), fc = $("#wForecast");
+  const set = (canvas, key, fn) => (e) => { const r = canvas.getBoundingClientRect(); weatherState[key] = fn(e, r); (canvas === sc ? drawWScatter : drawWForecast)(); };
+  for (const type of ["pointermove", "pointerdown"]) {
+    sc.addEventListener(type, set(sc, "scatterHover", (e, r) => ({ x: e.clientX - r.left, y: e.clientY - r.top })));
+    fc.addEventListener(type, set(fc, "forecastHover", (e, r) => e.clientX - r.left));
+  }
+  sc.addEventListener("pointerleave", () => { weatherState.scatterHover = null; drawWScatter(); });
+  fc.addEventListener("pointerleave", () => { weatherState.forecastHover = null; drawWForecast(); });
+}
 
 async function loadWeather() {
+  if (!weatherState.bound) { bindWeatherHover(); weatherState.bound = true; }
   try { weatherState.data = await api("weather"); } catch (e) { weatherState.data = null; }
   renderWeather();
 }
@@ -1083,67 +1101,11 @@ function renderWeather() {
   for (const id of ["wTime", "wScatter", "wForecast"]) $("#" + id).style.display = "";
   $("#wSummary").textContent = "Stałe zużycie (woda, kuchnia): " + num(m.base, 0) + " m³ na miesiąc. Ogrzewanie: " + num(m.per_hdd, 2) + " m³ na każdy stopniodzień. " +
     "Dopasowanie R² = " + num(m.r2, 2) + " (" + m.months + " miesięcy, typowy błąd ±" + num(m.residual_sd, 0) + " m³).";
-  const textC = cssColor("--text"), muted = cssColor("--muted"), line = cssColor("--line"), accent = cssColor("--accent");
-  // time chart: monthly usage bars, model line and the temperature
-  const tc = plainCanvas($("#wTime"));
-  if (tc && d.months.length) {
-    const { ctx, W, H } = tc, left = 40, right = 40, top = 22, bottom = 22, pw = W - left - right, ph = H - top - bottom;
-    const first = d.rows[0].month, list = d.months.filter((x) => x.month >= first);
-    const byM = new Map(d.rows.map((r) => [r.month, r]));
-    const my = niceMax(Math.max(...d.rows.map((r) => r.m3), 1));
-    const tmin = Math.floor(Math.min(...list.map((x) => x.mean)) / 5) * 5, tmax = Math.ceil(Math.max(...list.map((x) => x.mean)) / 5) * 5;
-    const sy = (v) => top + ph - v / my.top * ph, st = (v) => top + ph - (v - tmin) / (tmax - tmin) * ph;
-    const gw = pw / list.length, bw = Math.max(2, gw * 0.7);
-    ctx.strokeStyle = line; ctx.fillStyle = muted; ctx.textAlign = "right";
-    for (let v = 0; v <= my.top + 1e-9; v += my.step) { const y = Math.round(sy(v)) + 0.5; ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(left + pw, y); ctx.stroke(); ctx.fillText(String(Math.round(v)), left - 6, y + 4); }
-    ctx.textAlign = "left";
-    for (let v = tmin; v <= tmax; v += 5) ctx.fillText(v + "°", left + pw + 6, st(v) + 4);
-    ctx.textAlign = "left"; ctx.fillText("m³ / miesiąc (słupki)", left, 12); ctx.fillStyle = "#2f7fd0"; ctx.textAlign = "right"; ctx.fillText("średnia temperatura (linia)", W - right, 12);
-    list.forEach((x, i) => {
-      const r = byM.get(x.month), cx = left + i * gw + gw / 2;
-      if (r) { ctx.fillStyle = accent; ctx.globalAlpha = 0.85; ctx.fillRect(cx - bw / 2, sy(r.m3), bw, top + ph - sy(r.m3)); ctx.globalAlpha = 1; }
-      if (x.month.endsWith("-01")) { ctx.fillStyle = muted; ctx.textAlign = "center"; ctx.fillText(x.month.slice(0, 4), cx, H - 6); ctx.strokeStyle = line; ctx.beginPath(); ctx.moveTo(cx - gw / 2, top); ctx.lineTo(cx - gw / 2, top + ph); ctx.stroke(); }
-    });
-    ctx.strokeStyle = "#2f7fd0"; ctx.lineWidth = 2; ctx.beginPath();
-    list.forEach((x, i) => { const px = left + i * gw + gw / 2; i ? ctx.lineTo(px, st(x.mean)) : ctx.moveTo(px, st(x.mean)); }); ctx.stroke();
-    ctx.strokeStyle = textC; ctx.lineWidth = 1.5; ctx.setLineDash([4, 3]); ctx.beginPath(); let started = false;
-    list.forEach((x, i) => { if (!byM.has(x.month)) return; const px = left + i * gw + gw / 2, py = sy(m.base + m.per_hdd * x.hdd); started ? ctx.lineTo(px, py) : ctx.moveTo(px, py); started = true; }); ctx.stroke(); ctx.setLineDash([]); ctx.lineWidth = 1;
-  }
-  $("#wTimeHint").textContent = "Czerwone słupki to zużycie gazu z faktur, niebieska linia to średnia temperatura miesiąca (prawa oś), przerywana linia to zużycie, jakie przewiduje model z samej pogody. Gdy słupek jest wyraźnie nad linią, zużyłeś więcej, niż wynika z zimna.";
-  // scatter: degree days vs m³
-  const sc = plainCanvas($("#wScatter"));
-  if (sc) {
-    const { ctx, W, H } = sc, left = 40, right = 10, top = 14, bottom = 26, pw = W - left - right, ph = H - top - bottom;
-    const maxX = niceMax(Math.max(...d.rows.map((r) => r.hdd), 1)), maxY = niceMax(Math.max(...d.rows.map((r) => r.m3), m.base + m.per_hdd * maxX.top, 1));
-    const sx = (v) => left + v / maxX.top * pw, sy = (v) => top + ph - v / maxY.top * ph;
-    ctx.strokeStyle = line; ctx.fillStyle = muted; ctx.textAlign = "right";
-    for (let v = 0; v <= maxY.top + 1e-9; v += maxY.step) { const y = Math.round(sy(v)) + 0.5; ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(left + pw, y); ctx.stroke(); ctx.fillText(String(Math.round(v)), left - 6, y + 4); }
-    ctx.textAlign = "center";
-    for (let v = 0; v <= maxX.top + 1e-9; v += maxX.step) ctx.fillText(String(Math.round(v)), sx(v), H - 8);
-    ctx.textAlign = "left"; ctx.fillText("m³ / miesiąc", left + 4, 10); ctx.textAlign = "right"; ctx.fillText("stopniodni w miesiącu →", W - right, 10);
-    ctx.strokeStyle = textC; ctx.setLineDash([5, 4]); ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(sx(0), sy(m.base)); ctx.lineTo(sx(maxX.top), sy(m.base + m.per_hdd * maxX.top)); ctx.stroke(); ctx.setLineDash([]);
-    const lastYear = Number(d.rows[d.rows.length - 1].month.slice(0, 4));
-    for (const r of d.rows) { ctx.globalAlpha = Number(r.month.slice(0, 4)) >= lastYear - 1 ? 0.95 : 0.45; ctx.fillStyle = accent; ctx.beginPath(); ctx.arc(sx(r.hdd), sy(r.m3), 4, 0, 7); ctx.fill(); }
-    ctx.globalAlpha = 1;
-  }
-  $("#wScatterHint").textContent = "Każda kropka to jeden miesiąc z faktury. Poziomo: jak zimny był miesiąc (stopniodni, 0 = ciepły, 600 = bardzo mroźny), pionowo: ile gazu zużyłeś. Kropki układają się wzdłuż linii, więc zużycie rośnie z zimnem; nachylenie linii to m³ na stopniodzień.";
-  // forecast
-  const fc = plainCanvas($("#wForecast"));
-  if (fc && d.forecast.length) {
-    const { ctx, W, H } = fc, left = 40, right = 8, top = 12, bottom = 34, pw = W - left - right, ph = H - top - bottom;
-    const mx = niceMax(Math.max(...d.forecast.map((f) => f.m3), 1)), sy = (v) => top + ph - v / mx.top * ph, gw = pw / d.forecast.length, bw = Math.max(6, gw - 8);
-    ctx.strokeStyle = line; ctx.fillStyle = muted; ctx.textAlign = "right";
-    for (let v = 0; v <= mx.top + 1e-9; v += mx.step) { const y = Math.round(sy(v)) + 0.5; ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(left + pw, y); ctx.stroke(); ctx.fillText(String(Math.round(v)), left - 6, y + 4); }
-    ctx.textAlign = "center";
-    d.forecast.forEach((f, i) => {
-      const x = left + i * gw + (gw - bw) / 2, y = sy(f.m3), r = Math.min(4, bw / 2);
-      ctx.fillStyle = accent; ctx.globalAlpha = 0.85; ctx.beginPath();
-      ctx.moveTo(x, top + ph); ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.lineTo(x + bw - r, y); ctx.quadraticCurveTo(x + bw, y, x + bw, y + r); ctx.lineTo(x + bw, top + ph); ctx.fill(); ctx.globalAlpha = 1;
-      ctx.fillStyle = textC; ctx.fillText(MONTH_NAMES[Number(f.month.slice(5, 7)) - 1], x + bw / 2, H - 20);
-      ctx.fillStyle = muted; ctx.fillText(Math.round(f.mean) + "°", x + bw / 2, H - 6);
-      if (gw > 34) { ctx.fillStyle = textC; ctx.fillText(String(Math.round(f.m3)), x + bw / 2, y - 4); }
-    });
-  }
+  drawWeatherTime();
+  drawWScatter();
+  drawWForecast();
+  $("#wTimeHint").textContent = "Słupki to zużycie gazu z faktur (lewa oś), niebieska linia to średnia temperatura miesiąca (prawa oś), przerywana linia to zużycie, jakie przewiduje model z samej pogody. Gdy słupek jest wyraźnie nad linią, zużyłeś więcej, niż wynika z zimna. Przeciągnij, żeby przewijać, kółko myszy lub dwa palce przybliżają, dwuklik wraca do całości.";
+  $("#wScatterHint").textContent = "Każda kropka to jeden miesiąc z faktury. Poziomo: jak zimny był miesiąc (stopniodni, 0 = ciepły, 600 = bardzo mroźny), pionowo: ile gazu zużyłeś. Kropki układają się wzdłuż linii, więc zużycie rośnie z zimnem; nachylenie linii to m³ na stopniodzień. Dotknij kropki, żeby zobaczyć miesiąc.";
   const total = sumBy(d.forecast, (f) => f.m3);
   const box = $("#wSeasons"); box.textContent = "";
   if (d.forecast.length) box.append(el("p", { class: "hint", text: "Typowa pogoda z ostatnich lat daje na najbliższe 12 miesięcy ok. " + num(total, 0) + " m³ (pod każdym słupkiem średnia temperatura miesiąca)." }));
@@ -1155,6 +1117,95 @@ function renderWeather() {
   }
 }
 
+
+function drawWeatherTime() {
+  const d = weatherState.data, m = d.model;
+  const first = d.rows[0].month, list = d.months.filter((x) => x.month >= first);
+  const byM = new Map(d.rows.map((r) => [r.month, r]));
+  const mid = (key) => monthStart(key) + 15 * 86400;
+  const unit = (v) => num(v, 0) + " m³";
+  const bars = { name: "Zużycie", color: cssColor("--accent"), kind: "bars", points: d.rows.map((r) => [monthStart(r.month), r.m3]),
+    title: (p) => { const k = new Date(p[0] * 1000 + 86400 * 1000); const key = k.getFullYear() + "-" + String(k.getMonth() + 1).padStart(2, "0"); return MONTH_FULL[k.getMonth()] + " " + k.getFullYear(); },
+    tooltip: (p) => { const r = byM.get(new Date(p[0] * 1000 + 86400 * 1000).getFullYear() + "-" + String(new Date(p[0] * 1000 + 86400 * 1000).getMonth() + 1).padStart(2, "0")); return r ? ["Zużycie: " + unit(r.m3), "Stopniodni: " + num(r.hdd, 0)] : []; } };
+  const model = { name: "Model", color: cssColor("--text"), kind: "line", dashed: true, width: 1.8, points: list.filter((x) => byM.has(x.month)).map((x) => [mid(x.month), m.base + m.per_hdd * x.hdd]),
+    tooltip: (p) => ["Wg modelu: " + unit(p[1])] };
+  const temp = { name: "Temperatura", color: "#2f7fd0", kind: "line", axis: "right", width: 2, points: list.map((x) => [mid(x.month), x.mean]),
+    tooltip: (p) => ["Temperatura: " + num(p[1], 1) + " °C"] };
+  if (!weatherState.chart) {
+    weatherState.chart = new TimeChart($("#wTime"), { dec: 0, unit: "m³", monthlyTicks: true, rightUnit: "°", yTitle: "m³ / miesiąc", minSpan: 90 * 86400 });
+  }
+  const fresh = !weatherState.chartReady;
+  weatherState.chart.setSeries([bars, model, temp], [monthStart(first), monthStart(list[list.length - 1].month) + 31 * 86400], !fresh);
+  if (fresh) { weatherState.chartReady = true; weatherState.chart.setView(weatherState.chart.full[1] - 3 * 365 * 86400, weatherState.chart.full[1], false); }
+}
+
+function scatterGeometry(d, W, H) {
+  const m = d.model, left = 40, right = 10, top = 14, bottom = 26, pw = W - left - right, ph = H - top - bottom;
+  const maxX = niceMax(Math.max(...d.rows.map((r) => r.hdd), 1)), maxY = niceMax(Math.max(...d.rows.map((r) => r.m3), m.base + m.per_hdd * maxX.top, 1));
+  return { left, right, top, bottom, pw, ph, maxX, maxY, sx: (v) => left + v / maxX.top * pw, sy: (v) => top + ph - v / maxY.top * ph };
+}
+
+function drawWScatter() {
+  const d = weatherState.data, canvas = $("#wScatter");
+  if (!d || !d.model) return;
+  const sc = plainCanvas(canvas);
+  if (!sc) return;
+  const { ctx, W, H } = sc, m = d.model, g = scatterGeometry(d, W, H), { left, top, pw, maxX, maxY, sx, sy } = g;
+  const textC = cssColor("--text"), muted = cssColor("--muted"), line = cssColor("--line"), accent = cssColor("--accent"), card = cssColor("--card");
+  ctx.strokeStyle = line; ctx.fillStyle = muted; ctx.textAlign = "right";
+  for (let v = 0; v <= maxY.top + 1e-9; v += maxY.step) { const y = Math.round(sy(v)) + 0.5; ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(left + pw, y); ctx.stroke(); ctx.fillText(String(Math.round(v)), left - 6, y + 4); }
+  ctx.textAlign = "center";
+  for (let v = 0; v <= maxX.top + 1e-9; v += maxX.step) ctx.fillText(String(Math.round(v)), sx(v), H - 8);
+  ctx.textAlign = "left"; ctx.fillText("m³ / miesiąc", left + 4, 10); ctx.textAlign = "right"; ctx.fillText("stopniodni w miesiącu →", W - g.right, 10);
+  ctx.strokeStyle = textC; ctx.setLineDash([5, 4]); ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(sx(0), sy(m.base)); ctx.lineTo(sx(maxX.top), sy(m.base + m.per_hdd * maxX.top)); ctx.stroke(); ctx.setLineDash([]); ctx.lineWidth = 1;
+  const lastYear = Number(d.rows[d.rows.length - 1].month.slice(0, 4)), hov = weatherState.scatterHover;
+  let near = null;
+  if (hov) { let best = 18; for (const r of d.rows) { const dist = Math.hypot(sx(r.hdd) - hov.x, sy(r.m3) - hov.y); if (dist < best) { best = dist; near = r; } } }
+  for (const r of d.rows) { ctx.globalAlpha = Number(r.month.slice(0, 4)) >= lastYear - 1 ? 0.95 : 0.45; ctx.fillStyle = accent; ctx.beginPath(); ctx.arc(sx(r.hdd), sy(r.m3), r === near ? 7 : 4, 0, 7); ctx.fill(); }
+  ctx.globalAlpha = 1;
+  if (near) {
+    const lines = [MONTH_FULL[Number(near.month.slice(5, 7)) - 1] + " " + near.month.slice(0, 4), num(near.m3, 0) + " m³", num(near.hdd, 0) + " stopniodni, " + num(near.mean, 1) + " °C", "model: " + num(m.base + m.per_hdd * near.hdd, 0) + " m³"];
+    ctx.font = "12px system-ui, sans-serif";
+    const w = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 20, h = lines.length * 17 + 10;
+    let bx = sx(near.hdd) + 12; if (bx + w > W - 4) bx = sx(near.hdd) - 12 - w;
+    const by = Math.min(Math.max(top, sy(near.m3) - h / 2), g.top + g.ph - h);
+    ctx.fillStyle = card; ctx.strokeStyle = line; ctx.shadowColor = "rgba(0,0,0,.18)"; ctx.shadowBlur = 8; ctx.shadowOffsetY = 2;
+    ctx.beginPath(); ctx.roundRect ? ctx.roundRect(bx, by, w, h, 8) : ctx.rect(bx, by, w, h); ctx.fill(); ctx.shadowColor = "transparent"; ctx.stroke(); ctx.textAlign = "left";
+    lines.forEach((l, i) => { ctx.fillStyle = i === 0 ? muted : textC; ctx.font = (i === 0 ? "11px" : "600 12px") + " system-ui, sans-serif"; ctx.fillText(l, bx + 10, by + 17 + i * 17 - (i === 0 ? 1 : 0)); });
+  }
+}
+
+function drawWForecast() {
+  const d = weatherState.data, canvas = $("#wForecast");
+  if (!d || !d.model || !d.forecast.length) return;
+  const fc = plainCanvas(canvas);
+  if (!fc) return;
+  const { ctx, W, H } = fc, left = 40, right = 8, top = 12, bottom = 34, pw = W - left - right, ph = H - top - bottom;
+  const textC = cssColor("--text"), muted = cssColor("--muted"), line = cssColor("--line"), accent = cssColor("--accent"), card = cssColor("--card");
+  const mx = niceMax(Math.max(...d.forecast.map((f) => f.m3), 1)), sy = (v) => top + ph - v / mx.top * ph, gw = pw / d.forecast.length, bw = Math.max(6, gw - 8);
+  const hover = weatherState.forecastHover === undefined || weatherState.forecastHover === null ? -1 : Math.floor((weatherState.forecastHover - left) / gw);
+  ctx.strokeStyle = line; ctx.fillStyle = muted; ctx.textAlign = "right";
+  for (let v = 0; v <= mx.top + 1e-9; v += mx.step) { const y = Math.round(sy(v)) + 0.5; ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(left + pw, y); ctx.stroke(); ctx.fillText(String(Math.round(v)), left - 6, y + 4); }
+  ctx.textAlign = "center";
+  d.forecast.forEach((f, i) => {
+    const x = left + i * gw + (gw - bw) / 2, y = sy(f.m3), r = Math.min(4, bw / 2);
+    if (i === hover) { ctx.fillStyle = muted; ctx.globalAlpha = 0.12; ctx.fillRect(left + i * gw + 1, top, gw - 2, ph); ctx.globalAlpha = 1; }
+    ctx.fillStyle = accent; ctx.globalAlpha = i === hover ? 1 : 0.85; ctx.beginPath();
+    ctx.moveTo(x, top + ph); ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.lineTo(x + bw - r, y); ctx.quadraticCurveTo(x + bw, y, x + bw, y + r); ctx.lineTo(x + bw, top + ph); ctx.fill(); ctx.globalAlpha = 1;
+    ctx.fillStyle = textC; ctx.fillText(MONTH_NAMES[Number(f.month.slice(5, 7)) - 1], x + bw / 2, H - 20);
+    ctx.fillStyle = muted; ctx.fillText(Math.round(f.mean) + "°", x + bw / 2, H - 6);
+    if (gw > 34) { ctx.fillStyle = textC; ctx.fillText(String(Math.round(f.m3)), x + bw / 2, y - 4); }
+  });
+  if (hover >= 0 && hover < d.forecast.length) {
+    const f = d.forecast[hover], lines = [MONTH_FULL[Number(f.month.slice(5, 7)) - 1] + " " + f.month.slice(0, 4), "ok. " + num(f.m3, 0) + " m³", num(f.mean, 1) + " °C, " + num(f.hdd, 0) + " stopniodni"];
+    ctx.font = "12px system-ui, sans-serif";
+    const w = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 20, h = lines.length * 17 + 10;
+    let bx = left + (hover + 1) * gw + 4; if (bx + w > W - 4) bx = left + hover * gw - w - 4;
+    ctx.fillStyle = card; ctx.strokeStyle = line; ctx.shadowColor = "rgba(0,0,0,.18)"; ctx.shadowBlur = 8; ctx.shadowOffsetY = 2;
+    ctx.beginPath(); ctx.roundRect ? ctx.roundRect(Math.max(4, bx), top + 4, w, h, 8) : ctx.rect(Math.max(4, bx), top + 4, w, h); ctx.fill(); ctx.shadowColor = "transparent"; ctx.stroke(); ctx.textAlign = "left";
+    lines.forEach((l, i) => { ctx.fillStyle = i === 0 ? muted : textC; ctx.font = (i === 0 ? "11px" : "600 12px") + " system-ui, sans-serif"; ctx.fillText(l, Math.max(4, bx) + 10, top + 4 + 17 + i * 17 - (i === 0 ? 1 : 0)); });
+  }
+}
 
 function sumBy(entries, fn) { return entries.reduce((s, e) => s + fn(e), 0); }
 
@@ -1276,10 +1327,19 @@ function drawYearCompare() {
   const muted = cssColor("--muted"), line = cssColor("--line"), text = cssColor("--text"), card = cssColor("--card");
   const byYear = {};
   for (const e of d.monthly) { const y = Number(e.month.slice(0, 4)); (byYear[y] = byYear[y] || Array(12).fill(null))[Number(e.month.slice(5, 7)) - 1] = usageValue(e); }
-  const years = Object.keys(byYear).map(Number).sort((a, b) => a - b).slice(-4);
+  const allYears = Object.keys(byYear).map(Number).sort((a, b) => a - b);
+  if (!usage.yoyYears) usage.yoyYears = allYears.slice(-4);
+  usage.yoyYears = usage.yoyYears.filter((y) => allYears.includes(y));
+  const chips = $("#uYoyChips"); chips.textContent = "";
+  for (const y of [...allYears].reverse()) {
+    const b = el("button", { class: "chip" + (usage.yoyYears.includes(y) ? " on" : ""), text: String(y) });
+    b.addEventListener("click", () => { usage.yoyYears = usage.yoyYears.includes(y) ? usage.yoyYears.filter((v) => v !== y) : [...usage.yoyYears, y]; drawYearCompare(); });
+    chips.append(b);
+  }
+  const years = [...usage.yoyYears].sort((a, b) => a - b);
   ctx.font = "11px system-ui, sans-serif";
-  if (!years.length) { ctx.fillStyle = muted; ctx.textAlign = "center"; ctx.fillText("Brak faktur", W / 2, H / 2); return; }
-  const palette = [cssColor("--accent"), "#6c6c78", "#a3a3b2", "#d0d0da"], colorOf = (y) => palette[years.length - 1 - years.indexOf(y)] || palette[3];
+  if (!years.length) { ctx.fillStyle = muted; ctx.textAlign = "center"; ctx.fillText(allYears.length ? "Wybierz rok" : "Brak faktur", W / 2, H / 2); return; }
+  const palette = [cssColor("--accent"), "#6c6c78", "#2f7fd0", "#e0a030", "#3aa675", "#9a5bd0", "#a3a3b2", "#d0d0da"], colorOf = (y) => palette[(allYears.length - 1 - allYears.indexOf(y)) % palette.length];
   const left = 40, right = 8, top = 30, bottom = 22, plotW = W - left - right, plotH = H - top - bottom;
   const max = Math.max(1, ...years.flatMap((y) => byYear[y].filter((v) => v !== null)));
   const rawStep = max / 4, mag = Math.pow(10, Math.floor(Math.log10(rawStep))), norm = rawStep / mag;
@@ -1289,7 +1349,8 @@ function drawYearCompare() {
   for (let v = 0; v <= top_ + 1e-9; v += step) { const y = Math.round(sy(v)) + 0.5; ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(left + plotW, y); ctx.stroke(); ctx.fillText(String(Math.round(v)), left - 6, y + 4); }
   // legend
   ctx.textAlign = "left"; let lx = left;
-  for (const y of [...years].reverse()) { ctx.fillStyle = colorOf(y); ctx.beginPath(); ctx.roundRect ? ctx.roundRect(lx, 8, 12, 12, 3) : ctx.rect(lx, 8, 12, 12); ctx.fill(); ctx.fillStyle = text; ctx.fillText(String(y), lx + 17, 18); lx += 62; }
+  chips.querySelectorAll(".chip.on").forEach((b) => { b.style.background = colorOf(Number(b.textContent)); b.style.borderColor = b.style.background; });
+  lx = left;
   ctx.fillStyle = muted; ctx.fillText(UNIT_LABEL[usage.unit] + " na miesiąc", lx + 6, 18);
   const gw = plotW / 12, bw = Math.max(3, Math.min(24, (gw - 8) / years.length));
   const hover = usage.yoyHover === null || usage.yoyHover === undefined ? -1 : Math.floor((usage.yoyHover - left) / gw);
