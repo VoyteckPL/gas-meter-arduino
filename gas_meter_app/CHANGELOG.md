@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.11.0
+
+* **Przełączanie zakładek gestem:** przesunięcie palcem w lewo albo w prawo na stronie przechodzi do następnej lub poprzedniej
+  zakładki (z krótką animacją). Gest nie działa na polach tekstowych, suwakach, pasku zakładek, w oknie historii ani na pasku
+  przeglądu wykresu, więc nie koliduje z ich obsługą.
+* **Przewijanie strony:** wykresy i pasek zakładek przechwytywały ruchy palca w poziomie, przez co przewijanie w pionie
+  czasem „nie łapało”, zależnie od miejsca dotknięcia. Teraz **jeden palec na wykresie przewija stronę**, a wykres
+  powiększasz i przesuwasz **dwoma palcami**. Dotknięcie pokazuje wartość, a pasek przeglądu pod wykresem przesuwa okno jednym palcem.
+  Na komputerze nic się nie zmienia (przeciąganie, kółko myszy, dwuklik).
+* Węższe przyciski zakładek na telefonie, żeby więcej się mieściło bez przewijania paska.
+
 ## 0.10.0
 
 * **Naprawa:** od wersji 0.9.0 kafelki w Przeglądzie nie otwierały historii po kliknięciu (przy przebudowie na kafelki

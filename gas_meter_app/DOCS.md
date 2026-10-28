@@ -32,14 +32,17 @@ Dane logowania przechowuje Home Assistant, nie to repozytorium.
 | **Serwis** | tryb serwisowy, restart, aktualizacja firmware, diagnostyka (liczniki, obudzenia, czas pracy, powód restartu) |
 | **Demo** | symulator gazomierza i ESP32, działa w przeglądarce i nie potrzebuje danych z gazomierza |
 
+**Gesty na telefonie:** przesunięcie palcem w lewo lub w prawo przełącza zakładki. Na wykresie jeden palec przewija stronę,
+dwa palce powiększają i przesuwają wykres, dotknięcie pokazuje wartość, a pasek przeglądu pod wykresem przesuwa okno jednym palcem.
+
 Mała pomarańczowa liczba przy zakładce oznacza, ile poleceń czeka, aż gazomierz je odbierze. Ostatnio użyta zakładka jest zapamiętywana.
 
 ## Wykresy
 
 Kliknij kafelek w Przeglądzie (albo wartość w teście baterii), żeby zobaczyć jego historię. Wykres jest interaktywny:
 
-* **przeciągnij**, żeby przewijać w czasie,
-* **kółko myszy** (albo szczypanie na telefonie, albo przyciski +/−) powiększa i pomniejsza,
+* **przeciągnij** (komputer) albo **dwoma palcami** (telefon), żeby przewijać w czasie,
+* **kółko myszy** (albo szczypanie dwoma palcami, albo przyciski +/−) powiększa i pomniejsza,
 * **dwuklik** (albo przycisk ⟲) pokazuje cały zakres,
 * **pasek na dole** to przegląd całej historii: przesuwaj w nim okno albo jego krawędzie,
 * przyciski zakresów (1 godz. … Wszystko) ustawiają widoczny okres,

@@ -43,7 +43,7 @@ const TEXT = {
     nRecipients: "Kto dostaje wiadomości (telefony z aplikacją Home Assistant)", nOther: "Inne telefony", nNoPhones: "Nie znaleziono telefonu z aplikacją Home Assistant. Zainstaluj aplikację na telefonie i zaloguj się, potem kliknij Odśwież.",
     nRefresh: "Odśwież", nNoneSelected: "Nikt nie jest wybrany: dostajesz tylko powiadomienie w Home Assistant.", nManual: "Dodatkowo ustawione w opcjach apki",
     rangeAll: "Wszystko", zoomIn: "Powiększ", zoomOut: "Pomniejsz", zoomReset: "Cały zakres",
-    chartHint: "Przeciągnij, żeby przewijać. Kółko myszy albo szczypanie powiększa, dwuklik pokazuje cały zakres. Pasek na dole to przegląd całej historii.",
+    chartHint: "Komputer: przeciągnij, żeby przewijać, kółko myszy powiększa, dwuklik pokazuje cały zakres. Telefon: dwa palce powiększają i przesuwają wykres, jeden palec przewija stronę, dotknięcie pokazuje wartość. Pasek na dole to przegląd całej historii, w nim jednym palcem przesuwasz okno.",
     visibleRange: "Widoczny zakres", goBattery: "Przejdź do zakładki Bateria",
     emptyBattery: "Gazomierz nie przysłał jeszcze danych baterii. Pojawią się po wgraniu szkicu gazomierza (firmware/gas_meter). Test rozładowania zobaczysz w zakładce Bateria.",
     emptyGeneric: "W tym okresie nie ma jeszcze danych.",
@@ -1084,9 +1084,17 @@ window.addEventListener("resize", () => { if (built) { drawChart(); if (!$("#bat
 // ---------------------------------------------------------------- panel / demo tabs
 const VIEW_NODES = { panel: "#root", battery: "#batteryView", settings: "#settingsView", network: "#networkView",
                      service: "#serviceView", demo: "#demoView" };
-function showView(view) {
+function showView(view, from) {
   if (!VIEW_NODES[view]) view = "panel";
   for (const [name, selector] of Object.entries(VIEW_NODES)) $(selector).hidden = name !== view;
+  if (from) {
+    const node = $(VIEW_NODES[view]);
+    node.classList.remove("slide-from-left", "slide-from-right");
+    void node.offsetWidth;
+    node.classList.add(from === "right" ? "slide-from-right" : "slide-from-left");
+    node.addEventListener("animationend", () => node.classList.remove("slide-from-left", "slide-from-right"), { once: true });
+    window.scrollTo(0, 0);
+  }
   document.querySelectorAll("#viewTabs button").forEach((b) => {
     b.classList.toggle("active", b.dataset.view === view);
     if (b.dataset.view === view) b.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -1104,6 +1112,30 @@ function showView(view) {
   try { localStorage.setItem("gasMeterView", view); } catch (e) { /* ignore */ }
 }
 document.querySelectorAll("#viewTabs button").forEach((b) => b.addEventListener("click", () => showView(b.dataset.view)));
+// swipe left or right on the page to move to the next or the previous tab. The listeners are passive, so they never
+// get in the way of the vertical scroll. Inputs, the tab bar, dialogs and the overview strip of a chart are left alone.
+(function () {
+  let start = null;
+  const blocked = (e) => {
+    if (e.target.closest("input, select, textarea, .viewtabs, .overlay, .switch, [data-noswipe]")) return true;
+    const canvas = e.target.closest("canvas");
+    return !!(canvas && canvas._timeChart && canvas._timeChart.inNav(e.touches[0].clientY));
+  };
+  document.addEventListener("touchstart", (e) => {
+    start = e.touches.length === 1 && !blocked(e) ? { x: e.touches[0].clientX, y: e.touches[0].clientY, time: Date.now() } : null;
+  }, { passive: true });
+  document.addEventListener("touchmove", (e) => { if (e.touches.length > 1) start = null; }, { passive: true });
+  document.addEventListener("touchend", (e) => {
+    if (!start || !built) return;
+    const t = e.changedTouches[0], dx = t.clientX - start.x, dy = t.clientY - start.y, quick = Date.now() - start.time < 700;
+    start = null;
+    if (!quick || Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.8) return;
+    const buttons = [...document.querySelectorAll("#viewTabs button")];
+    const now = buttons.findIndex((b) => b.classList.contains("active")), next = now + (dx < 0 ? 1 : -1);
+    if (now >= 0 && next >= 0 && next < buttons.length) showView(buttons[next].dataset.view, dx < 0 ? "right" : "left");
+  }, { passive: true });
+})();
+
 $("#refreshBtn").addEventListener("click", () => {
   refresh();
   if (!$("#batteryView").hidden) loadBattery();
