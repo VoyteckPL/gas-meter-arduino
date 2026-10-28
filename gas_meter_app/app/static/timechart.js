@@ -404,6 +404,16 @@
       // ---- series (clipped to the plot)
       ctx.save();
       ctx.beginPath(); ctx.rect(left, top - 2, plotW, plotH + 4); ctx.clip();
+      if (this.o.monthlyTicks) {                      // every other month lightly shaded, so the months read as blocks
+        const d = new Date(v0 * 1000); d.setDate(1); d.setHours(0, 0, 0, 0);
+        ctx.fillStyle = muted; ctx.globalAlpha = 0.07;
+        for (; d.getTime() / 1000 <= v1; d.setMonth(d.getMonth() + 1)) {
+          if (d.getMonth() % 2) continue;
+          const t0 = d.getTime() / 1000, n = new Date(d); n.setMonth(n.getMonth() + 1);
+          ctx.fillRect(sx(t0), top, sx(n.getTime() / 1000) - sx(t0), plotH);
+        }
+        ctx.globalAlpha = 1;
+      }
       for (const band of this.o.bands || []) {
         if (band.to < v0 || band.from > v1) continue;
         ctx.fillStyle = band.color || (accent + "10");

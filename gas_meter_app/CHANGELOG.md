@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.18.1
+
+* **Miesiące jako bloki:** co drugi miesiąc ma jasne tło, a w porównaniu lat i prognozie dochodzą pionowe podziałki między miesiącami.
+* **Mała legenda przy każdym wykresie** (zużycie, historia encji, bateria, porównanie lat, pogoda, wykres punktowy, prognoza): kolor, rodzaj linii lub słupka i co oznacza.
+
 ## 0.18.0
 
 * **Porównanie lat:** każdy rok z faktur ma przycisk, który włącza lub ukrywa jego słupki (do 8 lat naraz, każdy rok ma swój kolor), a nie tylko ostatnie 4 lata.

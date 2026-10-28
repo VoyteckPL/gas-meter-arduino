@@ -676,6 +676,7 @@ async function drawChart() {
     }
   } catch (e) { /* leave empty */ }
 
+  { const active = document.querySelector(".tabs button[data-kind].active"); setLegend(canvas, [{ label: active ? active.textContent : "", color: cssColor("--accent"), kind: chartKind === "bt" ? "line" : "box" }]); }
   const ratio = window.devicePixelRatio || 1;
   const width = canvas.clientWidth, height = canvas.clientHeight;
   canvas.width = width * ratio;
@@ -833,6 +834,7 @@ async function loadHistory() {
   Object.assign(chart.o, { unit: spec.unit, dec: spec.dec, zeroBase: !!spec.zero, emptyText: t("noData"),
                            emptyHint: spec.battery ? t("emptyBattery") : t("emptyGeneric") });
   const series = [{ name: "", color: cssColor("--accent"), points, kind: spec.bars ? "bars" : spec.line || "line", area: !!spec.area }];
+  setLegend($("#histCanvas"), [{ label: t(spec.key) + (spec.unit ? " (" + spec.unit + ")" : ""), color: cssColor("--accent"), kind: spec.bars ? "box" : "line" }]);
   chart.setSeries(series, [spec.span ? now - spec.span : (points.length ? points[0][0] : now - 86400), now]);
   chart.setView(now - (spec.view || 7 * 86400), now, false);
   $("#histEmptyBtn").hidden = !(spec.battery && !points.length);
@@ -1135,6 +1137,7 @@ function drawWeatherTime() {
     weatherState.chart = new TimeChart($("#wTime"), { dec: 0, unit: "m³", monthlyTicks: true, rightUnit: "°", yTitle: "m³ / miesiąc", minSpan: 90 * 86400 });
   }
   const fresh = !weatherState.chartReady;
+  setLegend($("#wTime"), legendOf([bars, model, temp].map((x) => Object.assign({}, x, x === model ? { name: "Zużycie wg modelu (z pogody)" } : x === temp ? { name: "Temperatura (°C, prawa oś)" } : { name: "Zużycie z faktur (m³)" })), []));
   weatherState.chart.setSeries([bars, model, temp], [monthStart(first), monthStart(list[list.length - 1].month) + 31 * 86400], !fresh);
   if (fresh) { weatherState.chartReady = true; weatherState.chart.setView(weatherState.chart.full[1] - 3 * 365 * 86400, weatherState.chart.full[1], false); }
 }
@@ -1148,6 +1151,7 @@ function scatterGeometry(d, W, H) {
 function drawWScatter() {
   const d = weatherState.data, canvas = $("#wScatter");
   if (!d || !d.model) return;
+  setLegend(canvas, [{ label: "Miesiąc z faktury (ostatnie 2 lata ciemniej)", color: cssColor("--accent"), kind: "dot" }, { label: "Model: stałe + współczynnik × stopniodni", color: cssColor("--text"), kind: "dash" }]);
   const sc = plainCanvas(canvas);
   if (!sc) return;
   const { ctx, W, H } = sc, m = d.model, g = scatterGeometry(d, W, H), { left, top, pw, maxX, maxY, sx, sy } = g;
@@ -1178,6 +1182,7 @@ function drawWScatter() {
 function drawWForecast() {
   const d = weatherState.data, canvas = $("#wForecast");
   if (!d || !d.model || !d.forecast.length) return;
+  setLegend(canvas, [{ label: "Prognozowane zużycie (m³)", color: cssColor("--accent"), kind: "box" }, { label: "Pod słupkiem: miesiąc i typowa temperatura", color: cssColor("--muted"), kind: "dot" }]);
   const fc = plainCanvas(canvas);
   if (!fc) return;
   const { ctx, W, H } = fc, left = 40, right = 8, top = 12, bottom = 34, pw = W - left - right, ph = H - top - bottom;
@@ -1189,7 +1194,8 @@ function drawWForecast() {
   ctx.textAlign = "center";
   d.forecast.forEach((f, i) => {
     const x = left + i * gw + (gw - bw) / 2, y = sy(f.m3), r = Math.min(4, bw / 2);
-    if (i === hover) { ctx.fillStyle = muted; ctx.globalAlpha = 0.12; ctx.fillRect(left + i * gw + 1, top, gw - 2, ph); ctx.globalAlpha = 1; }
+    if (i % 2 === 0) { ctx.fillStyle = muted; ctx.globalAlpha = 0.07; ctx.fillRect(left + i * gw, top, gw, ph); ctx.globalAlpha = 1; }
+    if (i === hover) { ctx.fillStyle = muted; ctx.globalAlpha = 0.14; ctx.fillRect(left + i * gw, top, gw, ph); ctx.globalAlpha = 1; }
     ctx.fillStyle = accent; ctx.globalAlpha = i === hover ? 1 : 0.85; ctx.beginPath();
     ctx.moveTo(x, top + ph); ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.lineTo(x + bw - r, y); ctx.quadraticCurveTo(x + bw, y, x + bw, y + r); ctx.lineTo(x + bw, top + ph); ctx.fill(); ctx.globalAlpha = 1;
     ctx.fillStyle = textC; ctx.fillText(MONTH_NAMES[Number(f.month.slice(5, 7)) - 1], x + bw / 2, H - 20);
@@ -1205,6 +1211,22 @@ function drawWForecast() {
     ctx.beginPath(); ctx.roundRect ? ctx.roundRect(Math.max(4, bx), top + 4, w, h, 8) : ctx.rect(Math.max(4, bx), top + 4, w, h); ctx.fill(); ctx.shadowColor = "transparent"; ctx.stroke(); ctx.textAlign = "left";
     lines.forEach((l, i) => { ctx.fillStyle = i === 0 ? muted : textC; ctx.font = (i === 0 ? "11px" : "600 12px") + " system-ui, sans-serif"; ctx.fillText(l, Math.max(4, bx) + 10, top + 4 + 17 + i * 17 - (i === 0 ? 1 : 0)); });
   }
+}
+
+// a tiny legend row above a canvas: items = [{ label, color, kind: "box" | "line" | "dash" | "dot" | "band" }]
+function setLegend(canvas, items) {
+  if (!canvas) return;
+  let box = canvas.previousElementSibling;
+  if (!box || !box.classList.contains("legend")) { box = el("div", { class: "legend" }); canvas.before(box); }
+  box.textContent = "";
+  for (const it of items) {
+    const sw = el("span", { class: "sw " + (it.kind || "box") });
+    sw.style.setProperty("--c", it.color);
+    box.append(el("span", { class: "lg" }, [sw, el("span", { text: it.label })]));
+  }
+}
+function legendOf(series, extra) {
+  return series.filter((s) => s.name).map((s) => ({ label: s.name, color: s.color, kind: s.kind === "bars" ? "box" : s.dashed ? "dash" : "line" })).concat(extra || []);
 }
 
 function sumBy(entries, fn) { return entries.reduce((s, e) => s + fn(e), 0); }
@@ -1307,6 +1329,7 @@ function drawUsage() {
     tooltip: (p) => ["Średnia 12 mies.: " + num(p[1], 0) + " " + label] };
   const fresh = !usage.chartReady || (!usage.hadData && points.length > 0);
   usage.hadData = points.length > 0;
+  setLegend(canvas, legendOf([barSeries, lineSeries], [{ label: "Sezon grzewczy (paź–kwi)", color: cssColor("--accent") + "40", kind: "band" }]));
   chart.setSeries([barSeries, lineSeries], [first, end], !fresh);
   if (fresh) { usage.chartReady = true; applyUsageRange(false); }
   document.querySelectorAll("#uUnits button").forEach((b) => b.classList.toggle("active", b.dataset.unit === unit));
@@ -1337,6 +1360,7 @@ function drawYearCompare() {
     chips.append(b);
   }
   const years = [...usage.yoyYears].sort((a, b) => a - b);
+  setLegend(canvas, [{ label: "Słupki: zużycie w danym miesiącu, kolor = rok (przyciski wyżej)", color: cssColor("--muted"), kind: "box" }]);
   ctx.font = "11px system-ui, sans-serif";
   if (!years.length) { ctx.fillStyle = muted; ctx.textAlign = "center"; ctx.fillText(allYears.length ? "Wybierz rok" : "Brak faktur", W / 2, H / 2); return; }
   const palette = [cssColor("--accent"), "#6c6c78", "#2f7fd0", "#e0a030", "#3aa675", "#9a5bd0", "#a3a3b2", "#d0d0da"], colorOf = (y) => palette[(allYears.length - 1 - allYears.indexOf(y)) % palette.length];
@@ -1356,7 +1380,9 @@ function drawYearCompare() {
   const hover = usage.yoyHover === null || usage.yoyHover === undefined ? -1 : Math.floor((usage.yoyHover - left) / gw);
   for (let m = 0; m < 12; m++) {
     const gx = left + m * gw, start = gx + (gw - bw * years.length) / 2;
-    if (m === hover) { ctx.fillStyle = muted; ctx.globalAlpha = 0.12; ctx.fillRect(gx + 2, top, gw - 4, plotH); ctx.globalAlpha = 1; }
+    if (m % 2 === 0) { ctx.fillStyle = muted; ctx.globalAlpha = 0.07; ctx.fillRect(gx, top, gw, plotH); ctx.globalAlpha = 1; }
+    if (m > 0) { ctx.strokeStyle = line; ctx.beginPath(); ctx.moveTo(Math.round(gx) + 0.5, top); ctx.lineTo(Math.round(gx) + 0.5, top + plotH + 4); ctx.stroke(); }
+    if (m === hover) { ctx.fillStyle = muted; ctx.globalAlpha = 0.14; ctx.fillRect(gx, top, gw, plotH); ctx.globalAlpha = 1; }
     ctx.fillStyle = m === hover ? text : muted; ctx.textAlign = "center"; ctx.fillText(MONTH_NAMES[m], gx + gw / 2, H - 6);
     years.forEach((y, i) => {
       const v = byYear[y][m]; if (v === null) return;
@@ -1718,6 +1744,7 @@ function drawBattery() {
   chart.o.now = d.now;
   chart.o.emptyText = t("bNoHistory");
   chart.o.emptyHint = d.source === "bt" ? "" : t("emptyBattery");
+  setLegend(canvas, legendOf(series, [{ label: t("bWarnLine") + " / " + t("bCutLine"), color: cssColor("--bad"), kind: "dash" }]));
   const end = Math.max(d.now, ...[fm, ft].map((s) => (s.length ? s[s.length - 1][0] : 0)));
   const fresh = battery.chartKey !== d.source;
   chart.setSeries(series, [hist.length ? hist[0][0] : d.now - 86400, end], !fresh);
