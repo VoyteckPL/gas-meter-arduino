@@ -6,7 +6,7 @@ const TEXT = {
     title: "Gazomierz", loading: "Ładowanie...", connected: "MQTT połączony", disconnected: "MQTT offline",
     readings: "Odczyty", meter: "Stan licznika", flow: "Przepływ", today: "Dzisiaj", battery: "Bateria",
     signal: "Sygnał WiFi", lastData: "Ostatnie dane", never: "brak danych", ago: "temu",
-    consumption: "Zużycie", hourly: "Na godzinę (48 h)", batteryChart: "Bateria (7 dni)",
+    consumption: "Zużycie", meterChart: "Licznik (48 h)", hourly: "Na godzinę (48 h)", batteryChart: "Bateria (7 dni)",
     noData: "Brak danych",
     chartBt: "Test baterii", btTitle: "Test rozładowania baterii", btVoltage: "Napięcie baterii",
     btPin: "Napięcie na pinie", btUptime: "Test trwa", btState: "Stan", btFactor: "Współczynnik dzielnika",
@@ -86,7 +86,9 @@ const $ = (selector, root) => (root || document).querySelector(selector);
 let state = null;
 let built = false;
 const dirty = new Set();
-let chartKind = "hourly";
+let chartKind = "meter";
+let overviewChart = null;
+let overviewKind = null;
 
 function el(tag, attrs, children) {
   const node = document.createElement(tag);
@@ -128,17 +130,19 @@ const fmtWhen = (ts) => new Date(ts * 1000).toLocaleString("pl-PL", { dateStyle:
 
 function cleanupCard() {
   const when = el("input", { type: "datetime-local", id: "clWhen" });
-  const battery = el("input", { type: "checkbox", id: "clBattery", style: "width:auto;margin-right:8px" });
-  const ha = el("input", { type: "checkbox", id: "clHa", style: "width:auto;margin-right:8px" });
-  ha.checked = true;
+  const box = (id, on) => { const b = el("input", { type: "checkbox", id, style: "width:auto;margin-right:8px" }); b.checked = on; return b; };
+  const meter = box("clMeter", true), diag = box("clDiag", true), battery = box("clBattery", false), ha = box("clHa", true);
+  const opt = (input, text) => el("label", { style: "display:flex;align-items:center;margin:6px 0" }, [input, el("span", { text })]);
   const run = el("button", { class: "danger", text: "Usuń dane sprzed montażu" });
   run.addEventListener("click", runCleanup);
   return el("section", { class: "card", id: "clCard" }, [
     el("h2", { text: "Start od montażu" }),
     el("p", { class: "hint", style: "margin-top:0", text: "Usuwa z apki odczyty licznika i diagnostykę sprzed podanej chwili (testy na biurku) i wyjmuje ze statystyk Home Assistanta skoki licznika po ustawieniu stanu, żeby panel Energia nie pokazał ich jako zużycia gazu. Domyślna chwila to ostatnie ustawienie stanu licznika." }),
     el("div", { class: "row" }, [el("label", { for: "clWhen", text: "Montaż (od tej chwili zostają dane)" }), el("div", { class: "field" }, [when])]),
-    el("label", { style: "display:flex;align-items:center;margin:6px 0" }, [ha, el("span", { text: "Popraw statystyki „Cubic meters” w Home Assistant" })]),
-    el("label", { style: "display:flex;align-items:center;margin:6px 0" }, [battery, el("span", { text: "Usuń też historię baterii (zwykle nie: te same ogniwa, przydaje się do prognozy)" })]),
+    opt(meter, "Stan licznika (z niego liczone są też przepływ i zużycie na godzinę)"),
+    opt(diag, "Sygnał WiFi i diagnostyka (obudzenia, sesje, czasy pracy)"),
+    opt(battery, "Napięcie i poziom baterii (zwykle zostawić: te same ogniwa, przydaje się do prognozy)"),
+    opt(ha, "Popraw statystyki „Cubic meters” w Home Assistant"),
     el("div", { class: "kv", id: "clInfo", style: "margin:10px 0" }),
     el("div", { class: "field" }, [run]),
   ]);
@@ -153,7 +157,7 @@ async function loadCleanup() {
   info.textContent = "";
   const row = (k, v) => info.append(el("span", { text: k }), el("span", { class: "v", text: v }));
   row("Ostatnie ustawienie licznika", d.jump_at ? fmtWhen(d.jump_at) : "nie znaleziono");
-  row("Odczytów licznika przed tą chwilą", String(d.counts.cubic_meters || 0));
+  row("Przed tą chwilą: licznik / WiFi / bateria", (d.counts.cubic_meters || 0) + " / " + (d.counts.RSSI || 0) + " / " + (d.counts.BatteryVoltage || 0) + " odczytów");
   if (d.ha) {
     if (d.ha.error) row("Home Assistant", d.ha.error);
     else if (!d.ha.entity) row("Home Assistant", "nie znaleziono encji „Cubic meters”");
@@ -169,13 +173,15 @@ async function runCleanup() {
   if (!value) { toast("Podaj chwilę montażu", true); return; }
   const cutoff = new Date(value).getTime() / 1000;
   const ok = await confirmDialog({ title: "Usunąć dane sprzed montażu?", danger: true, confirmText: "Usuń",
-    message: "Odczyty licznika i diagnostyka sprzed " + fmtWhen(cutoff) + " znikną z apki. Tego nie da się cofnąć." });
+    message: "Zaznaczone dane sprzed " + fmtWhen(cutoff) + " znikną z apki. Tego nie da się cofnąć." });
   if (!ok) return;
   try {
     const d = await api("cleanup", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "run", cutoff, battery: $("#clBattery").checked, ha: $("#clHa").checked }) });
+      body: JSON.stringify({ action: "run", cutoff, ha: $("#clHa").checked,
+        groups: [["meter", "clMeter"], ["diag", "clDiag"], ["battery", "clBattery"]].filter(([, id]) => $("#" + id).checked).map(([g]) => g) }) });
     const fixed = d.ha && d.ha.jumps ? d.ha.jumps.length : 0;
-    toast("Usunięto " + (d.removed.cubic_meters || 0) + " odczytów licznika" + ($("#clHa").checked ? ", poprawiono skoków w HA: " + fixed : ""));
+    const removed = Object.values(d.removed || {}).reduce((a, b) => a + b, 0);
+    toast("Usunięto " + removed + " odczytów" + ($("#clHa").checked ? ", poprawiono skoków w HA: " + fixed : ""));
     loadCleanup(); refresh(); drawChart();
   } catch (e) { toast(t("error") + ": " + e.message, true); }
 }
@@ -389,14 +395,14 @@ function build() {
 
   // charts
   const tabs = el("div", { class: "tabs" });
-  for (const [kind, key] of [["hourly", "hourly"], ["battery", "batteryChart"]]) {
+  for (const [kind, key] of [["meter", "meterChart"], ["hourly", "hourly"], ["battery", "batteryChart"]]) {
     const tab = el("button", { class: "secondary", "data-i18n": key, "data-kind": kind });
     if (kind === "bt") tab.hidden = true;
     tab.addEventListener("click", () => { chartKind = kind; drawChart(); });
     tabs.append(tab);
   }
   root.append(el("section", { class: "card wide" }, [
-    el("h2", { "data-i18n": "consumption" }), tabs, el("canvas", { id: "chart" }),
+    el("h2", { "data-i18n": "consumption" }), tabs, el("canvas", { id: "chart", style: "height:340px" }),
   ]));
 
   // service
@@ -608,72 +614,31 @@ async function drawChart() {
   document.querySelectorAll(".tabs button[data-kind]").forEach((button) => {
     button.classList.toggle("active", button.dataset.kind === chartKind);
   });
-  let points = [];
+  if (!overviewChart) overviewChart = new TimeChart(canvas, { nav: true });
+  const chart = overviewChart, kind = chartKind, now = Date.now() / 1000;
+  const span = kind === "battery" ? 7 * 86400 : 48 * 3600;
+  let points = [], modes = [];
   try {
-    if (chartKind === "bt") {
-      const factor = Number(($("#btFactor") || {}).value) || 2.044;
-      points = await api("series?kind=bt&hours=336&factor=" + factor);
-    } else {
-      points = await api("series?kind=" + chartKind + "&hours=" + (chartKind === "hourly" ? 48 : 168));
-    }
-  } catch (e) { /* leave empty */ }
-
-  { const active = document.querySelector(".tabs button[data-kind].active"); setLegend(canvas, [{ label: active ? active.textContent : "", color: cssColor("--accent"), kind: chartKind === "bt" ? "line" : "box" }]); }
-  const ratio = window.devicePixelRatio || 1;
-  const width = canvas.clientWidth, height = canvas.clientHeight;
-  canvas.width = width * ratio;
-  canvas.height = height * ratio;
-  const ctx = canvas.getContext("2d");
-  ctx.scale(ratio, ratio);
-  ctx.clearRect(0, 0, width, height);
-  const css = getComputedStyle(document.documentElement);
-  const accent = css.getPropertyValue("--accent").trim();
-  const muted = css.getPropertyValue("--muted").trim();
-  const line = css.getPropertyValue("--line").trim();
-  ctx.font = "11px sans-serif";
-
-  if (!points.length || points.every((p) => p[1] === 0 && chartKind === "hourly")) {
-    ctx.fillStyle = muted;
-    ctx.fillText(t("noData"), 12, 24);
-    if (!points.length) return;
-  }
-  const left = 38, right = 8, top = 10, bottom = 22;
-  const plotW = width - left - right, plotH = height - top - bottom;
-  const xs = points.map((p) => p[0]), ys = points.map((p) => p[1]);
-  const x0 = Math.min(...xs), x1 = Math.max(...xs) || x0 + 1;
-  let y0 = chartKind === "hourly" ? 0 : Math.min(...ys) - 0.05;
-  let y1 = Math.max(...ys) + (chartKind === "hourly" ? 0.001 : 0.05);
-  if (chartKind === "hourly") y1 = Math.max(y1, 0.05);
-  const sx = (x) => left + (x1 === x0 ? 0 : (x - x0) / (x1 - x0)) * plotW;
-  const sy = (y) => top + plotH - ((y - y0) / (y1 - y0 || 1)) * plotH;
-
-  ctx.strokeStyle = line; ctx.fillStyle = muted; ctx.lineWidth = 1;
-  for (let i = 0; i <= 4; i++) {
-    const value = y0 + (y1 - y0) * i / 4, y = sy(value);
-    ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(width - right, y); ctx.stroke();
-    ctx.fillText(value.toFixed(chartKind === "hourly" ? 2 : 2), 2, y + 4);
-  }
-  const labelEvery = Math.max(1, Math.round(points.length / 6));
-  points.forEach((p, i) => {
-    if (i % labelEvery) return;
-    const date = new Date(p[0] * 1000);
-    const label = chartKind === "hourly"
-      ? date.getHours() + ":00" : (date.getMonth() + 1) + "/" + date.getDate() + " " + date.getHours() + ":00";
-    ctx.fillText(label, Math.min(sx(p[0]) - 12, width - 44), height - 6);
-  });
-
-  ctx.fillStyle = accent; ctx.strokeStyle = accent; ctx.lineWidth = 2;
-  if (chartKind === "hourly") {
-    const barW = Math.max(2, plotW / points.length - 2);
-    points.forEach((p) => {
-      const y = sy(p[1]);
-      ctx.fillRect(sx(p[0]) - barW / 2, y, barW, top + plotH - y);
-    });
-  } else {
-    ctx.beginPath();
-    points.forEach((p, i) => (i ? ctx.lineTo(sx(p[0]), sy(p[1])) : ctx.moveTo(sx(p[0]), sy(p[1]))));
-    ctx.stroke();
-  }
+    if (kind === "bt") points = await api("series?kind=bt&hours=336&factor=" + (Number(($("#btFactor") || {}).value) || 2.044));
+    else if (kind === "meter") points = await api("series?kind=meter&hours=336&max=3000");
+    else points = await api("series?kind=" + kind + "&hours=" + (kind === "hourly" ? 336 : 168 * 2));
+    // what the boiler was doing (hot water, heating) as coloured bands behind the gas
+    if (kind === "meter" || kind === "hourly") modes = await api("series?kind=modes&hours=336");
+  } catch (e) { /* leave what is there */ }
+  if (kind !== chartKind) return;
+  const unit = kind === "battery" || kind === "bt" ? "V" : "m³";
+  Object.assign(chart.o, { unit, dec: kind === "hourly" ? 3 : 2, zeroBase: kind === "hourly", emptyText: t("noData"), emptyHint: "" });
+  chart.o.bands = modes.map(([from, to, mode]) => ({ from, to, color: (BOILER_COLORS[mode] || BOILER_COLORS.other) + "2e" }));
+  const series = [{ name: "", color: cssColor("--accent"), points, kind: kind === "hourly" ? "bars" : kind === "meter" ? "step" : "line",
+                    area: kind === "battery" || kind === "bt" }];
+  const keep = overviewKind === kind;
+  overviewKind = kind;
+  chart.setSeries(series, [kind === "hourly" ? now - 336 * 3600 : points.length ? points[0][0] : now - span, now], keep);
+  if (!keep) chart.setView(now - span, now, false);
+  const active = document.querySelector(".tabs button[data-kind].active");
+  const used = [...new Set(modes.map((m) => m[2]))];
+  setLegend(canvas, [{ label: active ? active.textContent : "", color: cssColor("--accent"), kind: kind === "hourly" ? "box" : "line" },
+    ...["dhw", "heating", "other"].filter((m) => used.includes(m)).map((m) => ({ label: BOILER_NAMES[m], color: BOILER_COLORS[m], kind: "box" }))]);
 }
 
 
@@ -2417,7 +2382,7 @@ async function refresh() {
   }
 }
 
-window.addEventListener("resize", () => { if (built) { drawChart(); if (!$("#batteryView").hidden) drawBattery(); if (!$("#usageView").hidden) drawUsage(); } });
+window.addEventListener("resize", () => { if (built) { if (!$("#batteryView").hidden) drawBattery(); if (!$("#usageView").hidden) drawUsage(); } });
 
 // ---------------------------------------------------------------- panel / demo tabs
 const VIEW_NODES = { panel: "#root", usage: "#usageView", battery: "#batteryView", settings: "#settingsView", network: "#networkView",

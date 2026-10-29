@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.30.13
+
+* Przegląd: główny wykres to teraz interaktywny wykres stanu licznika z ostatnich 48 h z kolorowym tłem pieca (ciepła woda / ogrzewanie), z przewijaniem i powiększaniem. Zakładki: Licznik, Na godzinę (też z kolorami), Bateria.
+* Start od montażu: osobny wybór dla licznika (razem z przepływem i zużyciem na godzinę), sygnału WiFi i diagnostyki oraz baterii.
+
 ## 0.30.12
 
 * Wykresy gazu w okienku historii (stan licznika, przepływ, zużycie na godzinę) mają kolorowe tło według tego, co robił piec: niebieskie ciepła woda, pomarańczowe ogrzewanie, szare inne. Działa z encją pieca ustawioną w opcjach (`boiler_entity`).

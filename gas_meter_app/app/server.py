@@ -1363,8 +1363,10 @@ def ota_state(app):
 
 
 # ------------------------------- fresh start after the installation ------------------------------
-CLEAN_SERIES = ("cubic_meters", "flow_m3h", "RSSI", "Wakes", "WifiSessions", "wifi_connect_ms", "awake_wifi_s",
-                "awake_other_s", "session_ms")
+# what "start after the installation" can remove; the flow and the hourly use are computed from the meter reading
+CLEAN_GROUPS = {"meter": ("cubic_meters", "flow_m3h"),
+                "diag": ("RSSI", "Wakes", "WifiSessions", "wifi_connect_ms", "awake_wifi_s", "awake_other_s", "session_ms"),
+                "battery": ("BatteryVoltage", "BatteryPercent")}
 
 
 def last_counter_set(store):
@@ -1418,7 +1420,8 @@ async def api_cleanup(request):
         cutoff = float(body.get("cutoff") or jump_at or 0)
     except (TypeError, ValueError):
         return web.json_response({"error": "zły czas"}, status=400)
-    names = CLEAN_SERIES + (("BatteryVoltage", "BatteryPercent") if body.get("battery") else ())
+    groups = body.get("groups") or (["meter", "diag", "battery"] if request.method == "GET" else ["meter", "diag"])
+    names = tuple(n for g in groups for n in CLEAN_GROUPS.get(g, ()))
     with store.lock:
         counts = {n: sum(1 for p in store.history.get(n, []) if p[0] < cutoff) for n in names}
     out = {"jump_at": jump_at, "cutoff": cutoff, "counts": counts, "in_ha": bool(core_token())}
