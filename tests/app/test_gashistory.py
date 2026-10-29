@@ -50,3 +50,19 @@ def test_accepted_day_is_not_flagged():
     first = g.build([{"id": "a", "points": pts}])["anomalies"]
     assert first
     assert not [a for a in g.build([{"id": "a", "points": pts}], accepted=[a["day"] for a in first])["anomalies"] if a["day"] == first[0]["day"]]
+
+
+def test_run_of_empty_days_is_found_and_filled_with_the_usual_level():
+    pts = series(0, 90, 6, 1000.0)
+    a, b = pts[0][0] + 40 * 86400, pts[0][0] + 50 * 86400                  # 10 days with no consumption
+    out, shift = [], 0.0
+    for t, v in pts:
+        if a <= t < b:
+            shift += 6 * 3600 / 86400
+        out.append([t, v - shift])
+    res = g.build([{"id": "a", "points": out}])
+    empty = [x for x in res["anomalies"] if x["kind"] == "zero"]
+    assert 9 <= len(empty) <= 11 and all(abs(x["typical"] - 6) < 0.5 for x in empty)
+    fixed = g.build([{"id": "a", "points": out}], {x["day"]: x["typical"] for x in empty})
+    assert not [x for x in fixed["anomalies"] if x["kind"] == "zero"]
+    assert abs(sum(x["m3"] for x in fixed["days"]) - 90 * 6) < 12

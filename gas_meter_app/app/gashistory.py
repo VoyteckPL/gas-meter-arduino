@@ -80,32 +80,50 @@ def daily(grid, deltas):
     return out
 
 
-def typical(values, i, radius=21):
-    around = [v for k, v in enumerate(values[max(0, i - radius):i + radius + 1], max(0, i - radius)) if k != i]
-    return statistics.median(around) if around else None
+def around(values, skip, i, radius, floor=0.02):
+    """Daily totals near day i, without day i, the days in skip and the empty days."""
+    return [values[k] for k in range(max(0, i - radius), min(len(values), i + radius + 1))
+            if k != i and k not in skip and values[k] > floor]
+
+
+def typical(values, skip, i):
+    """Usual consumption around day i; the window grows when the neighbours are few."""
+    for radius in (21, 45, 90):
+        near = around(values, skip, i, radius)
+        if len(near) >= 5:
+            return statistics.median(near)
+    return statistics.median(near) if near else None
 
 
 def anomalies(days, accepted=()):
-    """Suspicious days of the original data: a sudden jump, an impossible hour or a stop in the middle of the heating season."""
+    """Suspicious days of the original data: a sudden jump, an impossible hour or an empty day in the middle of the heating season.
+    "typical" is what a normal day looked like around it (neighbours that are themselves suspicious are left out)."""
     keys = sorted(days)
     values = [days[k][0] for k in keys]
-    out = []
+    kinds = {}
+    for i, key in enumerate(keys):                                     # empty days first: a run of them must not hide the usual level
+        if values[i] < 0.02:
+            near = around(values, (), i, 30)
+            if len(near) >= 5 and statistics.median(near) > 3:
+                kinds[i] = "zero"
     for i, key in enumerate(keys):
-        if key in accepted:
+        if i in kinds:
             continue
-        total, peak = days[key][0], days[key][1]
-        typ = typical(values, i)
+        typ = typical(values, set(kinds), i)
         if typ is None:
             continue
-        kind = None
-        if total > 3 * typ + 3 and total > 5:
-            kind = "jump"
-        elif peak > MAX_HOUR_M3:
-            kind = "hour"
-        elif total < 0.02 and typ > 3:
-            kind = "zero"
-        if kind:
-            out.append({"day": key, "kind": kind, "m3": round(total, 2), "typical": round(typ, 2), "peak": round(peak, 2)})
+        if values[i] > 3 * typ + 3 and values[i] > 5:
+            kinds[i] = "jump"
+        elif days[key][1] > MAX_HOUR_M3:
+            kinds[i] = "hour"
+    skip = set(kinds)
+    out = []
+    for i in sorted(kinds):
+        key = keys[i]
+        if key in accepted:
+            continue
+        typ = typical(values, skip, i)
+        out.append({"day": key, "kind": kinds[i], "m3": round(values[i], 2), "typical": round(typ if typ is not None else 0.0, 2), "peak": round(days[key][1], 2)})
     return out
 
 

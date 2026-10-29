@@ -1206,17 +1206,46 @@ function renderGas() {
   const anom = $("#ghAnom");
   if (!d.anomalies.length) anom.append(el("div", { class: "muted small", text: "Nic podejrzanego nie znaleziono." }));
   else {
-    const t = el("table", { class: "mini" }, [el("tr", {}, ["Dzień", "Zużycie", "Typowo obok", "Powód", "Ustaw na m³", ""].map((h) => el("th", { text: h })))]);
-    for (const a of d.anomalies.slice().sort((x, y) => y.m3 - x.m3).slice(0, 60)) {
+    const picked = new Set(), list = d.anomalies.slice().sort((x, y) => y.m3 - x.m3).slice(0, 400);
+    const of = (kinds, days) => d.anomalies.filter((a) => (!kinds || kinds.includes(a.kind)) && (!days || days.has(a.day)));
+    const bulk = async (label, action, kinds, days) => {
+      const rows = of(kinds, days);
+      if (!rows.length) { toast("Nie ma takich dni.", true); return; }
+      const change = rows.reduce((sum, a) => sum + (a.typical - a.m3), 0);
+      const ok = await confirmDialog(action === "accept_all"
+        ? { title: label + "?", confirmText: "Uznaj", message: "Te dni zostaną uznane za prawdziwe i przestaną być zgłaszane.", details: [["Dni", String(rows.length)]] }
+        : { title: label + "?", danger: true, confirmText: "Popraw", message: "Zużycie każdego z tych dni zostanie ustawione na typowe z sąsiednich dni. Poprawki zawsze można cofnąć.",
+            details: [["Dni", String(rows.length)], ["Zmiana zużycia", (change > 0 ? "+" : "") + num(change, 1) + " m³"]] });
+      if (ok) gasPost({ action, kinds: kinds || [], days: days ? [...days] : [] });
+    };
+    const btn = (text, cls, fn, disabled) => { const b = el("button", { class: cls, text, "data-keep": "" }); b.disabled = !!disabled; b.addEventListener("click", fn); return b; };
+    const zero = of(["zero"]).length, jumps = of(["jump", "hour"]).length;
+    const selFix = btn("Popraw zaznaczone", "secondary", () => bulk("Poprawić zaznaczone dni", "fix_all", null, new Set(picked)), true);
+    const selOk = btn("Uznaj zaznaczone", "ghost", () => bulk("Uznać zaznaczone dni za prawdziwe", "accept_all", null, new Set(picked)), true);
+    anom.append(el("div", { class: "field", style: "gap:8px;flex-wrap:wrap;margin-bottom:8px" }, [
+      btn("Uzupełnij puste dni typowym zużyciem (" + zero + ")", "", () => bulk("Uzupełnić puste dni typowym zużyciem", "fix_all", ["zero"]), !zero),
+      btn("Popraw skoki na typowe (" + jumps + ")", "secondary", () => bulk("Poprawić skoki na typowe", "fix_all", ["jump", "hour"]), !jumps),
+      btn("Popraw wszystkie (" + d.anomalies.length + ")", "secondary", () => bulk("Poprawić wszystkie podejrzane dni", "fix_all")),
+      btn("Uznaj wszystkie za prawdziwe", "ghost", () => bulk("Uznać wszystkie podejrzane dni za prawdziwe", "accept_all")), selFix, selOk]));
+    const syncSel = () => { selFix.disabled = selOk.disabled = !picked.size; selFix.textContent = "Popraw zaznaczone" + (picked.size ? " (" + picked.size + ")" : ""); };
+    const all = el("input", { type: "checkbox", title: "Zaznacz wszystkie" });
+    const boxes = [];
+    all.addEventListener("change", () => { for (const b of boxes) { b.checked = all.checked; b.dispatchEvent(new Event("change")); } });
+    const t = el("table", { class: "mini" }, [el("tr", {}, [el("th", {}, [all])].concat(["Dzień", "Zużycie", "Typowo obok", "Powód", "Ustaw na m³", ""].map((h) => el("th", { text: h }))))]);
+    for (const a of list) {
       const input = el("input", { type: "number", step: "0.1", min: "0", value: String(a.typical), style: "max-width:90px" });
+      const pick = el("input", { type: "checkbox" });
+      pick.addEventListener("change", () => { if (pick.checked) picked.add(a.day); else picked.delete(a.day); syncSel(); });
+      boxes.push(pick);
       const show = el("button", { class: "ghost", text: "pokaż" }), fix = el("button", { text: "Popraw" }), keep = el("button", { class: "secondary", text: "To prawda" });
       show.addEventListener("click", () => { if (gasState.chart) gasState.chart.setView(dayTs(a.day) - 20 * 86400, dayTs(a.day) + 20 * 86400, true); $("#ghChart").scrollIntoView({ block: "center", behavior: "smooth" }); });
       fix.addEventListener("click", () => gasPost({ action: "fix", day: a.day, m3: Number(input.value) }));
       keep.addEventListener("click", () => gasPost({ action: "accept", day: a.day }));
-      t.append(el("tr", {}, [el("td", { text: a.day }), el("td", { text: num(a.m3, 1) + " m³" }), el("td", { text: num(a.typical, 1) + " m³" }), el("td", { text: GAS_KIND[a.kind] || a.kind }),
+      t.append(el("tr", {}, [el("td", {}, [pick]), el("td", { text: a.day }), el("td", { text: num(a.m3, 1) + " m³" }), el("td", { text: num(a.typical, 1) + " m³" }), el("td", { text: GAS_KIND[a.kind] || a.kind }),
         el("td", {}, [input]), el("td", { style: "white-space:nowrap" }, [show, fix, keep])]));
     }
     anom.append(t);
+    if (d.anomalies.length > list.length) anom.append(el("div", { class: "muted small", text: "Pokazano " + list.length + " największych z " + d.anomalies.length + ". Przyciski na górze działają na wszystkie." }));
   }
   // corrected days
   const fixed = $("#ghFixed"), rows = d.days.filter((x) => x.fixed);
@@ -1229,6 +1258,9 @@ function renderGas() {
       t.append(el("tr", {}, [r.day, num(r.orig, 1) + " m³", num(r.m3, 1) + " m³"].map((x) => el("td", { text: x })).concat([el("td", {}, [undo])])));
     }
     fixed.append(t);
+    const undoAll = el("button", { class: "ghost", text: "Cofnij wszystkie poprawki (" + rows.length + ")", "data-keep": "" });
+    undoAll.addEventListener("click", async () => { if (await confirmDialog({ title: "Cofnąć wszystkie poprawki?", danger: true, confirmText: "Cofnij", message: "Zużycie dni wróci do wartości z Home Assistanta.", details: [["Dni", String(rows.length)]] })) gasPost({ action: "unfix_all" }); });
+    fixed.append(el("div", { style: "margin-top:8px" }, [undoAll]));
   }
 }
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.25.0
+
+* Historia gazu: przycisk „Uzupełnij puste dni typowym zużyciem” ustawia wszystkie dni bez zużycia w środku sezonu (na przykład przerwę między dwiema encjami) na typowe zużycie z sąsiednich dni. Wiele pustych dni z rzędu nie zaniża już „typowego” poziomu.
+* Poprawki na wszystkich naraz: „Popraw skoki na typowe”, „Popraw wszystkie”, „Uznaj wszystkie za prawdziwe”, a także zaznaczanie dni pól wyboru z przyciskami „Popraw zaznaczone” i „Uznaj zaznaczone”. Przed zmianą apka pokazuje liczbę dni i o ile zmieni się zużycie. „Cofnij wszystkie poprawki” przywraca dane z Home Assistanta.
+
 ## 0.24.1
 
 * Przesunięcie palcem w bok po wykresie nie przełącza już zakładki: wykres sam się przewija. Dotyczy wszystkich przewijanych wykresów.

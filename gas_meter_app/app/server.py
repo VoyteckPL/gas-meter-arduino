@@ -1076,6 +1076,8 @@ async def api_gas_history(request):
                 wanted.append((stat_id, divisor))
             if not wanted or len(wanted) > 8:
                 raise ValueError("podaj od 1 do 8 encji")
+        kinds = [k for k in body.get("kinds") or [] if k in ("jump", "hour", "zero")]
+        only = {d for d in body.get("days") or [] if re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(d))}
         value = float(body["m3"]) if action == "fix" else None
         if value is not None and not 0 <= value <= 2000:
             raise ValueError("zużycie poza zakresem")
@@ -1110,6 +1112,21 @@ async def api_gas_history(request):
     elif action == "unaccept":
         if day in fixes["accepted"]:
             fixes["accepted"].remove(day)
+    elif action in ("fix_all", "accept_all", "unfix_all"):
+        sources = gas_sources(store) or app.get("gas_preview") or []
+        view = gashistory.build(sources, fixes["days"], fixes["accepted"]) if sources else {"anomalies": []}
+        pick = [a for a in view["anomalies"] if (not kinds or a["kind"] in kinds) and (not only or a["day"] in only)]
+        if action == "fix_all":
+            for a in pick:
+                fixes["days"][a["day"]] = a["typical"]
+        elif action == "accept_all":
+            for a in pick:
+                if a["day"] not in fixes["accepted"]:
+                    fixes["accepted"].append(a["day"])
+        else:
+            for day in list(fixes["days"]):
+                if not only or day in only:
+                    del fixes["days"][day]
     elif action == "clear":
         with store.lock:
             store.imported.pop("meter", None)
