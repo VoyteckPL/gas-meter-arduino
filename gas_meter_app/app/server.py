@@ -1412,6 +1412,26 @@ async def ha_meter_jumps(fix):
     return out
 
 
+async def api_stats_export(request):
+    """Raw hourly statistics (start, state, sum, mean) of the given statistic ids as one JSON document, for a one-off cleanup
+    done outside the app. The recorder keeps the statistics for good, also of entities that no longer exist."""
+    ids = [i for i in request.query.get("ids", "").split(",") if re.fullmatch(r"[A-Za-z0-9_]+[.:][A-Za-z0-9_]+", i)]
+    if not ids or not core_token():
+        return web.json_response({"error": "brak encji albo apka nie działa w Home Assistant"}, status=400)
+    listing = {i.get("statistic_id"): i for i in (await core_ws_call([{"type": "recorder/list_statistic_ids"}]))[0] or []}
+    result = (await core_ws_call([{
+        "type": "recorder/statistics_during_period", "start_time": "2000-01-01T00:00:00+00:00",
+        "statistic_ids": ids, "period": "hour", "types": ["state", "mean", "sum"]}]))[0] or {}
+    out = {"exported_at": time.time(), "statistics": {}}
+    for i in ids:
+        info = listing.get(i) or {}
+        rows = [{"start": stat_time(r["start"]), "state": r.get("state"), "sum": r.get("sum"), "mean": r.get("mean")}
+                for r in result.get(i) or []]
+        out["statistics"][i] = {"unit": info.get("statistics_unit_of_measurement") or info.get("unit_of_measurement"),
+                                "name": info.get("name"), "source": info.get("source"), "rows": rows}
+    return web.json_response(out)
+
+
 async def api_cleanup(request):
     """GET: what a fresh start would remove. POST {action: "run", cutoff, battery, ha}: removes the history of the app
     before `cutoff` (meter and diagnostics, the battery only with battery=true) and takes the jumps out of the
@@ -2449,6 +2469,7 @@ def create_app(options):
     app.router.add_post("/api/notify", api_notify)
     app.router.add_get("/api/notify_targets", api_notify_targets)
     app.router.add_post("/api/notify_targets", api_notify_targets)
+    app.router.add_get("/api/stats_export", api_stats_export)
     app.router.add_get("/api/cleanup", api_cleanup)
     app.router.add_post("/api/cleanup", api_cleanup)
     app.router.add_post("/api/set", api_set)

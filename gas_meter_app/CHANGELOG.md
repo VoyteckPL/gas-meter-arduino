@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.30.15
+
+* Historia → „Eksport statystyk”: zapisuje do pliku JSON godzinowe statystyki wybranych encji (stan i suma), także encji, których już nie ma w HA. Do jednorazowego uporządkowania historii gazu.
+
 ## 0.30.14
 
 * Start od montażu poprawia skoki licznika w statystykach obu encji gazu apki: „Cubic meters” i „Licznik gazu (z historią)” (ta druga bywa źródłem w panelu Energia).

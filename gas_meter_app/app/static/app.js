@@ -124,6 +124,50 @@ async function api(path, options) {
   if (!response.ok) throw new Error(data.error || response.statusText);
   return data;
 }
+// ------------------------------------------------------------- export of raw statistics (one-off cleanup)
+function exportCard() {
+  const filter = el("input", { type: "text", id: "exFilter", value: "gaz", autocomplete: "off" });
+  filter.addEventListener("input", renderExportList);
+  const go = el("button", { text: "Pobierz plik" });
+  go.addEventListener("click", runExport);
+  return el("section", { class: "card", id: "exCard" }, [
+    el("h2", { text: "Eksport statystyk (jednorazowo)" }),
+    el("p", { class: "hint", style: "margin-top:0", text: "Zapisuje godzinowe statystyki wybranych encji (stan i suma) do pliku JSON, razem z historią encji, których już nie ma w HA. Plik służy do jednorazowego uporządkowania historii gazu poza apką." }),
+    el("div", { class: "row" }, [el("label", { for: "exFilter", text: "Szukaj" }), el("div", { class: "field" }, [filter])]),
+    el("div", { id: "exList", style: "max-height:260px;overflow:auto;margin:8px 0" }),
+    el("div", { class: "field" }, [go]),
+  ]);
+}
+let exportIds = [];
+async function loadExportList() {
+  try { exportIds = (await api("ha_stats")).ids || []; } catch (e) { exportIds = []; }
+  renderExportList();
+}
+function renderExportList() {
+  const box = $("#exList"); if (!box) return;
+  const keep = new Set([...box.querySelectorAll("input:checked")].map((i) => i.dataset.id));
+  const q = ($("#exFilter").value || "").toLowerCase();
+  box.textContent = "";
+  for (const i of exportIds) {
+    if (q && !(i.id + " " + i.name).toLowerCase().includes(q)) continue;
+    const input = el("input", { type: "checkbox", style: "width:auto;margin-right:8px", "data-id": i.id });
+    input.checked = keep.has(i.id);
+    box.append(el("label", { style: "display:flex;align-items:center;margin:4px 0" }, [input, el("span", { text: i.id + (i.name ? " (" + i.name + ")" : "") + (i.unit ? " [" + i.unit + "]" : "") })]));
+  }
+  if (!box.children.length) box.append(el("span", { class: "muted small", text: "Brak statystyk pasujących do wyszukiwania" }));
+}
+async function runExport() {
+  const ids = [...document.querySelectorAll("#exList input:checked")].map((i) => i.dataset.id);
+  if (!ids.length) { toast("Zaznacz co najmniej jedną encję", true); return; }
+  try {
+    const data = await api("stats_export?ids=" + encodeURIComponent(ids.join(",")));
+    const blob = new Blob([JSON.stringify(data)], { type: "application/json" });
+    const link = el("a", { href: URL.createObjectURL(blob), download: "statystyki_gazu.json" });
+    document.body.append(link); link.click(); link.remove();
+    toast("Zapisano " + Object.values(data.statistics).reduce((n, x) => n + x.rows.length, 0) + " godzin");
+  } catch (e) { toast(t("error") + ": " + e.message, true); }
+}
+
 // ------------------------------------------------------------- fresh start after the installation
 const toLocalInput = (ts) => { const d = new Date(ts * 1000 - new Date().getTimezoneOffset() * 60000); return d.toISOString().slice(0, 16); };
 const fmtWhen = (ts) => new Date(ts * 1000).toLocaleString("pl-PL", { dateStyle: "short", timeStyle: "short" });
@@ -443,6 +487,7 @@ function build() {
 
   views.service.append(otaCard());
   views.history.append(note("historyNote"));
+  views.history.append(exportCard());
   views.history.append(cleanupCard());
   views.history.append(gasHistoryCard());
   // history imported from Home Assistant statistics
@@ -2420,7 +2465,7 @@ function showView(view, from) {
     if (from) window.scrollTo(0, 0);
     if (view === "battery") loadBattery();
     if (view === "service") loadOta();
-    if (view === "history") { loadGasHistory(); loadCleanup(); }
+    if (view === "history") { loadGasHistory(); loadCleanup(); loadExportList(); }
     if (view === "usage") loadUsage();
   };
   if (from && current && current !== next && !reducedMotion()) {
