@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.30.16
+
+* Eksport statystyk zawiera też zużycie miesięczne z faktur (sam miesiąc i m³, bez numerów), do dopasowania historii do faktur.
+
 ## 0.30.15
 
 * Historia → „Eksport statystyk”: zapisuje do pliku JSON godzinowe statystyki wybranych encji (stan i suma), także encji, których już nie ma w HA. Do jednorazowego uporządkowania historii gazu.

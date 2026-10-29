@@ -1429,6 +1429,9 @@ async def api_stats_export(request):
                 for r in result.get(i) or []]
         out["statistics"][i] = {"unit": info.get("statistics_unit_of_measurement") or info.get("unit_of_measurement"),
                                 "name": info.get("name"), "source": info.get("source"), "rows": rows}
+    # usage per month from the invoices (month and cubic meters only), to line the history up with the invoices
+    monthly, factor = bills_context(request.app)
+    out["invoices_monthly"] = [{"month": e["month"], "m3": round(e["m3"] if e.get("m3") is not None else e["kwh"] / factor, 2)} for e in monthly]
     return web.json_response(out)
 
 
