@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.32.0
+
+* Przegląd: jeden wykres, „Licznik gazu”. Linia schodkowa jest narysowana jak wstęga z cieniem, poświatą i jasną krawędzią (bez kropek), pod nią gradient. Wykres jest na żywo: co 10 s przesuwa się razem z czasem i pokazuje ostatni odczyt aż do teraz, dopóki go nie przewiniesz. Można go powiększać i przewijać, a przyciski 1 godz., 6 godz., 24 godz., 48 godz. i 7 dni wracają do „teraz”. Tło dalej pokazuje, co robił piec (ciepła woda, ogrzewanie). Zakładki „Na godzinę” i „Bateria” z tego miejsca zniknęły (są w okienku historii po kliknięciu karty i w zakładce Bateria).
+
 ## 0.31.2
 
 * „Ostatnie dane” i alarm o milczącym gazomierzu liczą czas od ostatniej wiadomości z gazomierza, a nie od wartości, które apka sama publikuje co 10 minut (prognozy, szacunek baterii, procent WiFi). Wcześniej karta pokazywała „kilka minut temu” mimo ostatniego odczytu sprzed godzin, a alarm „gazomierz milczy” mógł się nigdy nie włączyć.

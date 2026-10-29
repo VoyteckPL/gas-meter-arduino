@@ -484,9 +484,18 @@
           g.addColorStop(0, color + "55"); g.addColorStop(1, color + "05");
           ctx.fillStyle = g; ctx.fill(fill);
         }
+        if (s.depth) {
+          // a raised ribbon: a shadow cast below and to the side, the line with a soft glow and a bright edge on top
+          const d = s.depth, w = s.width || 3;
+          ctx.save(); ctx.translate(d * 0.7, d); ctx.lineWidth = w + 2; ctx.strokeStyle = "rgba(0,0,0,0.20)"; ctx.stroke(path); ctx.restore();
+          ctx.save(); ctx.translate(d * 0.35, d * 0.5); ctx.lineWidth = w + 1; ctx.strokeStyle = color + "88"; ctx.stroke(path); ctx.restore();
+          ctx.save(); ctx.shadowColor = color + "aa"; ctx.shadowBlur = 10; ctx.lineWidth = w; ctx.strokeStyle = color; ctx.stroke(path); ctx.restore();
+          ctx.save(); ctx.translate(0, -w * 0.3); ctx.lineWidth = Math.max(1, w * 0.35); ctx.strokeStyle = "rgba(255,255,255,0.45)"; ctx.stroke(path); ctx.restore();
+          continue;
+        }
         ctx.lineWidth = s.width || 2; ctx.setLineDash(s.dashed ? [6, 5] : []);
         ctx.stroke(path); ctx.setLineDash([]);
-        if (pts.length <= 40 && !s.dashed) {
+        if (pts.length <= 40 && !s.dashed && !s.noMarkers) {
           ctx.fillStyle = card;
           for (const p of pts) { ctx.beginPath(); ctx.arc(sx(p[0]), sy(p[1]), 3, 0, 7); ctx.fill(); ctx.stroke(); }
         }

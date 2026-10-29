@@ -86,9 +86,8 @@ const $ = (selector, root) => (root || document).querySelector(selector);
 let state = null;
 let built = false;
 const dirty = new Set();
-let chartKind = "meter";
 let overviewChart = null;
-let overviewKind = null;
+let overviewFirst = true;
 
 function el(tag, attrs, children) {
   const node = document.createElement(tag);
@@ -330,16 +329,15 @@ function build() {
     target.addEventListener("click", () => openHistory(entity));
   }
 
-  // charts
-  const tabs = el("div", { class: "tabs" });
-  for (const [kind, key] of [["meter", "meterChart"], ["hourly", "hourly"], ["battery", "batteryChart"]]) {
-    const tab = el("button", { class: "secondary", "data-i18n": key, "data-kind": kind });
-    if (kind === "bt") tab.hidden = true;
-    tab.addEventListener("click", () => { chartKind = kind; drawChart(); });
-    tabs.append(tab);
+  // the meter chart: live, zoomable, the boiler modes in the background
+  const ranges = el("div", { class: "tabs", id: "ovRanges" });
+  for (const [label, seconds] of [["1 godz.", 3600], ["6 godz.", 6 * 3600], ["24 godz.", 86400], ["48 godz.", 2 * 86400], ["7 dni", 7 * 86400]]) {
+    const bt = el("button", { class: "secondary", "data-seconds": seconds, text: label });
+    bt.addEventListener("click", () => { overviewFollow = true; overviewChart.setView(Date.now() / 1000 - seconds, Date.now() / 1000, true); });
+    ranges.append(bt);
   }
   root.append(el("section", { class: "card wide" }, [
-    el("h2", { "data-i18n": "consumption" }), tabs, el("canvas", { id: "chart", style: "height:340px" }),
+    el("h2", { text: "Licznik gazu" }), ranges, el("canvas", { id: "chart", style: "height:360px" }),
   ]));
 
   // service
@@ -485,8 +483,6 @@ function update() {
   // battery discharge test
   const hasTest = v["bt/pin_mv"] !== undefined;
   $("#btCard").hidden = true;                         // the details of the test live in the Battery tab
-  const btTab = document.querySelector('.tabs button[data-kind="bt"]');
-  if (btTab) btTab.hidden = !hasTest;
   if (hasTest) {
     const factor = Number($("#btFactor").value) || 2.044;
     $("#btVolt").textContent = num(Number(v["bt/pin_mv"]) / 1000 * factor, 3) + " V";
@@ -525,10 +521,6 @@ function update() {
     diag.append(el("span", { text: t(key) }), el("span", { class: "v", text: value === undefined ? "—" : String(value) }));
   }
 
-  document.querySelectorAll(".tabs button[data-kind]").forEach((button) => {
-    button.classList.toggle("active", button.dataset.kind === chartKind);
-  });
-
   // number of commands waiting for the meter, shown on the tab where they belong
   const counts = { settings: 0, network: 0, service: 0 };
   for (const name of Object.keys(state.pending || {})) {
@@ -541,36 +533,39 @@ function update() {
 }
 
 // ----------------------------------------------------------------------- chart
+let overviewFollow = true;                       // the right edge of the chart follows the present until the user moves the view
 async function drawChart() {
   const canvas = $("#chart");
   if (!canvas) return;
-  document.querySelectorAll(".tabs button[data-kind]").forEach((button) => {
-    button.classList.toggle("active", button.dataset.kind === chartKind);
-  });
-  if (!overviewChart) overviewChart = new TimeChart(canvas, { nav: true });
-  const chart = overviewChart, kind = chartKind, now = Date.now() / 1000;
-  const span = kind === "battery" ? 7 * 86400 : 48 * 3600;
+  if (!overviewChart) {
+    overviewChart = new TimeChart(canvas, { nav: true, unit: "m³", dec: 2, emptyHint: "",
+      onView: (v0, v1) => {
+        const now = Date.now() / 1000, span = v1 - v0;
+        overviewFollow = v1 >= now - Math.max(90, span * 0.01);
+        document.querySelectorAll("#ovRanges button").forEach((b) => {
+          const seconds = Number(b.dataset.seconds);
+          b.classList.toggle("active", overviewFollow && Math.abs(span - seconds) < seconds * 0.03);
+        });
+      } });
+    overviewFirst = true;
+  }
+  const chart = overviewChart, now = Date.now() / 1000;
   let points = [], modes = [];
   try {
-    if (kind === "bt") points = await api("series?kind=bt&hours=336&factor=" + (Number(($("#btFactor") || {}).value) || 2.044));
-    else if (kind === "meter") points = await api("series?kind=meter&hours=336&max=3000");
-    else points = await api("series?kind=" + kind + "&hours=" + (kind === "hourly" ? 336 : 168 * 2));
-    // what the boiler was doing (hot water, heating) as coloured bands behind the gas
-    if (kind === "meter" || kind === "hourly") modes = await api("series?kind=modes&hours=336");
-  } catch (e) { /* leave what is there */ }
-  if (kind !== chartKind) return;
-  const unit = kind === "battery" || kind === "bt" ? "V" : "m³";
-  Object.assign(chart.o, { unit, dec: kind === "hourly" ? 3 : 2, zeroBase: kind === "hourly", emptyText: t("noData"), emptyHint: "" });
+    points = await api("series?kind=meter&hours=336&max=3000");
+    modes = await api("series?kind=modes&hours=336");          // what the boiler was doing, as coloured bands behind the line
+  } catch (e) { /* keep what is there */ }
+  if (points.length) points = points.concat([[now, points[points.length - 1][1]]]);      // the reading holds until now, so the line runs to the present
+  chart.o.emptyText = t("noData");
   chart.o.bands = modes.map(([from, to, mode]) => ({ from, to, color: (BOILER_COLORS[mode] || BOILER_COLORS.other) + "2e" }));
-  const series = [{ name: "", color: cssColor("--accent"), points, kind: kind === "hourly" ? "bars" : kind === "meter" ? "step" : "line",
-                    area: kind === "battery" || kind === "bt" }];
-  const keep = overviewKind === kind;
-  overviewKind = kind;
-  chart.setSeries(series, [kind === "hourly" ? now - 336 * 3600 : points.length ? points[0][0] : now - span, now], keep);
-  if (!keep) chart.setView(now - span, now, false);
-  const active = document.querySelector(".tabs button[data-kind].active");
+  const accent = cssColor("--accent");
+  const series = [{ name: "", color: accent, points, kind: "step", area: true, depth: 5, width: 3, noMarkers: true }];
+  const span = chart.view[1] - chart.view[0];
+  chart.setSeries(series, [points.length ? points[0][0] : now - 86400, now], true);
+  if (overviewFirst) { overviewFirst = false; chart.setView(now - 6 * 3600, now, false); }
+  else if (overviewFollow && span > 0) chart.setView(now - span, now, false);     // live: the window slides with the time
   const used = [...new Set(modes.map((m) => m[2]))];
-  setLegend(canvas, [{ label: active ? active.textContent : "", color: cssColor("--accent"), kind: kind === "hourly" ? "box" : "line" },
+  setLegend(canvas, [{ label: "Licznik (m³)", color: accent, kind: "line" },
     ...["dhw", "heating", "other"].filter((m) => used.includes(m)).map((m) => ({ label: BOILER_NAMES[m], color: BOILER_COLORS[m], kind: "box" }))]);
 }
 
@@ -2103,4 +2098,5 @@ $("#refreshBtn").addEventListener("click", () => {
 
 refresh();
 setInterval(refresh, 3000);
-setInterval(() => { if (built) { drawChart(); const d = $("#histDialog"); if (d && !d.hidden) loadHistory(); if (!$("#batteryView").hidden) loadBattery(); } }, 60000);
+setInterval(() => { if (built && !$("#root").hidden) drawChart(); }, 10000);
+setInterval(() => { if (built) { const d = $("#histDialog"); if (d && !d.hidden) loadHistory(); if (!$("#batteryView").hidden) loadBattery(); } }, 60000);
