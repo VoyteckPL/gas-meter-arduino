@@ -56,7 +56,7 @@ DEFAULTS = {
     "session_mah": 0.015,       # one WiFi session: about 0.7 s at about 80 mA with the hex WPA key and a static IP (measured)
     "sleep_ua": 50.0,           # deep sleep of the whole board
     "selfdischarge_pct_month": 1.5,
-    "status_sessions_per_day": 4.0,
+    "status_sessions_per_day": 24.0,
     "warn_v": 3.10,
     "cutoff_v": 3.00,
 }

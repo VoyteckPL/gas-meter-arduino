@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.30.0
+
+* Firmware 0.3.5: limit czuwania 150 s (zawieszony gazomierz sam się restartuje, a licznik zostaje w pamięci RTC; zawieszenie świeżo zainstalowanej wersji liczy się jak awaria i prowadzi do powrotu do poprzedniej), powrót na DHCP po 3 nieudanych sesjach ze stałym IP, status (bateria, sygnał WiFi, diagnostyka) co godzinę zamiast co 6 godzin. W diagnostyce jest nowa pozycja „Zawieszenia”.
+* Model baterii liczy teraz 24 sesje statusowe na dobę zamiast 4, więc prognoza uwzględnia godzinny status.
+
 ## 0.29.3
 
 * Uporządkowana karta aktualizacji firmware: jeden przycisk „Wybierz plik firmware” wgrywa plik od razu po wyborze (bez osobnego „Wgraj plik”), w jednym wierszu są plik z wersją i akcje („Zaktualizuj przy najbliższym impulsie”, „Zmień plik”, „Usuń plik”), a po uzbrojeniu zostaje tylko „Anuluj aktualizację”. Stan gazomierza i uzbrojenia jest w nagłówku karty. Dziennik i instrukcja są zwijane, dziennik otwiera się sam, gdy aktualizacja jest uzbrojona. Kroki aktualizacji znikają po 10 minutach od jej zakończenia.

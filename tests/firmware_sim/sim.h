@@ -47,6 +47,8 @@ static int64_t g_timer_us = -1;
 static bool g_mqtt_ok = true;
 static int g_ack_failures = 0;             // the next QoS 1 publishes get no acknowledgement
 static bool g_wifi_ok = true;
+static bool g_static_ok = true;            // the router accepts the static address
+static bool g_dhcp = false;                // the last WiFi.config asked for DHCP
 static uint32_t g_adc_mv = 2000;
 static int64_t g_wifi_start = -1;
 static int g_wifi_sessions = 0;
@@ -92,8 +94,9 @@ inline String operator+(const char *a, const String &b) { return String(std::str
 
 class IPAddress {
  public:
+  bool zero = true;
   IPAddress() {}
-  IPAddress(uint8_t, uint8_t, uint8_t, uint8_t) {}
+  IPAddress(uint8_t a, uint8_t b, uint8_t c, uint8_t d) { zero = !(a | b | c | d); }
   String toString() const { return String("1.2.3.4"); }
 };
 class WiFiClient {};
@@ -106,6 +109,7 @@ static bool g_update_end_ok = true;
 static int g_update_writes = 0;
 static bool g_boot_other = false;
 static int g_restarts_called = 0;
+static void (*g_timer_cb)(void *) = nullptr;                // the awake limit of the firmware
 static const char *g_after_restart_version = nullptr;   // the version the simulated chip reports after a software restart
 struct RestartException {};
 class HTTPClient {
@@ -129,6 +133,10 @@ static UpdateClass Update;
 class EspClass { public: [[noreturn]] void restart() { g_restarts_called++; throw RestartException(); } };
 static EspClass ESP;
 struct esp_partition_t { int id; };
+typedef int esp_timer_handle_t;
+struct esp_timer_create_args_t { void (*callback)(void *); void *arg; int dispatch_method; const char *name; bool skip_unhandled_events; };
+static int esp_timer_create(const esp_timer_create_args_t *a, esp_timer_handle_t *h) { g_timer_cb = a->callback; *h = 1; return 0; }
+static int esp_timer_start_once(esp_timer_handle_t, uint64_t) { return 0; }
 #define ESP_OK 0
 static const esp_partition_t *esp_ota_get_next_update_partition(const esp_partition_t *) { static esp_partition_t p{1}; return &p; }
 static int esp_ota_set_boot_partition(const esp_partition_t *) { g_boot_other = true; return ESP_OK; }
@@ -138,11 +146,11 @@ class WiFiClass {
   void persistent(bool) {}
   void mode(int) {}
   void setSleep(bool) {}
-  void config(IPAddress, IPAddress, IPAddress, IPAddress) {}
+  void config(IPAddress ip, IPAddress, IPAddress, IPAddress) { g_dhcp = ip.zero; }
   void begin(const char *, const char *) { g_wifi_start = g_now_us; }
   void begin(const char *, const char *, int32_t, const uint8_t *) { g_wifi_start = g_now_us; }
   int status() {
-    return (g_wifi_ok && g_wifi_start >= 0 && g_now_us - g_wifi_start >= 800000) ? WL_CONNECTED : 0;
+    return (g_wifi_ok && (g_dhcp || g_static_ok) && g_wifi_start >= 0 && g_now_us - g_wifi_start >= 800000) ? WL_CONNECTED : 0;
   }
   void disconnect(bool = false, bool = false) { if (g_wifi_start >= 0) g_wifi_sessions++; g_wifi_start = -1; }
   uint8_t *BSSID() { static uint8_t b[6] = {1, 2, 3, 4, 5, 6}; return b; }

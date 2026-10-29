@@ -36,7 +36,7 @@ static void world_reset() {
   g_mqtt_ok = true; g_wifi_ok = true; g_isr = nullptr; g_adc_mv = 2000; g_wifi_sessions = 0; g_ack_failures = 0;
   g_retained["Gaz/Gazomierz/counter"] = "1000";
   g_http_code = 200; g_http_size = 900000; g_http_gets = 0; g_update_begin_ok = true; g_update_end_ok = true; g_update_writes = 0;
-  g_boot_other = false; g_restarts_called = 0; g_after_restart_version = nullptr;
+  g_boot_other = false; g_restarts_called = 0; g_after_restart_version = nullptr; g_static_ok = true; g_dhcp = false; g_timer_cb = nullptr;
   g_otaReq.valid = false; g_otaAwaitingConfirm = false; g_otaCurrent = FW_VERSION;
 }
 
@@ -301,6 +301,37 @@ int main(int argc, char **) {
     world_reset(); g_flash["ota_bad_a"] = 0x0123456789abcdefULL; g_flash["ota_bad_b"] = 0x0123456789abcdefULL;
     g_retained["Gaz/Gazomierz/config/ota"] = good; train(10, 10, 1, 1.0);
     simulate(S(40)); expect("a rejected image is not installed again", g_http_gets == 0 && g_retained.count("Gaz/Gazomierz/config/ota") == 0);
+  }
+
+  // ------------------------------------------------------------------ awake limit, DHCP fallback, hourly status
+  { // a hang restarts the chip and the counter survives in RTC memory
+    world_reset(); power_on(0); g_wake_cause = 0;
+    try { setup(); } catch (SleepException &) {} catch (RestartException &) {}
+    uint64_t before = cache.counter;
+    bool restarted = false;
+    try { if (g_timer_cb) g_timer_cb(nullptr); } catch (RestartException &) { restarted = true; }
+    expect("awake limit: a hang restarts the chip, counter and flag are kept", restarted && cache.counter == before && (cache.hangs & 0x80) && (cache.hangs & 0x3F) == 1);
+  }
+  { // a hang of a freshly installed firmware counts as a crash: two of them return to the old firmware
+    world_reset(); g_wifi_ok = false; g_flash["ota_state"] = 1; g_flash["ota_ma"] = 5; g_flash["ota_mb"] = 6;
+    power_on(0); g_otaCurrent = "0.3.6";
+    try { setup(); } catch (SleepException &) {} catch (RestartException &) {}            // first start after the update
+    for (int i = 0; i < 2; i++) {
+      cache.hangs |= 0x80; g_reset_reason = ESP_RST_SW; g_isr = nullptr; g_now_us += 300000; g_boot_us = g_now_us;
+      try { setup(); } catch (SleepException &) {} catch (RestartException &) {}
+    }
+    expect("two hangs after an update return to the previous firmware", g_boot_other && g_flash["ota_state"] == 0 && g_flash["ota_bad_a"] == 5);
+  }
+  { // the router no longer accepts the static address: after 3 failed sessions the meter uses DHCP and the pulses get through
+    world_reset(); g_static_ok = false; int n = train(10, 10, 12, 1.0);
+    Result r = simulate(S(400));
+    check("static IP refused: DHCP fallback delivers every pulse", n, r);
+    expect("static IP refused: the meter switched to DHCP", g_dhcp && (cache.hangs & 0x40));
+  }
+  { // the status (battery, WiFi signal) is sent every hour without any pulse
+    world_reset(); simulate(S(3 * 3600 + 120));
+    int status = 0; for (auto &p : g_pubs) if (p.topic == "Gaz/Gazomierz/BatteryVoltage") status++;
+    expect("status every hour: 4 reports in 3 hours", status >= 4 && status <= 5);
   }
 
   printf("\n%s (%d failure(s))\n", failures ? "SOME TESTS FAILED" : "ALL TESTS PASSED", failures);

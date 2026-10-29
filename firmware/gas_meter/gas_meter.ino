@@ -40,8 +40,9 @@
 #include "driver/rtc_io.h"
 #include "esp_sleep.h"
 #include "esp_ota_ops.h"
+#include "esp_timer.h"
 
-#define FW_VERSION "0.3.3"
+#define FW_VERSION "0.3.5"
 // The version is also kept as a marker in the binary: the Gas Meter app reads it from the .bin file it serves for the update
 static const char FW_MARKER[] = "GASMETER_FW:" FW_VERSION;
 
@@ -83,7 +84,7 @@ IPAddress DNS_SERVER(192, 168, 1, 1);
 #define DEBOUNCE_MS           300       // after a pulse the contact must stay open this long before the next one can count
 #define DEBOUNCE_MAX_MS       1500      // never wait longer than this for a stable level at wake-up
 #define MIN_SEND_INTERVAL_S   0         // 0 = send every single pulse; a larger value batches pulses into fewer WiFi sessions
-#define STATUS_INTERVAL_S     (6UL * 60UL * 60UL)   // status with its own WiFi session
+#define STATUS_INTERVAL_S     (60UL * 60UL)         // status (battery, WiFi signal, diagnostics) with its own WiFi session, every hour
 #define STATUS_PIGGYBACK_S    (5UL * 60UL)          // status added to a session that happens anyway
 
 // A pulse is a closure that lasts at least MIN_CLOSED_MS after the contact was open for DEBOUNCE_MS. Touches of a few
@@ -106,6 +107,7 @@ IPAddress DNS_SERVER(192, 168, 1, 1);
 #define WIFI_TIMEOUT_MS        8000
 #define WIFI_TIMEOUT_FIRST_MS  20000
 #define MQTT_TIMEOUT_MS        2000
+#define AWAKE_LIMIT_S          150      // the chip never stays awake longer than this: a hang restarts it (the counter is kept in RTC memory)
 #define CPU_MHZ                80       // 80 MHz is enough with WIFI_PSK_HEX (no key derivation); 240 only connects faster without it
 
 // 1 = final installation: no serial log and no LED (both only cost battery). 0 = desk tests: log on USB and the green LED.
@@ -143,7 +145,7 @@ struct Cache {
   uint8_t  resetReason;    // last restart that was not a normal wake-up from deep sleep
   uint8_t  otaWatch;       // 1 while a freshly installed firmware waits to be confirmed (mirror of the flash state)
   uint8_t  otaMsgPending;  // 1 when a result of an update still has to be reported
-  uint8_t  pad;
+  uint8_t  hangs;          // bit 7: a hang restart that was not looked at yet, bit 6: DHCP instead of the static IP, bits 0-5: hang restarts since power-on
   uint32_t pending;        // pulses counted but not yet published
   uint64_t counter;        // total pulses (relative to the base until baseKnown)
   uint64_t savedCounter;   // value stored in flash
@@ -391,6 +393,27 @@ static int readReedStable(bool wokeByClosure) {
   return level;
 }
 
+// ------------------------------- awake limit ---------------------------------
+// A WiFi session lasts about a second. If the chip is still awake after AWAKE_LIMIT_S something hangs (a blocked
+// socket, a stuck download): restart. The counter lives in RTC memory and survives the restart, the pulses are then sent
+// by the next session. A freshly installed firmware that hangs is counted like a crash and is replaced by the old one.
+static esp_timer_handle_t g_awakeTimer;
+
+static void awakeTimeout(void *) {
+  uint8_t n = cache.hangs & 0x3F;
+  if (n < 0x3F) n++;
+  cache.hangs = (uint8_t)((cache.hangs & 0x40) | 0x80 | n);
+  ESP.restart();
+}
+
+static void startAwakeLimit() {
+  esp_timer_create_args_t args;
+  memset(&args, 0, sizeof(args));
+  args.callback = awakeTimeout;
+  args.name = "awake";
+  if (esp_timer_create(&args, &g_awakeTimer) == ESP_OK) esp_timer_start_once(g_awakeTimer, (uint64_t)AWAKE_LIMIT_S * 1000000ULL);
+}
+
 // ------------------------------- flash backup -------------------------------
 static void saveCounter() {
   Preferences prefs;
@@ -565,10 +588,12 @@ static void otaRollback() {
 
 // Called early in setup(): the first starts of a freshly installed firmware are watched.
 static void otaBootCheck(esp_reset_reason_t reason, bool coldStart) {
+  bool hung = (cache.hangs & 0x80) != 0;                             // the awake limit restarted the chip
+  cache.hangs &= 0x7F;
   if (coldStart) cache.otaWatch = otaNvGet("ota_state") == 1;        // the RTC memory is lost on a power-on: ask the flash once
   if (!cache.otaWatch) return;
   g_otaAwaitingConfirm = true;
-  bool crashed = reason == ESP_RST_PANIC || reason == ESP_RST_INT_WDT || reason == ESP_RST_TASK_WDT || reason == ESP_RST_WDT;
+  bool crashed = hung || reason == ESP_RST_PANIC || reason == ESP_RST_INT_WDT || reason == ESP_RST_TASK_WDT || reason == ESP_RST_WDT;
   if (crashed) otaNvPut("ota_crash", otaNvGet("ota_crash") + 1);
   if (otaNvGet("ota_crash") >= OTA_MAX_CRASHES || otaNvGet("ota_fail") >= OTA_MAX_FAILED_SESSIONS) otaRollback();
 }
@@ -709,7 +734,10 @@ static bool wifiUp(unsigned long timeoutMs) {
   // every answer of the broker (connect, subscribe, publish acknowledgements) can wait 100-300 ms or more
   WiFi.setSleep(false);
 #if USE_STATIC_IP
-  WiFi.config(STATIC_IP, GATEWAY, SUBNET, DNS_SERVER);
+  // the static address failed three sessions in a row (changed router, address taken): use DHCP until the next power-on
+  if (cache.failCount >= 3) cache.hangs |= 0x40;
+  if (cache.hangs & 0x40) WiFi.config(IPAddress(0, 0, 0, 0), IPAddress(0, 0, 0, 0), IPAddress(0, 0, 0, 0), IPAddress(0, 0, 0, 0));
+  else WiFi.config(STATIC_IP, GATEWAY, SUBNET, DNS_SERVER);
 #endif
 
   bool connected = false;
@@ -913,6 +941,8 @@ static bool publishAll(bool sendStatus) {
     mqtt.publish(topic("chatter_events"), String(buf), true, 0);
     snprintf(buf, sizeof(buf), "%lu", (unsigned long)cache.restarts);
     mqtt.publish(topic("restarts"), String(buf), true, 0);
+    snprintf(buf, sizeof(buf), "%u", (unsigned)(cache.hangs & 0x3F));
+    mqtt.publish(topic("hangs"), String(buf), true, 0);
     mqtt.publish(topic("ip"), WiFi.localIP().toString(), true, 0);
     mqtt.publish(topic("mac"), WiFi.macAddress(), true, 0);
     mqtt.publish(topic("ssid"), WiFi.SSID(), true, 0);
@@ -990,6 +1020,7 @@ void setup() {
     cache.restarts++;
   }
   cache.wakes++;
+  startAwakeLimit();
 #if OTA_ENABLED
   otaBootCheck(resetReason, coldStart);                     // a freshly installed firmware is watched, and replaced if it does not work
 #endif
