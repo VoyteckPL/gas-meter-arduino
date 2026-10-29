@@ -178,9 +178,10 @@ dopasowany do miesięcy z faktur. Daje to prognozę na 12 miesięcy i porównani
 
 ## Panel Energia
 
-Karta „Panel Energia w Home Assistant” (zakładka Zużycie) wysyła statystykę `gas_meter_app:gas_history` w m³. Potem w Ustawienia → Pulpity → Energia
-dodaj źródło gazu i wybierz „Gazomierz (z historią)”. Nie dodawaj obok niego drugiej encji gazomierza, bo zużycie zliczy się podwójnie.
-Faktury sprzed odczytów są rozłożone równo na godziny miesiąca, więc widok godzinowy i dzienny dla tamtego okresu jest uśredniony.
+Źródłem gazu w panelu Energia jest encja „Gazomierz” (`sensor.gazomierz`, m³, `total_increasing`). Dodaj ją w Ustawienia → Pulpity → Energia →
+Dodaj źródło gazu i nie dodawaj obok żadnej drugiej encji gazomierza, bo zużycie zliczy się podwójnie. Statystyki rosną same z odczytów gazomierza.
+Jeśli licznik ustawisz w apce na inny stan, skok trafi do statystyk jako zużycie; popraw go w Narzędzia deweloperskie → Statystyki → „Dostosuj sumę”.
+Osobne statystyki pieca (ciepła woda, ogrzewanie, reszta) wysyła karta „Piec” w zakładce Zużycie.
 
 ## Encje obliczane przez apkę
 

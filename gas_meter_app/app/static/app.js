@@ -45,7 +45,7 @@ const TEXT = {
     visibleRange: "Widoczny zakres", goBattery: "Przejdź do zakładki Bateria",
     emptyBattery: "Gazomierz nie przysłał jeszcze danych baterii. Pojawią się po wgraniu szkicu gazomierza (firmware/gas_meter). Test rozładowania zobaczysz w zakładce Bateria.",
     emptyGeneric: "W tym okresie nie ma jeszcze danych.",
-    hsTitle: "Historia baterii z Home Assistant", hsHint: "Wczytuje statystyki napięcia baterii wybranej encji z Home Assistant (np. ze starego czujnika). Historię gazu scala karta powyżej. Zaimportowane dane są tylko starsze niż pierwszy odczyt z nowego gazomierza i nie zmieniają niczego w Home Assistant.",
+    hsTitle: "Historia baterii z Home Assistant", hsHint: "Wczytuje statystyki napięcia baterii wybranej encji z Home Assistant (np. ze starego czujnika). Zaimportowane dane są tylko starsze niż pierwszy odczyt z nowego gazomierza i nie zmieniają niczego w Home Assistant.",
     hsEntity: "Encja ze statystykami", hsSearch: "Szukaj", hsKind: "Co to jest", hsKindMeter: "Stan licznika (m³)", hsKindBattery: "Napięcie baterii (V)",
     hsDivisor: "Dzielnik", hsDivisorHint: "1, jeśli encja podaje m³ albo V. Jeśli podaje impulsy, wpisz ich liczbę na m³ (np. 100).",
     hsPreview: "Podgląd", hsImport: "Importuj", hsClear: "Usuń zaimportowane", hsRefresh: "Odśwież listę",
@@ -67,10 +67,10 @@ const TEXT = {
     bConnect: "Czas łączenia z WiFi (min / śr. / maks)", bRssi: "Sygnał WiFi (min / śr. / maks)", bSamples: "Próbek baterii", bHistorySince: "Historia od",
     bTestNote: "Test rozładowania: prognoza wynika z trendu napięcia. Gdy test dojdzie do 3,0 V, panel nauczy się prawdziwej krzywej Twoich ogniw i użyje jej dla gazomierza.",
     bDays: "dni", bMonths: "mies.", bOn: "włączone", bUnknown: "nieznane",
-    tabPanel: "Przegląd", tabUsage: "Zużycie", meterSub: "wskazanie gazomierza", flowSub: "średnio z ostatnich 15 min", todaySub: "od północy", signalSub: "WiFi gazomierza", lastSub: "ostatni odczyt z gazomierza", tabSettings: "Ustawienia", tabNetwork: "Sieć", tabService: "Serwis", tabHistory: "Historia", tabDemo: "Demo",
+    tabPanel: "Przegląd", tabUsage: "Zużycie", meterSub: "wskazanie gazomierza", flowSub: "średnio z ostatnich 15 min", todaySub: "od północy", signalSub: "WiFi gazomierza", lastSub: "ostatni odczyt z gazomierza", tabSettings: "Ustawienia", tabNetwork: "Sieć", tabService: "Serwis", tabDemo: "Demo",
     settingsNote: "Gazomierz odbiera z apki tylko stan licznika, przy najbliższym połączeniu z WiFi (czyli przy impulsie gazu). Pozostałe parametry (WiFi, stałe IP, progi baterii, odstęp wysyłki) są wpisane w firmware: plik secrets.h i definicje na początku szkicu.",
     networkNote: "Tylko podgląd tego, co gazomierz zgłasza. Dane sieci zmienia się w firmware (secrets.h).",
-    serviceNote: "Aktualizacja firmware i diagnostyka gazomierza.", historyNote: "Historia gazu i baterii wczytana z Home Assistanta: scalanie, kontrola i poprawki.", histHint: "Kliknij wartość, żeby zobaczyć jej historię.", close: "Zamknij", range1h: "1 godz.", range6h: "6 godz.",
+    serviceNote: "Aktualizacja firmware i diagnostyka gazomierza.", histHint: "Kliknij wartość, żeby zobaczyć jej historię.", close: "Zamknij", range1h: "1 godz.", range6h: "6 godz.",
     range24h: "24 godz.", range7d: "7 dni", range14d: "14 dni", hMeter: "Stan licznika", hFlow: "Przepływ",
     hHourly: "Zużycie na godzinę", hBattery: "Napięcie baterii", hPercent: "Poziom baterii", hRssi: "Sygnał WiFi",
     hBtPin: "Napięcie na pinie (test)", hBtVolt: "Napięcie baterii (test)", sMin: "Min", sMax: "Maks", sAvg: "Średnia",
@@ -124,158 +124,6 @@ async function api(path, options) {
   if (!response.ok) throw new Error(data.error || response.statusText);
   return data;
 }
-// ------------------------------------------------------------- export of raw statistics (one-off cleanup)
-function exportCard() {
-  const filter = el("input", { type: "text", id: "exFilter", value: "gaz", autocomplete: "off" });
-  filter.addEventListener("input", renderExportList);
-  const go = el("button", { text: "Pobierz plik" });
-  go.addEventListener("click", runExport);
-  return el("section", { class: "card", id: "exCard" }, [
-    el("h2", { text: "Eksport statystyk (jednorazowo)" }),
-    el("p", { class: "hint", style: "margin-top:0", text: "Zapisuje godzinowe statystyki wybranych encji (stan i suma) do pliku JSON, razem z historią encji, których już nie ma w HA. Plik służy do jednorazowego uporządkowania historii gazu poza apką." }),
-    el("div", { class: "row" }, [el("label", { for: "exFilter", text: "Szukaj" }), el("div", { class: "field" }, [filter])]),
-    el("div", { id: "exList", style: "max-height:260px;overflow:auto;margin:8px 0" }),
-    el("div", { class: "field" }, [go]),
-  ]);
-}
-let exportIds = [];
-async function loadExportList() {
-  try { exportIds = (await api("ha_stats")).ids || []; } catch (e) { exportIds = []; }
-  renderExportList();
-}
-function renderExportList() {
-  const box = $("#exList"); if (!box) return;
-  const keep = new Set([...box.querySelectorAll("input:checked")].map((i) => i.dataset.id));
-  const q = ($("#exFilter").value || "").toLowerCase();
-  box.textContent = "";
-  for (const i of exportIds) {
-    if (q && !(i.id + " " + i.name).toLowerCase().includes(q)) continue;
-    const input = el("input", { type: "checkbox", style: "width:auto;margin-right:8px", "data-id": i.id });
-    input.checked = keep.has(i.id);
-    box.append(el("label", { style: "display:flex;align-items:center;margin:4px 0" }, [input, el("span", { text: i.id + (i.name ? " (" + i.name + ")" : "") + (i.unit ? " [" + i.unit + "]" : "") })]));
-  }
-  if (!box.children.length) box.append(el("span", { class: "muted small", text: "Brak statystyk pasujących do wyszukiwania" }));
-}
-async function runExport() {
-  const ids = [...document.querySelectorAll("#exList input:checked")].map((i) => i.dataset.id);
-  if (!ids.length) { toast("Zaznacz co najmniej jedną encję", true); return; }
-  try {
-    const data = await api("stats_export?ids=" + encodeURIComponent(ids.join(",")));
-    const blob = new Blob([JSON.stringify(data)], { type: "application/json" });
-    const link = el("a", { href: URL.createObjectURL(blob), download: "statystyki_gazu.json" });
-    document.body.append(link); link.click(); link.remove();
-    toast("Zapisano " + Object.values(data.statistics).reduce((n, x) => n + x.rows.length, 0) + " godzin");
-  } catch (e) { toast(t("error") + ": " + e.message, true); }
-}
-
-function loadCard() {
-  const file = el("input", { type: "file", id: "ldFile", accept: ".json,application/json" });
-  const check = el("button", { class: "secondary", text: "Sprawdź plik" });
-  const go = el("button", { class: "danger", text: "Wczytaj do statystyk" });
-  check.addEventListener("click", () => runLoad(true));
-  go.addEventListener("click", () => runLoad(false));
-  return el("section", { class: "card", id: "ldCard" }, [
-    el("h2", { text: "Wczytaj gotową historię (jednorazowo)" }),
-    el("p", { class: "hint", style: "margin-top:0", text: "Zapisuje historię z przygotowanego pliku w statystykach encji gazu apki („Cubic meters”, po zmianie nazwy „Gazomierz”). Najpierw usuwa jej dotychczasowe statystyki. Godziny po końcu pliku zostają z odczytów encji, a suma jest liczona od nowa, żeby encja dalej rosła od końca historii." }),
-    el("div", { class: "row" }, [el("label", { for: "ldFile", text: "Plik" }), el("div", { class: "field" }, [file])]),
-    el("div", { class: "field", style: "gap:8px;flex-wrap:wrap" }, [check, go]),
-    el("div", { class: "kv", id: "ldInfo", style: "margin-top:10px" }),
-  ]);
-}
-async function runLoad(dry) {
-  const f = $("#ldFile").files[0];
-  if (!f) { toast("Wybierz plik", true); return; }
-  if (!dry && !(await confirmDialog({ title: "Wczytać historię?", danger: true, confirmText: "Wczytaj",
-    message: "Dotychczasowe statystyki encji gazu apki zostaną zastąpione historią z pliku. Zrób wcześniej kopię zapasową HA." }))) return;
-  let body;
-  try { body = JSON.parse(await f.text()); } catch (e) { toast("To nie jest poprawny plik JSON", true); return; }
-  body.dry = dry;
-  try {
-    const d = await api("stats_load", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    const info = $("#ldInfo"); info.textContent = "";
-    const row = (k, v) => info.append(el("span", { text: k }), el("span", { class: "v", text: v }));
-    row("Encja", d.entity);
-    row("Godzin historii z pliku", String(d.history_rows));
-    row("Godzin dołożonych z encji", String(d.live_rows) + (d.skipped_jumps ? " (pominięte skoki: " + d.skipped_jumps + ")" : ""));
-    row("Pierwszy odczyt", fmtWhen(d.first.start) + ": " + num(d.first.state, 2) + " m³");
-    row("Ostatni odczyt", fmtWhen(d.last.start) + ": " + num(d.last.state, 2) + " m³");
-    if (dry) { toast("Plik jest poprawny, nic nie zapisano"); return; }
-    toast("Wczytywanie trwa, nie zamykaj strony");
-    row("Stan", "wczytywanie…");
-    for (;;) {                                   // the load runs in the app, in the background
-      await new Promise((resolve) => setTimeout(resolve, 2500));
-      const job = await api("stats_load");
-      if (job.state === "running") continue;
-      info.lastChild.textContent = job.state === "done" ? "gotowe" : "błąd: " + job.error;
-      toast(job.state === "done" ? "Wczytano historię do statystyk" : "Błąd: " + job.error, job.state !== "done");
-      break;
-    }
-  } catch (e) { toast(t("error") + ": " + e.message, true); }
-}
-
-// ------------------------------------------------------------- fresh start after the installation
-const toLocalInput = (ts) => { const d = new Date(ts * 1000 - new Date().getTimezoneOffset() * 60000); return d.toISOString().slice(0, 16); };
-const fmtWhen = (ts) => new Date(ts * 1000).toLocaleString("pl-PL", { dateStyle: "short", timeStyle: "short" });
-
-function cleanupCard() {
-  const when = el("input", { type: "datetime-local", id: "clWhen" });
-  const box = (id, on) => { const b = el("input", { type: "checkbox", id, style: "width:auto;margin-right:8px" }); b.checked = on; return b; };
-  const meter = box("clMeter", true), diag = box("clDiag", true), battery = box("clBattery", false), ha = box("clHa", true);
-  const opt = (input, text) => el("label", { style: "display:flex;align-items:center;margin:6px 0" }, [input, el("span", { text })]);
-  const run = el("button", { class: "danger", text: "Usuń dane sprzed montażu" });
-  run.addEventListener("click", runCleanup);
-  return el("section", { class: "card", id: "clCard" }, [
-    el("h2", { text: "Start od montażu" }),
-    el("p", { class: "hint", style: "margin-top:0", text: "Usuwa z apki odczyty licznika i diagnostykę sprzed podanej chwili (testy na biurku) i wyjmuje ze statystyk Home Assistanta skoki licznika po ustawieniu stanu, żeby panel Energia nie pokazał ich jako zużycia gazu. Domyślna chwila to ostatnie ustawienie stanu licznika." }),
-    el("div", { class: "row" }, [el("label", { for: "clWhen", text: "Montaż (od tej chwili zostają dane)" }), el("div", { class: "field" }, [when])]),
-    opt(meter, "Stan licznika (z niego liczone są też przepływ i zużycie na godzinę)"),
-    opt(diag, "Sygnał WiFi i diagnostyka (obudzenia, sesje, czasy pracy)"),
-    opt(battery, "Napięcie i poziom baterii (zwykle zostawić: te same ogniwa, przydaje się do prognozy)"),
-    opt(ha, "Popraw statystyki „Cubic meters” i „Licznik gazu (z historią)” w Home Assistant"),
-    el("div", { class: "kv", id: "clInfo", style: "margin:10px 0" }),
-    el("div", { class: "field" }, [run]),
-  ]);
-}
-
-let cleanupData = null;
-async function loadCleanup() {
-  try { cleanupData = await api("cleanup"); } catch (e) { return; }
-  const d = cleanupData, info = $("#clInfo");
-  if (!info) return;
-  if (d.cutoff && !$("#clWhen").value) $("#clWhen").value = toLocalInput(d.cutoff);
-  info.textContent = "";
-  const row = (k, v) => info.append(el("span", { text: k }), el("span", { class: "v", text: v }));
-  row("Ostatnie ustawienie licznika", d.jump_at ? fmtWhen(d.jump_at) : "nie znaleziono");
-  row("Przed tą chwilą: licznik / WiFi / bateria", (d.counts.cubic_meters || 0) + " / " + (d.counts.RSSI || 0) + " / " + (d.counts.BatteryVoltage || 0) + " odczytów");
-  if (d.ha) {
-    if (d.ha.error) row("Home Assistant", d.ha.error);
-    else if (!d.ha.sensors.length) row("Home Assistant", "nie znaleziono encji gazu apki");
-    else {
-      for (const x of d.ha.sensors)
-        row("Skoki w HA: " + x.name, x.jumps.length ? x.jumps.map((j) => fmtWhen(j.start) + ": +" + num(j.m3, 2) + " m³").join(", ") : "brak");
-      if (d.ha.waiting) row("Uwaga", "ostatni skok trafi do statystyk HA kilka minut po pełnej godzinie; wtedy uruchom jeszcze raz (można wielokrotnie)");
-    }
-  }
-}
-
-async function runCleanup() {
-  const value = $("#clWhen").value;
-  if (!value) { toast("Podaj chwilę montażu", true); return; }
-  const cutoff = new Date(value).getTime() / 1000;
-  const ok = await confirmDialog({ title: "Usunąć dane sprzed montażu?", danger: true, confirmText: "Usuń",
-    message: "Zaznaczone dane sprzed " + fmtWhen(cutoff) + " znikną z apki. Tego nie da się cofnąć." });
-  if (!ok) return;
-  try {
-    const d = await api("cleanup", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "run", cutoff, ha: $("#clHa").checked,
-        groups: [["meter", "clMeter"], ["diag", "clDiag"], ["battery", "clBattery"]].filter(([, id]) => $("#" + id).checked).map(([g]) => g) }) });
-    const fixed = d.ha && d.ha.sensors ? d.ha.sensors.reduce((n, x) => n + x.jumps.length, 0) : 0;
-    const removed = Object.values(d.removed || {}).reduce((a, b) => a + b, 0);
-    toast("Usunięto " + removed + " odczytów" + ($("#clHa").checked ? ", poprawiono skoków w HA: " + fixed : ""));
-    loadCleanup(); refresh(); drawChart();
-  } catch (e) { toast(t("error") + ": " + e.message, true); }
-}
-
 // ------------------------------------------------------------- history imported from Home Assistant
 const haState = { ids: [], imported: {} };
 const fmtDay = (ts) => new Date(ts * 1000).toLocaleDateString("pl-PL");
@@ -424,7 +272,6 @@ function build() {
   root.textContent = "";
   const views = {
     battery: $("#batteryView"), settings: $("#settingsView"), network: $("#networkView"), service: $("#serviceView"),
-    history: $("#historyView"),
   };
   for (const node of Object.values(views)) node.textContent = "";
   const note = (key) => el("section", { class: "card wide" }, [el("p", { class: "muted small", style: "margin:0", "data-i18n": key })]);
@@ -531,13 +378,8 @@ function build() {
   views.network.append(network);
 
   views.service.append(otaCard());
-  views.history.append(note("historyNote"));
-  views.history.append(exportCard());
-  views.history.append(loadCard());
-  views.history.append(cleanupCard());
-  views.history.append(gasHistoryCard());
   // history imported from Home Assistant statistics
-  views.history.append(el("section", { class: "card", id: "hsCard" }, [
+  views.battery.append(el("section", { class: "card", id: "hsCard" }, [
     el("h2", { "data-i18n": "hsTitle" }),
     el("p", { class: "hint", style: "margin-top:0", "data-i18n": "hsHint" }),
     el("div", { class: "row" }, [el("label", { for: "hsFilter", "data-i18n": "hsSearch" }), el("div", { class: "field" }, [el("input", { type: "text", id: "hsFilter", value: "gazomierz", autocomplete: "off" })])]),
@@ -557,7 +399,6 @@ function build() {
     el("div", { class: "muted small", style: "margin-top:12px", id: "hsStatus" }),
   ]));
   $("#hsFilter").addEventListener("input", fillHaList);
-  $("#ghFilter").addEventListener("input", fillGasList);
   $("#hsId").addEventListener("change", pickHaKind);
   $("#hsPreviewBtn").addEventListener("click", () => haAction("preview"));
   $("#hsImportBtn").addEventListener("click", () => haAction("import"));
@@ -981,20 +822,6 @@ function buildUsage() {
         el("div", { class: "field", style: "gap:8px;flex-wrap:wrap;margin-top:8px" }, [
           eBtn("Wyślij do panelu Energia", "", () => boilerEnergy("energy_import")),
           eBtn("Usuń z Home Assistanta", "secondary", () => { if (confirm("Usunąć trzy statystyki gazu z Home Assistanta?")) boilerEnergy("energy_clear"); })])], true);
-  card([el("h2", { text: "Panel Energia w Home Assistant" }),
-        el("p", { class: "hint", style: "margin:0 0 8px", text: "Apka może wysłać do Home Assistanta całą historię zużycia gazu jako statystykę „Gazomierz (z historią)”: miesiące z faktur sprzed pierwszych odczytów, potem odczyty gazomierza godzina po godzinie. Dodaj ją w Ustawienia → Pulpity → Energia → Dodaj źródło gazu. Dane z faktur są rozłożone równo na godziny miesiąca, więc dobre są do widoku miesięcznego i rocznego." }),
-        el("div", { id: "eStatus", class: "muted small" }), el("div", { id: "ePreview", class: "muted small", style: "margin-top:6px" }),
-        el("div", { class: "field", style: "gap:8px;flex-wrap:wrap;margin-top:8px" }, [
-          eBtn("Podgląd", "secondary", () => energyAction("preview")),
-          eBtn("Wyślij historię do panelu Energia", "", async () => {
-            const ok = await confirmDialog({ title: "Wysłać historię do panelu Energia?", confirmText: "Wyślij",
-              message: "Apka doda w Home Assistancie własną statystykę „Gazomierz (z historią)”. Nie zmienia żadnej istniejącej encji ani jej historii, a statystykę można usunąć przyciskiem obok. Potem nowe godziny będą dopisywane automatycznie." });
-            if (ok) energyAction("import");
-          }),
-          eBtn("Usuń z Home Assistanta", "ghost", async () => {
-            const ok = await confirmDialog({ title: "Usunąć statystykę z Home Assistanta?", danger: true, confirmText: "Usuń", message: "Zniknie statystyka „Gazomierz (z historią)” razem z historią w panelu Energia. Dane w apce zostają i można je wysłać ponownie." });
-            if (ok) energyAction("clear");
-          })])]);
   card([el("h2", { text: "Profil sezonowy (średnio na miesiąc)" }), el("div", { id: "uSeason" }),
         el("p", { class: "hint", text: "Średnia ze wszystkich lat z faktur. Impulsy na dobę to to, co gazomierz będzie liczył w danym miesiącu, więc od tego zależy zużycie baterii." })]);
   card([el("h2", { text: "Rocznie" }), el("div", { id: "uYears", style: "overflow-x:auto" })]);
@@ -1089,7 +916,6 @@ async function loadUsage() {
   renderUsage();
   syncOrlen();
   loadWeather();
-  api("energy").then(renderEnergy).catch(() => {});
   loadForecast();
   loadBoiler();
 }
@@ -1334,294 +1160,6 @@ async function otaDelete() {
   if (await confirmDialog({ title: "Usunąć wgrany plik?", confirmText: "Usuń", message: "Plik firmware zniknie z apki, a uzbrojona aktualizacja zostanie anulowana." })) otaAction("delete");
 }
 
-// ------------------------------------------------------------- gas history: merge, check, correct
-const gasState = { sources: [], data: null, chart: null, chartReady: false, picked: null };
-const GAS_COLORS = ["#2f7fd0", "#2e9e6b", "#8a5cd0", "#d08a2f", "#2fb5c4", "#a0a0b0"];
-const GAS_KIND = { jump: "nagły skok", hour: "ponad 6 m³ w godzinę", zero: "brak zużycia w sezonie", gap: "luka w danych (zużycie rozłożone równo)" };
-const dayTs = (day) => new Date(day + "T00:00:00").getTime() / 1000;
-
-function gasHistoryCard() {
-  const btn = (text, cls, fn) => { const b = el("button", { class: cls, text, "data-keep": "" }); b.addEventListener("click", fn); return b; };
-  const num2 = (id, ph) => el("input", { type: "number", id, step: "0.1", min: "0", placeholder: ph, style: "max-width:110px" });
-  return el("section", { class: "card wide", id: "ghCard" }, [
-    el("h2", { text: "Historia gazu z Home Assistanta: scalanie, kontrola, poprawki" }),
-    el("p", { class: "hint", style: "margin-top:0", text: "Wybierz encje ze statystykami gazu (np. starą od 2019 i nową) i dodaj je do listy. Apka złoży z nich jedną historię: najnowsza encja jest wzorcem, starsze są przesuwane tak, żeby odczyty się zszyły, a w miejscu, gdzie się pokrywają, wygrywa nowsza. Podejrzane skoki zużycia możesz poprawić. Nic w Home Assistancie się nie zmienia, dopóki nie wyślesz wyniku do panelu Energia." }),
-    el("div", { class: "row" }, [el("label", { for: "ghFilter", text: "Szukaj" }), el("div", { class: "field" }, [el("input", { type: "text", id: "ghFilter", value: "gaz", autocomplete: "off" })])]),
-    el("div", { class: "row" }, [el("label", { for: "ghId", text: "Encja ze statystykami" }), el("div", { class: "field" }, [el("select", { id: "ghId" })])]),
-    el("div", { class: "row" }, [el("label", { for: "ghDiv", text: "Dzielnik" }), el("div", { class: "field" }, [el("input", { type: "number", id: "ghDiv", value: "1", min: "0.0001", step: "any", style: "max-width:110px" }), btn("Dodaj do listy", "secondary", gasAddSource)])]),
-    el("div", { id: "ghSources", style: "margin:8px 0" }),
-    el("div", { class: "field", style: "gap:8px;flex-wrap:wrap" }, [
-      btn("Podgląd", "secondary", () => gasLoad("preview")), btn("Wczytaj i scal", "", () => gasLoad("load")), btn("Usuń scaloną historię", "ghost", gasClear)]),
-    el("div", { class: "muted small", id: "ghStatus", style: "margin-top:10px" }),
-    el("div", { class: "muted small", id: "ghJoins" }),
-    el("canvas", { id: "ghChart" }),
-    el("p", { class: "hint", id: "ghHint" }),
-    el("div", { id: "ghPick" }),
-    el("h3", { text: "Wyrównanie do faktur" }),
-    el("p", { class: "hint", style: "margin-top:0", text: "Porównanie zużycia miesiąca w historii z zużyciem z faktur (faktura liczy się do miesiąca przed terminem płatności, więc to przybliżenie). „Wyrównaj” skaluje dni miesiąca tak, żeby suma zgadzała się z fakturą, zachowując rozkład zużycia w miesiącu; dni poprawione ręcznie zostają. Dobre do miesięcy z lukami w danych." }),
-    el("div", { id: "ghMonths", style: "overflow-x:auto" }),
-    el("h3", { text: "Podejrzane dni" }),
-    el("div", { id: "ghAnom", style: "overflow-x:auto" }),
-    el("h3", { text: "Własna poprawka" }),
-    el("div", { class: "field", style: "gap:8px;flex-wrap:wrap" }, [el("input", { type: "date", id: "ghDay" }), num2("ghM3", "m³ w dobie"), btn("Ustaw zużycie dnia", "secondary", () => { const d = $("#ghDay").value, v = $("#ghM3").value; if (d && v !== "") gasPost({ action: "fix", day: d, m3: Number(v) }); })]),
-    el("h3", { text: "Poprawione dni" }),
-    el("div", { id: "ghFixed", style: "overflow-x:auto" }),
-    el("h3", { text: "Wynik w Home Assistancie" }),
-    el("p", { class: "hint", style: "margin-top:0", text: "Zalecane: apka tworzy w Home Assistancie encję „Licznik gazu (z historią)” (jest w rejestrze encji, w urządzeniu Gas meter) i wgrywa do jej statystyk całą scaloną historię. Tę jedną encję wskaż w panelu Energia jako źródło gazu i usuń stare, żeby zużycie nie liczyło się podwójnie. Po każdej poprawce kliknij ponownie, historia encji zostanie zastąpiona." }),
-    el("div", { class: "muted small", id: "ghEntity" }),
-    btn("Utwórz encję i wgraj historię", "", gasEntity),
-    el("p", { class: "hint", text: "Albo statystyka zewnętrzna „Gazomierz (z historią)” (bez encji, widoczna w panelu Energia i w karcie „Wykres statystyk”; zawiera też miesiące z faktur sprzed pierwszych odczytów)." }),
-    btn("Wyślij scaloną historię do panelu Energia", "", gasSendEnergy)]);
-}
-
-function fillGasList() {
-  const q = $("#ghFilter").value.trim().toLowerCase(), select = $("#ghId"), keep = select.value;
-  select.textContent = "";
-  for (const i of haState.ids) {
-    if (!/m³|m3/i.test(i.unit || "")) continue;
-    if (i.id.startsWith("gas_meter_app:") || i.id.includes("licznik_gazu_z_historia")) continue;      // the app's own results are not a source
-    if (q && !(i.id.toLowerCase().includes(q) || i.name.toLowerCase().includes(q))) continue;
-    select.append(el("option", { value: i.id, text: (i.name ? i.name + " · " : "") + i.id + " · " + i.unit }));
-  }
-  if (keep && [...select.options].some((o) => o.value === keep)) select.value = keep;
-}
-
-function gasAddSource() {
-  const id = $("#ghId").value, divisor = Number($("#ghDiv").value) || 1;
-  if (!id) return;
-  if (!gasState.sources.some((x) => x.id === id)) gasState.sources.push({ id, divisor });
-  renderGasSources();
-}
-
-function renderGasSources() {
-  const box = $("#ghSources");
-  box.textContent = "";
-  if (!gasState.sources.length) { box.append(el("div", { class: "muted small", text: "Lista jest pusta: wybierz encję i kliknij „Dodaj do listy”." })); return; }
-  gasState.sources.forEach((x, i) => {
-    const rm = el("button", { class: "ghost", text: "usuń" });
-    rm.addEventListener("click", () => { gasState.sources.splice(i, 1); renderGasSources(); });
-    box.append(el("div", { class: "field", style: "gap:8px;align-items:center;margin:2px 0" }, [el("span", { text: x.id + (x.divisor !== 1 ? "  (dzielnik " + x.divisor + ")" : "") }), rm]));
-    const meta = gasState.data && gasState.data.sources.find((m) => m.id === x.id);
-    if (meta && meta.count) {
-      const inf = meta.info || {};
-      box.append(el("div", { class: "muted small", style: "margin:0 0 6px 4px", text: fmtDay(meta.from) + " – " + fmtDay(meta.to) + ", " + meta.count + " godzin" +
-        (inf.mode ? ", odczyt z pola „" + (inf.mode === "sum" ? "suma" : "stan") + "”" : "") + (inf.gaps ? ", przerw w danych: " + inf.gaps + " (najdłuższa " + num(inf.longest_gap_days, 1) + " dnia)" : ", bez przerw") +
-        (inf.decreases ? ", pominięto spadków licznika: " + inf.decreases : "") }));
-    }
-  });
-}
-
-async function gasPost(body, quiet) {
-  try {
-    const d = await api("gas_history", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    gasState.data = d;
-    if (!quiet) toast(body.action === "preview" ? "Podgląd gotowy" : "Zapisane");
-    if (body.action !== "preview") { gasState.sources = d.sources.map((x) => ({ id: x.id, divisor: x.divisor })); renderGasSources(); drawChart(); refresh(); loadHaStats(); }
-    renderGas();
-  } catch (e) { toast(e.message, true); }
-}
-
-async function gasLoad(action) {
-  if (!gasState.sources.length) { toast("Dodaj przynajmniej jedną encję do listy.", true); return; }
-  if (action === "load" && !(await confirmDialog({ title: "Wczytać i scalić historię?", danger: true, confirmText: "Wczytaj",
-    message: "Scalona historia zastąpi dotychczas zaimportowaną historię gazu w apce. Twoje poprawki dni zostają. W Home Assistancie nic się nie zmienia.",
-    details: gasState.sources.map((x) => ["Encja", x.id]) }))) return;
-  await gasPost({ action, sources: gasState.sources });
-}
-
-async function gasClear() {
-  if (!(await confirmDialog({ title: "Usunąć scaloną historię?", danger: true, confirmText: "Usuń", message: "Zniknie zaimportowana historia gazu razem z poprawkami. Dane w Home Assistancie zostają." }))) return;
-  await gasPost({ action: "clear" });
-}
-
-async function gasEntity() {
-  if (!(await confirmDialog({ title: "Utworzyć encję i wgrać historię?", danger: true, confirmText: "Wgraj",
-    message: "Statystyki encji „Licznik gazu (z historią)” zostaną zastąpione scaloną i poprawioną historią. Dane starych encji w Home Assistancie się nie zmieniają." }))) return;
-  try {
-    gasState.data = await api("gas_history", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "entity" }) });
-    toast("Encja gotowa, historia wgrana");
-    renderGas();
-  } catch (e) { toast(e.message, true); }
-}
-
-// a click on a bar opens the correction of that day under the chart
-function gasPick(t, redraw) {
-  const box = $("#ghPick"), d = gasState.data;
-  if (!box || !d || !d.days.length) return;
-  if (!redraw) {
-    const date = new Date(t * 1000), day = date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0") + "-" + String(date.getDate()).padStart(2, "0");
-    gasState.picked = d.days.some((x) => x.day === day) ? day : null;
-  }
-  const day = gasState.picked;
-  box.textContent = "";
-  const row = day && d.days.find((x) => x.day === day);
-  if (!row) return;
-  const i = d.days.indexOf(row), bad = new Set(d.anomalies.map((a) => a.day));
-  const near = d.days.slice(Math.max(0, i - 21), i + 22).filter((x) => x.day !== day && !bad.has(x.day) && !x.fixed && x.orig > 0.02).map((x) => x.orig).sort((a, b) => a - b);
-  const typical = near.length ? near[near.length >> 1] : 0;
-  const input = el("input", { type: "number", step: "0.1", min: "0", value: String(Math.round(row.m3 * 100) / 100), style: "max-width:100px" });
-  const mk = (text, cls, fn) => { const b = el("button", { class: cls, text, "data-keep": "" }); b.addEventListener("click", fn); return b; };
-  const buttons = [mk("Ustaw", "", () => gasPost({ action: "fix", day, m3: Number(input.value) })),
-                   mk("Typowe (" + num(typical, 1) + " m³)", "secondary", () => gasPost({ action: "fix", day, m3: Math.round(typical * 10) / 10 }))];
-  if (row.fixed) buttons.push(mk("Cofnij poprawkę", "ghost", () => gasPost({ action: "unfix", day })));
-  if (bad.has(day)) buttons.push(mk("To prawda", "ghost", () => gasPost({ action: "accept", day })));
-  buttons.push(mk("Zamknij", "ghost", () => { gasState.picked = null; gasPick(null, true); }));
-  box.append(el("div", { class: "card", style: "padding:12px;margin:8px 0;border:1px solid var(--line)" }, [
-    el("div", { style: "font-weight:600", text: "Dzień " + row.day }),
-    el("div", { class: "muted small", text: "Z Home Assistanta: " + num(row.orig, 2) + " m³" + (row.fixed ? ", po poprawce: " + num(row.m3, 2) + " m³" : "") + ", typowo obok: " + num(typical, 1) + " m³" + (bad.has(day) ? " (podejrzany)" : "") }),
-    el("div", { class: "field", style: "gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center" }, [input, el("span", { class: "unit", text: "m³" })].concat(buttons))]));
-}
-
-async function gasSendEnergy() {
-  if (!(await confirmDialog({ title: "Wysłać do panelu Energia?", confirmText: "Wyślij",
-    message: "Statystyka „Gazomierz (z historią)” zostanie przeliczona z tej historii i nadpisana w Home Assistancie." }))) return;
-  try {
-    const r = await api("energy", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "import" }) });
-    toast("Wysłano " + (r.rows || 0) + " godzin do panelu Energia");
-  } catch (e) { toast(e.message, true); }
-}
-
-async function loadGasHistory() {
-  await loadHaStats();
-  fillGasList();
-  try { gasState.data = await api("gas_history"); } catch (e) { gasState.data = null; }
-  if (gasState.data && gasState.data.sources.length && !gasState.sources.length) gasState.sources = gasState.data.sources.map((x) => ({ id: x.id, divisor: x.divisor }));
-  renderGasSources();
-  renderGas();
-}
-
-function renderGasMonths(d) {
-  const box = $("#ghMonths");
-  box.textContent = "";
-  const rows = (d.months || []).filter((m) => m.full && m.bill_m3 !== null && m.bill_m3 !== undefined);
-  if (!rows.length) { box.append(el("div", { class: "muted small", text: "Brak pełnych miesięcy z fakturą do porównania. Zaimportuj faktury w zakładce Zużycie." })); return; }
-  const off = rows.filter((m) => !m.scaled && Math.abs(m.m3 - m.bill_m3) > 0.03 * m.bill_m3 + 0.5), done = rows.filter((m) => m.scaled);
-  const btn = (text, cls, fn, dis) => { const b = el("button", { class: cls, text, "data-keep": "" }); b.disabled = !!dis; b.addEventListener("click", fn); return b; };
-  box.append(el("div", { class: "field", style: "gap:8px;flex-wrap:wrap;margin-bottom:8px" }, [
-    btn("Wyrównaj wszystkie miesiące do faktur (" + off.length + ")", "", async () => {
-      if (await confirmDialog({ title: "Wyrównać do faktur?", danger: true, confirmText: "Wyrównaj", message: "Zużycie dni w miesiącach, które różnią się od faktury o więcej niż 3 %, zostanie przeskalowane do faktury. Można cofnąć.",
-        details: [["Miesięcy", String(off.length)], ["Zmiana zużycia", num(off.reduce((sum, m) => sum + m.bill_m3 - m.m3, 0), 0) + " m³"]] })) gasPost({ action: "scale_all" });
-    }, !off.length),
-    btn("Cofnij wyrównanie (" + done.length + ")", "ghost", () => gasPost({ action: "unscale_all" }), !done.length)]));
-  const t = el("table", { class: "mini" }, [el("tr", {}, ["Miesiąc", "Z historii", "Z faktury", "Różnica", ""].map((h) => el("th", { text: h })))]);
-  for (const m of rows.slice().reverse().slice(0, 48)) {
-    const diff = m.m3 - m.bill_m3, pct = m.bill_m3 ? diff / m.bill_m3 * 100 : 0;
-    const act = el("button", { class: m.scaled ? "ghost" : "secondary", text: m.scaled ? "Cofnij" : "Wyrównaj", "data-keep": "" });
-    act.addEventListener("click", () => gasPost(m.scaled ? { action: "unscale", month: m.month } : { action: "scale", month: m.month, m3: m.bill_m3 }));
-    t.append(el("tr", {}, [m.month + (m.gap_days ? " (luka " + m.gap_days + " dni)" : ""), num(m.m3, 1) + " m³" + (m.scaled ? " (wyrównane, było " + num(m.orig, 1) + ")" : ""), num(m.bill_m3, 1) + " m³",
-      (diff > 0 ? "+" : "") + num(diff, 1) + " m³ (" + (pct > 0 ? "+" : "") + num(pct, 0) + " %)"].map((x) => el("td", { text: x })).concat([el("td", {}, [act])])));
-  }
-  box.append(t);
-}
-
-function renderGas() {
-  const d = gasState.data, status = $("#ghStatus"), joins = $("#ghJoins"), canvas = $("#ghChart");
-  if (!status) return;
-  joins.textContent = ""; $("#ghAnom").textContent = ""; $("#ghFixed").textContent = "";
-  if (!d || !d.days.length) {
-    status.textContent = d && !d.in_ha ? "Dostępne tylko, gdy apka działa w Home Assistant." : "Brak scalonej historii gazu. Dodaj encje do listy i kliknij „Wczytaj i scal”.";
-    canvas.style.display = "none"; $("#ghHint").textContent = ""; setLegend(canvas, []);
-    return;
-  }
-  canvas.style.display = "";
-  const total = d.days.reduce((s, x) => s + x.m3, 0), first = d.days[0].day, last = d.days[d.days.length - 1].day;
-  const en = d.entity;
-  $("#ghEntity").textContent = en ? "Encja " + en.id + ": wgrano " + en.rows + " godzin (" + fmtDay(en.from) + " – " + fmtDay(en.to) + ", razem " + num(en.total_m3, 0) + " m³), " + new Date(en.at * 1000).toLocaleString("pl-PL") + "." +
-    (en.ha_months ? " Home Assistant widzi statystyki: " + en.ha_months + " mies. od " + fmtDay(en.ha_first) + ", suma " + num(en.ha_sum, 0) + " m³. Historia jest w statystykach długoterminowych: zobaczysz ją w panelu Energia, w karcie „Wykres statystyk” (okres miesiąc lub rok) i w Narzędzia deweloperskie → Statystyki. Okno encji pokazuje tylko ostatnią dobę." : "")
-    : "Historia jeszcze nie została wgrana. Encja sama się nie wypełnia: kliknij przycisk poniżej.";
-  status.textContent = "Historia: " + first + " – " + last + ", " + d.days.length + " dni, razem " + num(total, 0) + " m³. Podejrzanych dni: " + d.anomalies.length + ", poprawionych: " + Object.keys(d.fixes).length + ".";
-  if (d.gaps && d.gaps.length) joins.append(el("div", { text: "• Przerwy w danych (zużycie rozłożone w nich równo): " + d.gaps.length + ", razem " + num(d.gaps.reduce((a, g) => a + g.days, 0), 0) + " dni; najdłuższe: " +
-    d.gaps.slice().sort((a, b) => b.days - a.days).slice(0, 4).map((g) => fmtDay(g.from) + " – " + fmtDay(g.to) + " (" + num(g.days, 0) + " dni)").join(", ") + "." }));
-  const JOIN = { adjacent: "zszyte bez przerwy", gap: "przerwa w danych", overlap: "encje się pokrywają, wygrywa nowsza", covered: "w całości pokryta przez nowszą" };
-  for (const j of d.joins) joins.append(el("div", { text: "• " + j.id + ": " + (JOIN[j.kind] || j.kind) + (j.kind === "gap" ? " (" + num(j.gap_hours / 24, 1) + " dnia, zużycie w przerwie liczone jako zero)" : "") +
-    (j.kind !== "covered" ? ", przesunięcie odczytów " + num(j.offset, 2) + " m³" : "") + (j.spread > 1 ? ", rozbieżność w nakładaniu " + num(j.spread, 1) + " m³" : "") }));
-  // chart: one bar series per source, corrected days and suspicious days in their own colours
-  const ids = d.sources.map((x) => x.id), byTs = new Map(d.days.map((x) => [dayTs(x.day), x]));
-  const bad = new Set(d.anomalies.map((a) => a.day));
-  const groups = new Map();
-  for (const x of d.days) {
-    const key = x.fixed ? "__fixed" : bad.has(x.day) ? "__bad" : x.src || "?";
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push([dayTs(x.day), x.m3]);
-  }
-  const named = (key) => key === "__fixed" ? ["Poprawione dni", cssColor("--accent")] : key === "__bad" ? ["Podejrzane dni", "#d0342c"] : [key, GAS_COLORS[Math.max(0, ids.indexOf(key)) % GAS_COLORS.length]];
-  const series = [...groups].map(([key, points]) => {
-    const [name, color] = named(key);
-    return { name, color, kind: "bars", barDt: 86400, points, noHover: true };
-  });
-  // an invisible series with every day carries the tooltip, so that it shows one day and not the nearest day of each colour
-  series.push({ name: "", color: "transparent", kind: "line", width: 0, points: d.days.map((x) => [dayTs(x.day), x.m3]), title: (p) => fmtDay(p[0]),
-    tooltip: (p) => { const r = byTs.get(p[0]); return r ? (r.fixed ? ["Po poprawce: " + num(r.m3, 2) + " m³", "Było: " + num(r.orig, 2) + " m³"] : ["Zużycie: " + num(r.m3, 2) + " m³"]).concat(r.src ? [r.src] : []) : []; } });
-  if (!gasState.chart) gasState.chart = new TimeChart(canvas, { dec: 1, unit: "m³", yTitle: "m³ na dobę", minSpan: 14 * 86400, monthlyTicks: "auto", onPick: gasPick });
-  setLegend(canvas, legendOf(series));
-  const domain = [dayTs(first), dayTs(last) + 86400], fresh = !gasState.chartReady;
-  gasState.chart.setSeries(series, domain, !fresh);
-  gasState.chartReady = true;
-  gasPick(gasState.picked, true);
-  $("#ghHint").textContent = "Kliknij słupek, żeby poprawić zużycie tego dnia. Słupki to zużycie na dobę, kolory to encje źródłowe. Czerwone są dni, które wyglądają na błąd danych (nagły skok, ponad 6 m³ w godzinę albo zero w środku sezonu).";
-  renderGasMonths(d);
-  // suspicious days
-  const anom = $("#ghAnom");
-  if (!d.anomalies.length) anom.append(el("div", { class: "muted small", text: "Nic podejrzanego nie znaleziono." }));
-  else {
-    const picked = new Set(), list = d.anomalies.slice().sort((x, y) => y.m3 - x.m3).slice(0, 400);
-    const of = (kinds, days) => d.anomalies.filter((a) => (!kinds || kinds.includes(a.kind)) && (!days || days.has(a.day)));
-    const bulk = async (label, action, kinds, days) => {
-      const rows = of(kinds, days);
-      if (!rows.length) { toast("Nie ma takich dni.", true); return; }
-      const change = rows.reduce((sum, a) => sum + (a.typical - a.m3), 0);
-      const ok = await confirmDialog(action === "accept_all"
-        ? { title: label + "?", confirmText: "Uznaj", message: "Te dni zostaną uznane za prawdziwe i przestaną być zgłaszane.", details: [["Dni", String(rows.length)]] }
-        : { title: label + "?", danger: true, confirmText: "Popraw", message: "Zużycie każdego z tych dni zostanie ustawione na typowe z sąsiednich dni. Poprawki zawsze można cofnąć.",
-            details: [["Dni", String(rows.length)], ["Zmiana zużycia", (change > 0 ? "+" : "") + num(change, 1) + " m³"]] });
-      if (ok) gasPost({ action, kinds: kinds || [], days: days ? [...days] : [] });
-    };
-    const btn = (text, cls, fn, disabled) => { const b = el("button", { class: cls, text, "data-keep": "" }); b.disabled = !!disabled; b.addEventListener("click", fn); return b; };
-    const zero = of(["zero", "gap"]).length, jumps = of(["jump", "hour"]).length;
-    const selFix = btn("Popraw zaznaczone", "secondary", () => bulk("Poprawić zaznaczone dni", "fix_all", null, new Set(picked)), true);
-    const selOk = btn("Uznaj zaznaczone", "ghost", () => bulk("Uznać zaznaczone dni za prawdziwe", "accept_all", null, new Set(picked)), true);
-    anom.append(el("div", { class: "field", style: "gap:8px;flex-wrap:wrap;margin-bottom:8px" }, [
-      btn("Uzupełnij puste dni typowym zużyciem (" + zero + ")", "", () => bulk("Uzupełnić puste dni typowym zużyciem", "fix_all", ["zero", "gap"]), !zero),
-      btn("Popraw skoki na typowe (" + jumps + ")", "secondary", () => bulk("Poprawić skoki na typowe", "fix_all", ["jump", "hour"]), !jumps),
-      btn("Popraw wszystkie (" + d.anomalies.length + ")", "secondary", () => bulk("Poprawić wszystkie podejrzane dni", "fix_all")),
-      btn("Uznaj wszystkie za prawdziwe", "ghost", () => bulk("Uznać wszystkie podejrzane dni za prawdziwe", "accept_all")), selFix, selOk]));
-    const syncSel = () => { selFix.disabled = selOk.disabled = !picked.size; selFix.textContent = "Popraw zaznaczone" + (picked.size ? " (" + picked.size + ")" : ""); };
-    const all = el("input", { type: "checkbox", title: "Zaznacz wszystkie" });
-    const boxes = [];
-    all.addEventListener("change", () => { for (const b of boxes) { b.checked = all.checked; b.dispatchEvent(new Event("change")); } });
-    const t = el("table", { class: "mini" }, [el("tr", {}, [el("th", {}, [all])].concat(["Dzień", "Zużycie", "Typowo obok", "Powód", "Ustaw na m³", ""].map((h) => el("th", { text: h }))))]);
-    for (const a of list) {
-      const input = el("input", { type: "number", step: "0.1", min: "0", value: String(a.typical), style: "max-width:90px" });
-      const pick = el("input", { type: "checkbox" });
-      pick.addEventListener("change", () => { if (pick.checked) picked.add(a.day); else picked.delete(a.day); syncSel(); });
-      boxes.push(pick);
-      const show = el("button", { class: "ghost", text: "pokaż" }), fix = el("button", { text: "Popraw" }), keep = el("button", { class: "secondary", text: "To prawda" });
-      show.addEventListener("click", () => { if (gasState.chart) gasState.chart.setView(dayTs(a.day) - 20 * 86400, dayTs(a.day) + 20 * 86400, true); $("#ghChart").scrollIntoView({ block: "center", behavior: "smooth" }); });
-      fix.addEventListener("click", () => gasPost({ action: "fix", day: a.day, m3: Number(input.value) }));
-      keep.addEventListener("click", () => gasPost({ action: "accept", day: a.day }));
-      t.append(el("tr", {}, [el("td", {}, [pick]), el("td", { text: a.day }), el("td", { text: num(a.m3, 1) + " m³" }), el("td", { text: num(a.typical, 1) + " m³" }), el("td", { text: GAS_KIND[a.kind] || a.kind }),
-        el("td", {}, [input]), el("td", { style: "white-space:nowrap" }, [show, fix, keep])]));
-    }
-    anom.append(t);
-    if (d.anomalies.length > list.length) anom.append(el("div", { class: "muted small", text: "Pokazano " + list.length + " największych z " + d.anomalies.length + ". Przyciski na górze działają na wszystkie." }));
-  }
-  // corrected days
-  const fixed = $("#ghFixed"), rows = d.days.filter((x) => x.fixed);
-  if (!rows.length) fixed.append(el("div", { class: "muted small", text: "Brak poprawek." }));
-  else {
-    const t = el("table", { class: "mini" }, [el("tr", {}, ["Dzień", "Było", "Jest", ""].map((h) => el("th", { text: h })))]);
-    for (const r of rows) {
-      const undo = el("button", { class: "ghost", text: "Cofnij" });
-      undo.addEventListener("click", () => gasPost({ action: "unfix", day: r.day }));
-      t.append(el("tr", {}, [r.day, num(r.orig, 1) + " m³", num(r.m3, 1) + " m³"].map((x) => el("td", { text: x })).concat([el("td", {}, [undo])])));
-    }
-    fixed.append(t);
-    const undoAll = el("button", { class: "ghost", text: "Cofnij wszystkie poprawki (" + rows.length + ")", "data-keep": "" });
-    undoAll.addEventListener("click", async () => { if (await confirmDialog({ title: "Cofnąć wszystkie poprawki?", danger: true, confirmText: "Cofnij", message: "Zużycie dni wróci do wartości z Home Assistanta.", details: [["Dni", String(rows.length)]] })) gasPost({ action: "unfix_all" }); });
-    fixed.append(el("div", { style: "margin-top:8px" }, [undoAll]));
-  }
-}
-
 async function loadForecast() {
   let d = null;
   try { d = await api("forecast"); } catch (e) { d = null; }
@@ -1647,26 +1185,6 @@ async function loadForecast() {
   box.append(t);
   $("#fHint").textContent = "Faktura jest przypisana do miesiąca przed terminem płatności. Zużycie tego miesiąca liczone jest z odczytów gazomierza do dziś, a reszta z modelu pogody" +
     (d.weather_model ? "" : " (jeszcze bez pogody, więc ze średniej z poprzednich lat)") + ". Cena = opłata stała + cena za kWh dopasowane do faktur z ostatnich 12 miesięcy; zakres to typowy błąd modelu. To szacunek, a nie wyliczenie Orlenu.";
-}
-
-async function energyAction(action) {
-  try {
-    const r = await api("energy", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) });
-    if (action === "preview" || action === "import") {
-      $("#ePreview").textContent = (action === "preview" ? "Podgląd: " : "Wysłano: ") + r.rows + " godzin, od " + new Date(r.from * 1000).toLocaleDateString("pl-PL") + " do " + new Date(r.to * 1000).toLocaleDateString("pl-PL") +
-        ", razem " + num(r.total_m3, 0) + " m³ (w tym " + r.history_rows + " godzin z faktur).";
-    } else $("#ePreview").textContent = "";
-    if (action !== "preview") toast(action === "import" ? "Wysłano historię do Home Assistanta" : "Usunięto statystykę");
-    renderEnergy(r.status || r);
-  } catch (e) { toast(e.message, true); }
-}
-
-function renderEnergy(st) {
-  const box = $("#eStatus");
-  if (!box) return;
-  box.textContent = !st || !st.in_ha ? "Dostępne tylko, gdy apka działa w Home Assistant." :
-    st.imported ? "Statystyka " + st.statistic_id + " jest w Home Assistancie: " + st.rows + " godzin, ostatnia z " + new Date(st.last_start * 1000).toLocaleString("pl-PL") + ", suma " + num(st.last_sum, 0) + " m³. Nowe godziny są dopisywane co godzinę." :
-    "Jeszcze nic nie wysłano.";
 }
 
 const weatherState = { data: null, chart: null, chartReady: false, scatterHover: null, forecastHover: null };
@@ -2478,8 +1996,8 @@ window.addEventListener("resize", () => { if (built) { if (!$("#batteryView").hi
 
 // ---------------------------------------------------------------- panel / demo tabs
 const VIEW_NODES = { panel: "#root", usage: "#usageView", battery: "#batteryView", settings: "#settingsView", network: "#networkView",
-                     service: "#serviceView", history: "#historyView", demo: "#demoView" };
-const VIEW_ORDER = ["panel", "usage", "battery", "settings", "network", "service", "history", "demo"];
+                     service: "#serviceView", demo: "#demoView" };
+const VIEW_ORDER = ["panel", "usage", "battery", "settings", "network", "service", "demo"];
 const reducedMotion = () => !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
 let viewSwap = null;
 
@@ -2509,9 +2027,8 @@ function showView(view, from) {
       next.addEventListener("animationend", () => next.classList.remove("slide-from-left", "slide-from-right"), { once: true });
     }
     if (from) window.scrollTo(0, 0);
-    if (view === "battery") loadBattery();
+    if (view === "battery") { loadBattery(); loadHaStats(); }
     if (view === "service") loadOta();
-    if (view === "history") { loadGasHistory(); loadCleanup(); loadExportList(); }
     if (view === "usage") loadUsage();
   };
   if (from && current && current !== next && !reducedMotion()) {

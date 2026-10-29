@@ -43,7 +43,6 @@ CORE_WS = os.environ.get("CORE_WS") or CORE_API.replace("http://", "ws://").repl
 IMPORT_FILE = os.path.join(DATA_DIR, "imported.json")
 BILLS_FILE = os.path.join(DATA_DIR, "bills.json")
 WEATHER_FILE = os.path.join(DATA_DIR, "weather.json")
-ENERGY_FILE = os.path.join(DATA_DIR, "energy.json")
 BOILER_FILE = os.path.join(DATA_DIR, "boiler.json")
 GASFIX_FILE = os.path.join(DATA_DIR, "gas_fixes.json")
 OTA_FILE = os.path.join(DATA_DIR, "firmware.bin")
@@ -55,10 +54,8 @@ WEATHER_API = os.environ.get("WEATHER_API", "https://archive-api.open-meteo.com/
 import battery
 import notifier
 import weather
-import energy
 import billing
 import boiler
-import gashistory
 import meterclean
 
 log = logging.getLogger("gas_meter")
@@ -452,9 +449,10 @@ class Bridge:
                  ("battery_charge_by", "Naładuj baterię do", "app/battery_charge_by", None, "timestamp", None, None),
                  ("bill_next", "Prognoza najbliższej faktury", "app/bill_next", "PLN", "monetary", None, None),
                  ("bill_year", "Prognoza rachunków 12 miesięcy", "app/bill_year", "PLN", "monetary", None, None),
-                 ("month_m3", "Zużycie gazu w miesiącu (prognoza)", "app/month_m3", "m³", None, None, None),
-                 # same reading as the meter itself; the full merged history is imported into the statistics of this entity
-                 ("history_meter", "Licznik gazu (z historią)", "cubic_meters", "m³", "gas", "total_increasing", None)]
+                 ("month_m3", "Zużycie gazu w miesiącu (prognoza)", "app/month_m3", "m³", None, None, None)]
+        # sensors of older versions of the app: an empty retained discovery message removes them from Home Assistant
+        for key in ("history_meter",):
+            self.client.publish("homeassistant/sensor/gas_meter_app/%s/config" % key, "", qos=1, retain=True)
         for key, name, topic, unit, device_class, state_class, category in extra:
             config = {"name": name, "uniq_id": "gas_meter_app_" + key, "stat_t": "%s/%s" % (root, topic), "dev": device}
             if unit:
@@ -1008,10 +1006,10 @@ async def api_ha_stats(request):
     try:
         body = await request.json()
         action = body.get("action")
-        kind = body.get("kind", "meter")
+        kind = body.get("kind", "battery")
         stat_id = str(body.get("statistic_id", ""))
         divisor = float(body.get("divisor") or 1)
-        if kind not in ("meter", "battery") or divisor <= 0:
+        if kind != "battery" or divisor <= 0:
             raise ValueError("bad parameter")
         if action in ("preview", "import") and not re.fullmatch(r"[a-z0-9_]+\.[a-z0-9_]+", stat_id):
             raise ValueError("bad statistic id")
@@ -1020,10 +1018,6 @@ async def api_ha_stats(request):
     if action == "clear":
         with store.lock:
             store.imported.pop(kind, None)
-        if kind == "meter":
-            app["gasfix"] = {"days": {}, "accepted": []}
-            app["gas_view"] = None
-            save_gasfix(app["gasfix"])
         store.save_imported()
         return web.json_response({"ok": True})
     if action not in ("preview", "import"):
@@ -1039,244 +1033,10 @@ async def api_ha_stats(request):
     if action == "import":
         if not points:
             return web.json_response({"error": "Ta encja nie ma statystyk godzinowych w tym zakresie"}, status=409)
-        if kind == "meter":
-            gas_rebuild(app, [{"id": stat_id, "divisor": divisor, "points": points}])
-        else:
-            with store.lock:
-                store.imported[kind] = dict(summary, id=stat_id, divisor=divisor, imported_at=time.time(), points=points)
-            store.save_imported()
-    return web.json_response(summary)
-
-
-# ------------------------------- gas history from several statistics: merge, find jumps, correct -------------------------------
-def load_gasfix():
-    try:
-        with open(GASFIX_FILE, encoding="utf-8") as handle:
-            data = json.load(handle)
-    except (OSError, ValueError):
-        data = {}
-    return {"days": dict(data.get("days") or {}), "accepted": list(data.get("accepted") or []), "entity": data.get("entity"),
-            "months": dict(data.get("months") or {})}
-
-
-def save_gasfix(data):
-    try:
-        os.makedirs(DATA_DIR, exist_ok=True)
-        with open(GASFIX_FILE + ".tmp", "w", encoding="utf-8") as handle:
-            json.dump(data, handle)
-        os.replace(GASFIX_FILE + ".tmp", GASFIX_FILE)
-    except OSError as error:  # pragma: no cover
-        log.warning("cannot save the corrections: %s", error)
-
-
-def gas_sources(store):
-    imp = store.imported.get("meter")
-    if not imp:
-        return []
-    return imp.get("sources") or [{"id": imp.get("id", "?"), "divisor": imp.get("divisor", 1), "points": imp.get("points", [])}]
-
-
-def gas_rebuild(app, sources=None):
-    """Merges the sources, applies the corrections and makes the result the imported meter history of the app."""
-    store = app["store"]
-    fixes = app["gasfix"]
-    sources = sources if sources is not None else gas_sources(store)
-    result = gashistory.build(sources, fixes["days"], fixes["accepted"], fixes["months"])
-    app["gas_view"] = result
-    if result["points"]:
-        summary = summarize(result["points"], "meter", 0)
         with store.lock:
-            store.imported["meter"] = dict(summary, id=" + ".join(x["id"] for x in sources), divisor=1, imported_at=time.time(),
-                                           sources=sources, joins=result["joins"], points=result["points"])
-    else:
-        with store.lock:
-            store.imported.pop("meter", None)
-    store.save_imported()
-    return result
-
-
-def gas_months(app, result):
-    """Months of the history next to the usage stated on the invoices (an invoice counts for the month before its due date)."""
-    monthly, factor = bills_context(app)
-    bill = {e["month"]: (e["m3"] if e.get("m3") is not None else e["kwh"] / factor) for e in monthly}
-    out = []
-    for m in result.get("months", []):
-        out.append(dict(m, bill_m3=round(bill[m["month"]], 1) if m["month"] in bill else None))
-    return out
-
-
-def gas_payload(app, result, sources):
-    fixes = app["gasfix"]
-    return {"months": gas_months(app, result), "gaps": result.get("gaps", []), "month_fixes": fixes["months"], "in_ha": bool(core_token()), "joins": result["joins"], "days": result["days"], "anomalies": result["anomalies"],
-            "fixes": fixes["days"], "accepted": fixes["accepted"], "entity": fixes.get("entity"),
-            "sources": [dict({"id": x["id"], "divisor": x.get("divisor", 1), "info": x.get("info")}, **summarize(x["points"], "meter", 0)) for x in sources],
-            "segments": result["segments"]}
-
-
-async def fetch_gas_source(stat_id, divisor):
-    result = (await core_ws_call([{
-        "type": "recorder/statistics_during_period", "start_time": "2000-01-01T00:00:00+00:00",
-        "statistic_ids": [stat_id], "period": "hour", "types": ["state", "mean", "min", "max", "sum"]}]))[0]
-    points, decreases, info = stats_to_points((result or {}).get(stat_id), "meter", divisor, True)
-    return {"id": stat_id, "divisor": divisor, "points": points, "info": dict(info, decreases=decreases)}
-
-
-async def gas_entity_import(app):
-    """Creates the sensor 'Licznik gazu (z historią)' (MQTT discovery) and puts the whole merged history into its statistics."""
-    bridge = app.get("bridge")
-    if bridge is None or not core_token():
-        raise ValueError("Apka nie działa w Home Assistant")
-    bridge.publish_discovery()
-    entity_id = None
-    for _ in range(12):
-        registry = (await core_ws_call([{"type": "config/entity_registry/list"}]))[0] or []
-        entity_id = next((e.get("entity_id") for e in registry if e.get("unique_id") == "gas_meter_app_history_meter"), None)
-        if entity_id:
-            break
-        await asyncio.sleep(2)
-    if not entity_id:
-        raise ValueError("Home Assistant nie utworzył jeszcze encji. Sprawdź, czy integracja MQTT działa i włączone jest „publish_discovery”.")
-    rows, _ = energy.build_rows([], 11.0, boiler_meter(app), time.time())
-    if not rows:
-        raise ValueError("Brak historii gazu do wysłania: wczytaj i scal encje albo poczekaj na odczyty.")
-    try:
-        await core_ws_call([{"type": "recorder/clear_statistics", "statistic_ids": [entity_id]}])
-    except RuntimeError:
-        pass                                                         # nothing to clear
-    await send_energy(rows, entity_id, None, "recorder")
-    check = (await core_ws_call([{"type": "recorder/statistics_during_period", "start_time": "2000-01-01T00:00:00+00:00",
-                                  "statistic_ids": [entity_id], "period": "month", "types": ["sum", "state"]}]))[0]
-    months = (check or {}).get(entity_id) or []
-    if not months:
-        raise ValueError("Home Assistant przyjął dane, ale nie widzi po nich statystyk encji " + entity_id + ".")
-    info = {"id": entity_id, "rows": len(rows), "from": rows[0]["start"], "to": rows[-1]["start"], "total_m3": rows[-1]["sum"], "at": time.time(),
-            "ha_months": len(months), "ha_first": stat_time(months[0]["start"]), "ha_sum": months[-1].get("sum")}
-    app["gasfix"]["entity"] = info
-    save_gasfix(app["gasfix"])
-    return info
-
-
-async def api_gas_history(request):
-    app = request.app
-    store = app["store"]
-    if request.method == "GET":
-        sources = gas_sources(store)
-        if app.get("gas_view") is None and sources:
-            gas_rebuild(app, sources)
-        elif not sources and app.get("gas_preview"):
-            sources = app["gas_preview"]                                    # only previewed so far: keep showing it
-            app["gas_view"] = gashistory.build(sources, app["gasfix"]["days"], app["gasfix"]["accepted"], app["gasfix"]["months"])
-        result = app.get("gas_view") or {"joins": [], "days": [], "anomalies": [], "segments": []}
-        return web.json_response(gas_payload(app, result, sources))
-    try:
-        body = await request.json()
-        action = body.get("action")
-        day = str(body.get("day", ""))
-        if action in ("fix", "unfix", "accept", "unaccept") and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
-            raise ValueError("bad day")
-        wanted = []
-        if action in ("preview", "load"):
-            for item in body.get("sources") or []:
-                stat_id, divisor = str(item.get("id", "")), float(item.get("divisor") or 1)
-                if not re.fullmatch(r"[a-z0-9_]+[.:][a-z0-9_]+", stat_id) or divisor <= 0:
-                    raise ValueError("bad statistic id")
-                wanted.append((stat_id, divisor))
-            if not wanted or len(wanted) > 8:
-                raise ValueError("podaj od 1 do 8 encji")
-        kinds = [k for k in body.get("kinds") or [] if k in ("jump", "hour", "zero")]
-        only = {d for d in body.get("days") or [] if re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(d))}
-        month = str(body.get("month", ""))
-        if action in ("scale", "unscale") and not re.fullmatch(r"\d{4}-\d{2}", month):
-            raise ValueError("bad month")
-        value = float(body["m3"]) if action in ("fix", "scale") else None
-        if value is not None and not 0 <= value <= 2000:
-            raise ValueError("zużycie poza zakresem")
-    except (ValueError, TypeError, AttributeError, KeyError) as error:
-        return web.json_response({"error": str(error)}, status=400)
-    fixes = app["gasfix"]
-    if action in ("preview", "load"):
-        try:
-            sources = [await fetch_gas_source(i, d) for i, d in wanted]
-        except Exception as error:
-            return web.json_response({"error": str(error)}, status=502)
-        empty = [x["id"] for x in sources if not x["points"]]
-        if empty:
-            return web.json_response({"error": "Brak statystyk godzinowych: " + ", ".join(empty)}, status=409)
-        if action == "preview":
-            app["gas_preview"] = sources
-            app["gas_view"] = gashistory.build(sources, fixes["days"], fixes["accepted"], fixes["months"])
-            return web.json_response(gas_payload(app, app["gas_view"], sources))
-        app["gas_preview"] = None
-        result = gas_rebuild(app, sources)
-        return web.json_response(gas_payload(app, result, sources))
-    if action == "fix":
-        fixes["days"][day] = value
-        if day in fixes["accepted"]:
-            fixes["accepted"].remove(day)
-    elif action == "unfix":
-        fixes["days"].pop(day, None)
-    elif action == "accept":
-        if day not in fixes["accepted"]:
-            fixes["accepted"].append(day)
-        fixes["days"].pop(day, None)
-    elif action == "unaccept":
-        if day in fixes["accepted"]:
-            fixes["accepted"].remove(day)
-    elif action == "scale":
-        fixes["months"][month] = value
-    elif action == "unscale":
-        fixes["months"].pop(month, None)
-    elif action == "unscale_all":
-        fixes["months"].clear()
-    elif action == "scale_all":
-        sources = gas_sources(store) or app.get("gas_preview") or []
-        view = gashistory.build(sources, fixes["days"], fixes["accepted"], fixes["months"]) if sources else {"months": []}
-        for m in gas_months(app, view):
-            if m["full"] and m["bill_m3"] and not m["scaled"] and abs(m["m3"] - m["bill_m3"]) > 0.03 * m["bill_m3"] + 0.5:
-                fixes["months"][m["month"]] = m["bill_m3"]
-    elif action == "entity":
-        try:
-            await gas_entity_import(app)
-        except ValueError as error:
-            return web.json_response({"error": str(error)}, status=409)
-        except Exception as error:
-            log.warning("history entity failed: %s", error)
-            return web.json_response({"error": str(error)}, status=502)
-        sources = gas_sources(store)
-        return web.json_response(gas_payload(app, app.get("gas_view") or {"joins": [], "days": [], "anomalies": [], "segments": []}, sources))
-    elif action in ("fix_all", "accept_all", "unfix_all"):
-        sources = gas_sources(store) or app.get("gas_preview") or []
-        view = gashistory.build(sources, fixes["days"], fixes["accepted"], fixes["months"]) if sources else {"anomalies": []}
-        pick = [a for a in view["anomalies"] if (not kinds or a["kind"] in kinds) and (not only or a["day"] in only)]
-        if action == "fix_all":
-            for a in pick:
-                fixes["days"][a["day"]] = a["typical"]
-        elif action == "accept_all":
-            for a in pick:
-                if a["day"] not in fixes["accepted"]:
-                    fixes["accepted"].append(a["day"])
-        else:
-            for day in list(fixes["days"]):
-                if not only or day in only:
-                    del fixes["days"][day]
-    elif action == "clear":
-        with store.lock:
-            store.imported.pop("meter", None)
-        app["gasfix"] = {"days": {}, "accepted": []}
-        app["gas_view"] = None
-        app["gas_preview"] = None
-        save_gasfix(app["gasfix"])
+            store.imported[kind] = dict(summary, id=stat_id, divisor=divisor, imported_at=time.time(), points=points)
         store.save_imported()
-        return web.json_response(gas_payload(app, {"joins": [], "days": [], "anomalies": [], "segments": []}, []))
-    else:
-        return web.json_response({"error": "unknown action"}, status=400)
-    save_gasfix(fixes)
-    sources = gas_sources(store)
-    if not sources and app.get("gas_preview"):                              # a correction made on a preview that is not loaded yet
-        sources = app["gas_preview"]
-        app["gas_view"] = gashistory.build(sources, fixes["days"], fixes["accepted"], fixes["months"])
-        return web.json_response(gas_payload(app, app["gas_view"], sources))
-    return web.json_response(gas_payload(app, gas_rebuild(app, sources), sources))
+    return web.json_response(summary)
 
 
 # ------------------------------- firmware update over the air -------------------------------
@@ -1360,185 +1120,6 @@ def ota_state(app):
             "key_set": bool((app["options"].get("ota_key") or "").strip()), "device_version": values.get("fw_version"), "device_status": values.get("ota_status"),
             "port": OTA_PORT, "in_ha": bool(core_token()), "progress": dict(app["ota_progress"]),
             "last_session": app["store"].updated.get("counter"), "now": time.time(), "on_broker": bool(values.get("config/ota")), "forced": bool(meta.get("forced")), "log": list(meta.get("log", []))[-40:]}
-
-
-# ------------------------------- fresh start after the installation ------------------------------
-# what "start after the installation" can remove; the flow and the hourly use are computed from the meter reading
-CLEAN_GROUPS = {"meter": ("cubic_meters", "flow_m3h"),
-                "diag": ("RSSI", "Wakes", "WifiSessions", "wifi_connect_ms", "awake_wifi_s", "awake_other_s", "session_ms"),
-                "battery": ("BatteryVoltage", "BatteryPercent")}
-
-
-def last_counter_set(store):
-    """Time of the newest jump of the live reading that is not gas (the counter set from the app), or None."""
-    live = store.history.get("cubic_meters", [])
-    found = None
-    for (t1, v1), (t2, v2) in zip(live, live[1:]):
-        if not meterclean.step_ok(v2 - v1, t2 - t1):
-            found = t2
-    return found
-
-
-async def ha_meter_jumps(fix):
-    """Hours in the statistics of the gas sensors of the app ('Cubic meters' and 'Licznik gazu (z historią)') whose sum
-    grew more than the meter can pass (setting the counter). With fix=True each one is taken out of the sum
-    (recorder/adjust_sum_statistics), so the Energy panel does not show it as gas.
-    Returns [{entity, name, jumps: [{start, m3}], newest}]."""
-    registry = (await core_ws_call([{"type": "config/entity_registry/list"}]))[0] or []
-    out = []
-    for unique, name in (("gas_meter_app_cubic_meters", "Cubic meters"), ("gas_meter_app_history_meter", "Licznik gazu (z historią)")):
-        entity_id = next((e.get("entity_id") for e in registry if e.get("unique_id") == unique), None)
-        if not entity_id:
-            continue
-        result = (await core_ws_call([{
-            "type": "recorder/statistics_during_period", "start_time": "2000-01-01T00:00:00+00:00",
-            "statistic_ids": [entity_id], "period": "hour", "types": ["sum"]}]))[0] or {}
-        rows = [r for r in result.get(entity_id) or [] if r.get("sum") is not None]
-        jumps, prev = [], None
-        for row in rows:
-            start = stat_time(row["start"])
-            if prev is not None:
-                delta = float(row["sum"]) - prev
-                if not meterclean.step_ok(delta, 3600):
-                    jumps.append({"start": start, "m3": round(delta, 3)})
-            prev = float(row["sum"])
-        if fix:
-            for jump in jumps:
-                await core_ws_call([{"type": "recorder/adjust_sum_statistics", "statistic_id": entity_id,
-                                     "start_time": datetime.fromtimestamp(jump["start"], timezone.utc).isoformat(),
-                                     "adjustment": -jump["m3"], "adjustment_unit_of_measurement": "m³"}])
-        out.append({"entity": entity_id, "name": name, "jumps": jumps,
-                    "newest": stat_time(rows[-1]["start"]) if rows else None})
-    return out
-
-
-async def api_stats_export(request):
-    """Raw hourly statistics (start, state, sum, mean) of the given statistic ids as one JSON document, for a one-off cleanup
-    done outside the app. The recorder keeps the statistics for good, also of entities that no longer exist."""
-    ids = [i for i in request.query.get("ids", "").split(",") if re.fullmatch(r"[A-Za-z0-9_]+[.:][A-Za-z0-9_]+", i)]
-    if not ids or not core_token():
-        return web.json_response({"error": "brak encji albo apka nie działa w Home Assistant"}, status=400)
-    listing = {i.get("statistic_id"): i for i in (await core_ws_call([{"type": "recorder/list_statistic_ids"}]))[0] or []}
-    result = (await core_ws_call([{
-        "type": "recorder/statistics_during_period", "start_time": "2000-01-01T00:00:00+00:00",
-        "statistic_ids": ids, "period": "hour", "types": ["state", "mean", "sum"]}]))[0] or {}
-    out = {"exported_at": time.time(), "statistics": {}}
-    for i in ids:
-        info = listing.get(i) or {}
-        rows = [{"start": stat_time(r["start"]), "state": r.get("state"), "sum": r.get("sum"), "mean": r.get("mean")}
-                for r in result.get(i) or []]
-        out["statistics"][i] = {"unit": info.get("statistics_unit_of_measurement") or info.get("unit_of_measurement"),
-                                "name": info.get("name"), "source": info.get("source"), "rows": rows}
-    # usage per month from the invoices (month and cubic meters only), to line the history up with the invoices
-    monthly, factor = bills_context(request.app)
-    out["invoices_monthly"] = [{"month": e["month"], "m3": round(e["m3"] if e.get("m3") is not None else e["kwh"] / factor, 2)} for e in monthly]
-    return web.json_response(out)
-
-
-async def api_stats_load(request):
-    """Writes a prepared history (hourly readings from t0) into the statistics of the app's gas sensor, after the
-    statistics of that sensor were cleared. Hours after the prepared ones are kept from the sensor itself: their readings
-    are taken over and the sums are rebuilt from them, so the live data continues the prepared history."""
-    app = request.app
-    if not core_token():
-        return web.json_response({"error": "Apka nie działa w Home Assistant"}, status=409)
-    try:
-        body = await request.json()
-        t0 = int(body["t0"])
-        states = [float(x) for x in body["states"]]
-        if body.get("format") != "hourly-states-v1" or len(states) < 24 or t0 % 3600:
-            raise ValueError("zły format pliku")
-    except (ValueError, KeyError, TypeError) as error:
-        return web.json_response({"error": "Zły plik: %s" % error}, status=400)
-    registry = (await core_ws_call([{"type": "config/entity_registry/list"}]))[0] or []
-    entity_id = next((e.get("entity_id") for e in registry if e.get("unique_id") == "gas_meter_app_cubic_meters"), None)
-    if not entity_id:
-        return web.json_response({"error": "Nie znaleziono encji gazu apki (Cubic meters)"}, status=409)
-    last = t0 + 3600 * (len(states) - 1)
-    live_rows = (await core_ws_call([{
-        "type": "recorder/statistics_during_period", "start_time": "2000-01-01T00:00:00+00:00",
-        "statistic_ids": [entity_id], "period": "hour", "types": ["state"]}]))[0] or {}
-    live = sorted(((stat_time(r["start"]), float(r["state"])) for r in live_rows.get(entity_id) or []
-                   if r.get("state") is not None and stat_time(r["start"]) > last), key=lambda x: x[0])
-    rows = [{"start": t0 + 3600 * i, "state": round(v, 4), "sum": round(v - states[0], 4)} for i, v in enumerate(states)]
-    total, prev_state, prev_t, skipped = rows[-1]["sum"], states[-1], last, 0
-    for n, (t, state) in enumerate(live):
-        step = state - prev_state
-        if 0 <= step and meterclean.step_ok(step, t - prev_t):
-            total += step
-        else:
-            skipped += 1
-            nxt = live[n + 1] if n + 1 < len(live) else None
-            if nxt is not None and not (0 <= nxt[1] - state and meterclean.step_ok(nxt[1] - state, nxt[0] - t)):
-                continue                      # a single wrong reading (a glitch): left out
-            # otherwise the reading stays at a new level (the counter was set): not gas, the sum stays
-        prev_state, prev_t = state, t
-        rows.append({"start": t, "state": round(state, 4), "sum": round(total, 4)})
-    if body.get("dry"):
-        return web.json_response({"entity": entity_id, "history_rows": len(states), "live_rows": len(live), "skipped_jumps": skipped,
-                                  "first": rows[0], "last": rows[-1]})
-    job = app.get("load_job")
-    if job and job.get("state") == "running":
-        return web.json_response({"error": "Wczytywanie już trwa"}, status=409)
-    info = {"entity": entity_id, "history_rows": len(states), "live_rows": len(live), "skipped_jumps": skipped,
-            "first": rows[0], "last": rows[-1]}
-
-    async def work():
-        try:
-            try:
-                await core_ws_call([{"type": "recorder/clear_statistics", "statistic_ids": [entity_id]}])
-            except RuntimeError:
-                pass                              # nothing to clear
-            await send_energy(rows, entity_id, None, "recorder")
-            app["load_job"] = dict(info, state="done", finished=time.time())
-        except Exception as error:  # pragma: no cover
-            log.warning("loading the history failed: %s", error)
-            app["load_job"] = dict(info, state="error", error=str(error))
-
-    app["load_job"] = dict(info, state="running", started=time.time())
-    app["load_task"] = asyncio.create_task(work())        # the request would be cut by the proxy long before this is done
-    return web.json_response(dict(info, started=True))
-
-
-async def api_stats_load_status(request):
-    return web.json_response(request.app.get("load_job") or {"state": "idle"})
-
-
-async def api_cleanup(request):
-    """GET: what a fresh start would remove. POST {action: "run", cutoff, battery, ha}: removes the history of the app
-    before `cutoff` (meter and diagnostics, the battery only with battery=true) and takes the jumps out of the
-    statistics of the sensor in Home Assistant."""
-    app = request.app
-    store = app["store"]
-    body = await request.json() if request.method == "POST" else {}
-    jump_at = last_counter_set(store)
-    try:
-        cutoff = float(body.get("cutoff") or jump_at or 0)
-    except (TypeError, ValueError):
-        return web.json_response({"error": "zły czas"}, status=400)
-    groups = body.get("groups") or (["meter", "diag", "battery"] if request.method == "GET" else ["meter", "diag"])
-    names = tuple(n for g in groups for n in CLEAN_GROUPS.get(g, ()))
-    with store.lock:
-        counts = {n: sum(1 for p in store.history.get(n, []) if p[0] < cutoff) for n in names}
-    out = {"jump_at": jump_at, "cutoff": cutoff, "counts": counts, "in_ha": bool(core_token())}
-    if body.get("action") == "run":
-        if not cutoff:
-            return web.json_response({"error": "brak czasu montażu"}, status=400)
-        with store.lock:
-            for n in names:
-                if n in store.history:
-                    store.history[n] = [p for p in store.history[n] if p[0] >= cutoff]
-        store.save()
-        out["removed"] = counts
-    if core_token() and (request.method == "GET" or body.get("ha", True)):
-        try:
-            sensors = await ha_meter_jumps(body.get("action") == "run" and body.get("ha", True))
-            # the hour of the newest jump may not be in the statistics yet (they are made a few minutes after each hour)
-            out["ha"] = {"sensors": sensors, "fixed": body.get("action") == "run",
-                         "waiting": bool(jump_at and any(x["newest"] is None or x["newest"] + 3600 <= jump_at for x in sensors))}
-        except Exception as error:  # pragma: no cover
-            out["ha"] = {"error": str(error)}
-    return web.json_response(out)
 
 
 async def api_ota(request):
@@ -2080,24 +1661,6 @@ async def api_weather(request):
                               "base_c": weather.BASE_C, **analysis})
 
 
-def load_energy():
-    try:
-        with open(ENERGY_FILE, encoding="utf-8") as handle:
-            return json.load(handle)
-    except (OSError, ValueError):
-        return {}
-
-
-def save_energy(data):
-    try:
-        os.makedirs(DATA_DIR, exist_ok=True)
-        with open(ENERGY_FILE + ".tmp", "w", encoding="utf-8") as handle:
-            json.dump(data, handle)
-        os.replace(ENERGY_FILE + ".tmp", ENERGY_FILE)
-    except OSError as error:  # pragma: no cover
-        log.warning("cannot save energy state: %s", error)
-
-
 def bills_context(app):
     """monthly usage from the invoices and the kWh/m3 factor, the same way the Usage tab computes them."""
     bills = app["bills"]
@@ -2109,6 +1672,19 @@ def bills_context(app):
 
 def iso_hour(ts):
     return datetime.utcfromtimestamp(ts).strftime("%Y-%m-%dT%H:00:00+00:00")
+
+
+async def drop_legacy_statistics(app):
+    """Versions up to 0.30.18 kept the statistic "Gazomierz (z historią)" for the Energy panel. The history now lives in the
+    statistics of the gas sensor itself, so the old one is removed (clearing a statistic that is not there does nothing)."""
+    await asyncio.sleep(45)
+    if not core_token():
+        return
+    try:
+        await core_ws_call([{"type": "recorder/clear_statistics", "statistic_ids": [ENERGY_ID]}])
+        log.info("The statistic %s was removed from Home Assistant", ENERGY_ID)
+    except Exception as error:  # pragma: no cover
+        log.debug("legacy statistic: %s", error)
 
 
 async def send_energy(rows, statistic_id=ENERGY_ID, name="Gazomierz (z historią)", source="gas_meter_app"):
@@ -2128,85 +1704,6 @@ async def send_energy(rows, statistic_id=ENERGY_ID, name="Gazomierz (z historią
             raise
         metadata.pop("unit_class", None)
         await core_ws_call(commands())
-
-
-def energy_status(app):
-    data = app["energy"]
-    out = {"in_ha": bool(core_token()), "statistic_id": ENERGY_ID, "imported": bool(data.get("last_start"))}
-    for key in ("last_start", "last_sum", "imported_at", "rows", "first_start", "history_rows"):
-        out[key] = data.get(key)
-    return out
-
-
-async def energy_full(app, dry):
-    monthly, factor = bills_context(app)
-    with app["store"].lock:
-        meter = [list(p) for p in app["store"].series("cubic_meters")]
-    rows, state = energy.build_rows(monthly, factor, meter, time.time())
-    if not rows:
-        raise ValueError("Brak danych do wysłania: zaimportuj faktury albo poczekaj na odczyty gazomierza.")
-    first_live = meter[0][0] if meter else None
-    summary = {"rows": len(rows), "from": rows[0]["start"], "to": rows[-1]["start"], "total_m3": rows[-1]["sum"],
-               "history_rows": len([r for r in rows if first_live is None or r["start"] < energy.hour_floor(first_live)]), "months": len(monthly)}
-    if not dry:
-        await send_energy(rows)
-        data = app["energy"]
-        data.update(state, imported_at=time.time(), rows=len(rows), first_start=rows[0]["start"], history_rows=summary["history_rows"])
-        save_energy(data)
-    return summary
-
-
-async def energy_update(app):
-    """Hourly: the new completed hours of the meter, continuing the stored sum."""
-    data = app["energy"]
-    if not data.get("last_start"):
-        return 0
-    with app["store"].lock:
-        meter = [list(p) for p in app["store"].series("cubic_meters")]
-    rows, state = energy.build_rows([], 11.0, meter, time.time(), data)
-    if not rows:
-        return 0
-    await send_energy(rows)
-    data.update(state, imported_at=time.time(), rows=(data.get("rows") or 0) + len(rows))
-    save_energy(data)
-    return len(rows)
-
-
-async def energy_loop(app):
-    await asyncio.sleep(90)
-    while True:
-        try:
-            await energy_update(app)
-        except Exception as error:  # pragma: no cover
-            log.warning("energy update failed: %s", error)
-        await asyncio.sleep(3600)
-
-
-async def api_energy(request):
-    app = request.app
-    if request.method == "POST":
-        try:
-            action = (await request.json()).get("action")
-        except (ValueError, AttributeError):
-            return web.json_response({"error": "bad request"}, status=400)
-        try:
-            if action in ("preview", "import"):
-                if not core_token():
-                    return web.json_response({"error": "Apka nie działa w Home Assistant"}, status=409)
-                summary = await energy_full(app, action == "preview")
-                return web.json_response(dict(summary, status=energy_status(app)))
-            if action == "clear":
-                await core_ws_call([{"type": "recorder/clear_statistics", "statistic_ids": [ENERGY_ID]}])
-                app["energy"].clear()
-                save_energy(app["energy"])
-            else:
-                return web.json_response({"error": "unknown action"}, status=400)
-        except ValueError as error:
-            return web.json_response({"error": str(error)}, status=409)
-        except Exception as error:
-            log.warning("energy %s failed: %s", action, error)
-            return web.json_response({"error": str(error)}, status=502)
-    return web.json_response(energy_status(app))
 
 
 async def publish_app_entities(app):
@@ -2472,9 +1969,9 @@ async def on_startup(app):
     app["saver"] = asyncio.create_task(saver(app))
     app["notifier"] = asyncio.create_task(notifier_loop(app))
     app["weather_task"] = asyncio.create_task(weather_loop(app))
-    app["energy_task"] = asyncio.create_task(energy_loop(app))
     app["entities_task"] = asyncio.create_task(app_entities_loop(app))
     app["boiler_task"] = asyncio.create_task(boiler_loop(app))
+    app["legacy_task"] = asyncio.create_task(drop_legacy_statistics(app))
     app["ota_task"] = asyncio.create_task(ota_loop(app))
     ota_site = web.Application()
     ota_site["ota_state"] = app["ota"]
@@ -2493,7 +1990,6 @@ async def on_cleanup(app):
     app["saver"].cancel()
     app["notifier"].cancel()
     app["weather_task"].cancel()
-    app["energy_task"].cancel()
     app["entities_task"].cancel()
     app["boiler_task"].cancel()
     app["ota_task"].cancel()
@@ -2510,13 +2006,10 @@ def create_app(options):
     app["notify_log"] = []
     app["bills"] = load_bills()
     app["weather"] = load_weather()
-    app["energy"] = load_energy()
     app["boiler"] = load_boiler()
-    app["gasfix"] = load_gasfix()
     app["ota"] = load_ota()
     app["ota_progress"] = {"sent": 0, "total": 0, "started": None, "finished": None, "remote": None, "active": False}
     app["ota_watch"] = {"session": None, "status": None, "version": None, "warned": False}
-    app["gas_view"] = None
     app["notify_targets"] = load_targets()
     app["store"] = Store(options.get("root_topic") or "Gaz/Gazomierz",
                          options.get("battery_test_topic", "Gaz/BatteryTest"))
@@ -2530,8 +2023,6 @@ def create_app(options):
     app.router.add_get("/api/boiler", api_boiler)
     app.router.add_post("/api/boiler", api_boiler)
     app.router.add_get("/api/forecast", api_forecast)
-    app.router.add_get("/api/energy", api_energy)
-    app.router.add_post("/api/energy", api_energy)
     app.router.add_get("/api/weather", api_weather)
     app.router.add_post("/api/weather", api_weather)
     app.router.add_get("/api/ha_stats", api_ha_stats)
@@ -2539,17 +2030,10 @@ def create_app(options):
     app.router.add_get("/api/ota", api_ota)
     app.router.add_post("/api/ota", api_ota)
     app.router.add_post("/api/ota_upload", api_ota_upload)
-    app.router.add_get("/api/gas_history", api_gas_history)
-    app.router.add_post("/api/gas_history", api_gas_history)
     app.router.add_get("/api/notify", api_notify)
     app.router.add_post("/api/notify", api_notify)
     app.router.add_get("/api/notify_targets", api_notify_targets)
     app.router.add_post("/api/notify_targets", api_notify_targets)
-    app.router.add_get("/api/stats_export", api_stats_export)
-    app.router.add_post("/api/stats_load", api_stats_load)
-    app.router.add_get("/api/stats_load", api_stats_load_status)
-    app.router.add_get("/api/cleanup", api_cleanup)
-    app.router.add_post("/api/cleanup", api_cleanup)
     app.router.add_post("/api/set", api_set)
     app.router.add_post("/api/cancel", api_cancel)
     app.router.add_static("/static/", STATIC_DIR)

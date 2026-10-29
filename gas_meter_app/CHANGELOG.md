@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.31.0
+
+* Porządki po uporządkowaniu historii gazu w HA. Usunięte z apki: scalanie historii gazu z kilku encji, korekty dni i miesięcy, karta „Start od montażu”, eksport i wczytanie pliku, wysyłanie statystyki „Gazomierz (z historią)” do panelu Energia oraz encja „Licznik gazu (z historią)”. Historia gazu żyje teraz w statystykach samej encji „Gazomierz”.
+* Przy starcie apka usuwa z HA statystykę „Gazomierz (z historią)” z poprzednich wersji i encję „Licznik gazu (z historią)”.
+* Zakładka „Historia” zniknęła. Karta „Historia baterii z Home Assistant” jest w zakładce Bateria. Statystyki pieca (ciepła woda, ogrzewanie, reszta) dla panelu Energia zostają.
+
 ## 0.30.18
 
 * Wczytanie gotowej historii działa w tle i wysyła wszystkie paczki jednym połączeniem z HA. Wcześniej długa historia (ponad 60 tys. godzin) była przerywana przez limit czasu zapytania i w statystykach lądowała tylko jej część (u Ciebie do marca 2025). Strona pokazuje postęp i wynik.
