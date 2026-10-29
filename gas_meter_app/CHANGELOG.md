@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.26.1
+
+* Po wgraniu historii do encji apka pyta Home Assistanta, czy statystyki encji są widoczne, i pokazuje ich liczbę, początek i sumę. Jeśli HA ich nie widzi, pokazuje błąd zamiast sukcesu. Karta wyjaśnia też, gdzie szukać historii: okno encji pokazuje tylko ostatnią dobę, a długą historię widać w panelu Energia, w karcie „Wykres statystyk” i w Narzędzia deweloperskie → Statystyki.
+
 ## 0.26.0
 
 * Historia gazu: przycisk „Utwórz encję i wgraj historię” tworzy w Home Assistancie prawdziwą encję „Licznik gazu (z historią)” (jest w rejestrze encji, w urządzeniu Gas meter) i wgrywa do jej statystyk całą scaloną i poprawioną historię. Tę jedną encję wskaż w panelu Energia zamiast starych. Po poprawkach kliknij ponownie, historia encji zostanie zastąpiona. Statystyka zewnętrzna „Gazomierz (z historią)” zostaje jako druga opcja.

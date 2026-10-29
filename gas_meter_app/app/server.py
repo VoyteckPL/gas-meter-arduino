@@ -1074,7 +1074,13 @@ async def gas_entity_import(app):
     except RuntimeError:
         pass                                                         # nothing to clear
     await send_energy(rows, entity_id, None, "recorder")
-    info = {"id": entity_id, "rows": len(rows), "from": rows[0]["start"], "to": rows[-1]["start"], "total_m3": rows[-1]["sum"], "at": time.time()}
+    check = (await core_ws_call([{"type": "recorder/statistics_during_period", "start_time": "2000-01-01T00:00:00+00:00",
+                                  "statistic_ids": [entity_id], "period": "month", "types": ["sum", "state"]}]))[0]
+    months = (check or {}).get(entity_id) or []
+    if not months:
+        raise ValueError("Home Assistant przyjął dane, ale nie widzi po nich statystyk encji " + entity_id + ".")
+    info = {"id": entity_id, "rows": len(rows), "from": rows[0]["start"], "to": rows[-1]["start"], "total_m3": rows[-1]["sum"], "at": time.time(),
+            "ha_months": len(months), "ha_first": stat_time(months[0]["start"]), "ha_sum": months[-1].get("sum")}
     app["gasfix"]["entity"] = info
     save_gasfix(app["gasfix"])
     return info

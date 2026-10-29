@@ -1220,7 +1220,9 @@ function renderGas() {
   canvas.style.display = "";
   const total = d.days.reduce((s, x) => s + x.m3, 0), first = d.days[0].day, last = d.days[d.days.length - 1].day;
   const en = d.entity;
-  $("#ghEntity").textContent = en ? "Encja " + en.id + ": wgrano " + en.rows + " godzin (" + fmtDay(en.from) + " – " + fmtDay(en.to) + ", razem " + num(en.total_m3, 0) + " m³), " + new Date(en.at * 1000).toLocaleString("pl-PL") + "." : "Encja jeszcze nie została utworzona.";
+  $("#ghEntity").textContent = en ? "Encja " + en.id + ": wgrano " + en.rows + " godzin (" + fmtDay(en.from) + " – " + fmtDay(en.to) + ", razem " + num(en.total_m3, 0) + " m³), " + new Date(en.at * 1000).toLocaleString("pl-PL") + "." +
+    (en.ha_months ? " Home Assistant widzi statystyki: " + en.ha_months + " mies. od " + fmtDay(en.ha_first) + ", suma " + num(en.ha_sum, 0) + " m³. Historia jest w statystykach długoterminowych: zobaczysz ją w panelu Energia, w karcie „Wykres statystyk” (okres miesiąc lub rok) i w Narzędzia deweloperskie → Statystyki. Okno encji pokazuje tylko ostatnią dobę." : "")
+    : "Historia jeszcze nie została wgrana. Encja sama się nie wypełnia: kliknij przycisk poniżej.";
   status.textContent = "Historia: " + first + " – " + last + ", " + d.days.length + " dni, razem " + num(total, 0) + " m³. Podejrzanych dni: " + d.anomalies.length + ", poprawionych: " + Object.keys(d.fixes).length + ".";
   const JOIN = { adjacent: "zszyte bez przerwy", gap: "przerwa w danych", overlap: "encje się pokrywają, wygrywa nowsza", covered: "w całości pokryta przez nowszą" };
   for (const j of d.joins) joins.append(el("div", { text: "• " + j.id + ": " + (JOIN[j.kind] || j.kind) + (j.kind === "gap" ? " (" + num(j.gap_hours / 24, 1) + " dnia, zużycie w przerwie liczone jako zero)" : "") +
