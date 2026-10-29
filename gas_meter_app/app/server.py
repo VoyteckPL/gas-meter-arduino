@@ -601,6 +601,11 @@ async def api_series(request):
         with store.lock:
             raw = [p for p in store.history.get("bt/pin_mv", []) if lo <= p[0] <= hi]
         return web.json_response(thin([[ts, round(mv / 1000.0 * factor, 3)] for ts, mv in raw], limit))
+    if kind == "modes":
+        # what the boiler was doing (hot water, heating) in the window: coloured bands behind the gas charts
+        transitions = request.app["boiler"]["transitions"]
+        spans = boiler.intervals(transitions, now)
+        return web.json_response([[round(a, 1), round(b, 1), m] for a, b, m in spans if b >= lo and a <= hi and m != "idle"])
     name = {"battery": "BatteryVoltage", "percent": "BatteryPercent", "meter": "cubic_meters",
             "rssi": "RSSI", "bt_pin": "bt/pin_mv"}.get(kind)
     if name is None:

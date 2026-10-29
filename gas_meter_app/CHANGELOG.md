@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.30.12
+
+* Wykresy gazu w okienku historii (stan licznika, przepływ, zużycie na godzinę) mają kolorowe tło według tego, co robił piec: niebieskie ciepła woda, pomarańczowe ogrzewanie, szare inne. Działa z encją pieca ustawioną w opcjach (`boiler_entity`).
+
 ## 0.30.11
 
 * Historia → „Start od montażu”: usuwa z apki odczyty licznika i diagnostykę sprzed montażu (domyślnie od ostatniego ustawienia stanu licznika) i wyjmuje ze statystyk encji „Cubic meters” w Home Assistant skoki po ustawieniu licznika (`recorder/adjust_sum_statistics`), żeby panel Energia nie pokazał ich jako zużycia. Historię baterii zostawia, chyba że zaznaczysz inaczej. Można uruchamiać wielokrotnie.

@@ -690,6 +690,8 @@ const HIST = {
   btVolt:  { key: "hBtVolt",  kind: "bt",      unit: "V",    dec: 3, area: true, stat: "range", raw: true, test: true },
   btPin:   { key: "hBtPin",   kind: "bt_pin",  unit: "mV",   dec: 0, stat: "range", raw: true, test: true },
 };
+const BOILER_COLORS = { dhw: "#2f7fd0", heating: "#e8590c", other: "#868e96" };
+const BOILER_NAMES = { dhw: "Ciepła woda", heating: "Ogrzewanie", other: "Inne (wybieg pompy, antyzamarzanie)" };
 const PRESETS = [["range1h", 3600], ["range6h", 6 * 3600], ["range24h", 86400], ["range7d", 7 * 86400], ["range14d", 14 * 86400], ["rangeAll", 0]];
 const history = { entity: "meter", chart: null, token: 0, detailToken: 0 };
 
@@ -776,7 +778,16 @@ async function loadHistory() {
   Object.assign(chart.o, { unit: spec.unit, dec: spec.dec, zeroBase: !!spec.zero, emptyText: t("noData"),
                            emptyHint: spec.battery ? t("emptyBattery") : t("emptyGeneric") });
   const series = [{ name: "", color: cssColor("--accent"), points, kind: spec.bars ? "bars" : spec.line || "line", area: !!spec.area }];
-  setLegend($("#histCanvas"), [{ label: t(spec.key) + (spec.unit ? " (" + spec.unit + ")" : ""), color: cssColor("--accent"), kind: spec.bars ? "box" : "line" }]);
+  // gas charts: what the boiler was doing as coloured bands behind the data (needs the boiler entity in the options)
+  let modes = [];
+  if (["meter", "flow", "hourly"].includes(history.entity)) {
+    try { modes = await api("series?kind=modes&hours=87600"); } catch (e) { modes = []; }
+    if (token !== history.token) return;
+  }
+  chart.o.bands = modes.map(([from, to, mode]) => ({ from, to, color: (BOILER_COLORS[mode] || BOILER_COLORS.other) + "2e" }));
+  const used = [...new Set(modes.map((m) => m[2]))];
+  setLegend($("#histCanvas"), [{ label: t(spec.key) + (spec.unit ? " (" + spec.unit + ")" : ""), color: cssColor("--accent"), kind: spec.bars ? "box" : "line" },
+    ...["dhw", "heating", "other"].filter((m) => used.includes(m)).map((m) => ({ label: BOILER_NAMES[m], color: BOILER_COLORS[m], kind: "box" }))]);
   chart.setSeries(series, [spec.span ? now - spec.span : (points.length ? points[0][0] : now - 86400), now]);
   chart.setView(now - (spec.view || 7 * 86400), now, false);
   $("#histEmptyBtn").hidden = !(spec.battery && !points.length);
