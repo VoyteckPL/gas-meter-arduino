@@ -30,10 +30,11 @@ HISTORY_FILE = os.path.join(DATA_DIR, "history.json")
 INGRESS_GATEWAY = "172.30.32.2"
 MAX_POINTS = 20000
 HISTORY_TOPICS = ("cubic_meters", "BatteryVoltage", "BatteryPercent", "RSSI", "flow_m3h", "bt/pin_mv", "bt/voltage",
-                  "Wakes", "WifiSessions", "wifi_connect_ms")
+                  "Wakes", "WifiSessions", "wifi_connect_ms", "awake_wifi_s", "awake_other_s", "session_ms")
 # slowly changing series are kept for about a year: minimum spacing (s) and number of points
 LONG_SERIES = {"cubic_meters": (0, 150000), "BatteryVoltage": (900, 40000), "BatteryPercent": (900, 40000), "RSSI": (900, 40000),
-               "Wakes": (1800, 20000), "WifiSessions": (1800, 20000), "wifi_connect_ms": (1800, 20000)}
+               "Wakes": (1800, 20000), "WifiSessions": (1800, 20000), "wifi_connect_ms": (1800, 20000),
+               "awake_wifi_s": (1800, 20000), "awake_other_s": (1800, 20000), "session_ms": (1800, 20000)}
 CURVE_FILE = os.path.join(DATA_DIR, "curve.json")
 NOTIFY_FILE = os.path.join(DATA_DIR, "notify.json")
 TARGETS_FILE = os.path.join(DATA_DIR, "notify_targets.json")
@@ -612,6 +613,8 @@ def compute_battery(app, source="meter", days=30, factor=2.044, test_ma=None, te
             "meter": [list(p) for p in store.series("cubic_meters")],
             "connect": [list(p) for p in store.history.get("wifi_connect_ms", [])],
             "rssi": [list(p) for p in store.history.get("RSSI", [])],
+            "awake_wifi": [list(p) for p in store.history.get("awake_wifi_s", [])],
+            "awake_other": [list(p) for p in store.history.get("awake_other_s", [])],
         }
         curve = store.curve
         curve_info = store.curve_info

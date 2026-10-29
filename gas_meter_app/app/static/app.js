@@ -26,7 +26,7 @@ const TEXT = {
     networkHint: "Zmiany sieci są próbne: jeśli po restarcie gazomierz się nie połączy, wraca do poprzednich ustawień.",
     diagnostics: "Diagnostyka", counter: "Licznik impulsów", pending: "Impulsy oczekujące", wakes: "Obudzenia",
     wifi_sessions: "Sesje WiFi", wakes_per_pulse: "Obudzenia na impuls", wifi_connect_ms: "Czas łączenia z WiFi",
-    hangs: "Zawieszenia (restarty po 150 s)", uptime: "Czas pracy", reset_reason: "Powód restartu", firmware: "Firmware", mac: "Adres MAC", bssid: "Punkt dostępu",
+    hangs: "Zawieszenia (restarty po 150 s)", session_ms: "Ostatnia sesja WiFi (cała, od startu do snu)", uptime: "Czas pracy", reset_reason: "Powód restartu", firmware: "Firmware", mac: "Adres MAC", bssid: "Punkt dostępu",
     ssid: "Sieć WiFi", currentIp: "Aktualne IP", installed: "Zainstalowana", available: "Dostępna",
     bCapacity: "Pojemność baterii", bCapRated: "z danych katalogowych", bCapMeasured: "z Twojego testu rozładowania", bUsable: "użyteczne",
     bCapHint: "Pojemność z etykiety jest pomniejszona o odcięcie 3,0 V, zimno przy gazomierzu, starzenie i różnicę między etykietą a prawdziwymi ogniwami. Typ ogniw i ich liczbę ustawisz w zakładce Konfiguracja apki.",
@@ -61,7 +61,7 @@ const TEXT = {
     bForecastTrend: "prognoza (trend)", bWarnLine: "stop WiFi", bCutLine: "odcięcie", bNoHistory: "Brak jeszcze historii baterii",
     bBudgetTitle: "Na co idzie energia", bSleep: "Głęboki sen", bSelf: "Samorozładowanie ogniw", bSessions: "Sesje WiFi", bWakes: "Wybudzenia przy rozwarciu", bTotal: "Średni prąd razem",
     bWhatIf: "A gdyby zużycie gazu było inne?", bPulsesDay: "Impulsów na dobę", bWhatIfOut: "żywotność baterii", bAvgDay: "Twoja średnia roczna: ok. 266 impulsów na dobę (970 m³)",
-    bStatsTitle: "Statystyki dla nerdów", bPulsesPerDay: "Impulsy na dobę (7 dni)", bSessionsPerDay: "Sesje WiFi na dobę (7 dni)", bWakesPerDay: "Obudzenia na dobę (7 dni)",
+    bStatsTitle: "Statystyki dla nerdów", bPulsesPerDay: "Impulsy na dobę (7 dni)", bSessionsPerDay: "Sesje WiFi na dobę (7 dni)", bWakesPerDay: "Obudzenia na dobę (7 dni)", bSessionTime: "Czas pracy na sesję WiFi (zmierzony)", bAwakeDay: "Czas pracy na dobę: z WiFi / bez",
     bSessPerPulse: "Sesji WiFi na impuls", bImplied: "Średni prąd z trendu napięcia", bModelCur: "Średni prąd z modelu",
     bMvDay: "Zmiana napięcia", bMinMax: "Napięcie min / maks", bUsed: "Zużyty ładunek od pierwszego zapisu", bPerM3: "Koszt baterii 1 m³ gazu",
     bConnect: "Czas łączenia z WiFi (min / śr. / maks)", bRssi: "Sygnał WiFi (min / śr. / maks)", bSamples: "Próbek baterii", bHistorySince: "Historia od",
@@ -520,6 +520,7 @@ function update() {
     ["wakes_per_pulse", v.wakes_per_pulse], ["wifi_connect_ms", v.wifi_connect_ms ? v.wifi_connect_ms + " ms" : undefined],
     ["uptime", v.uptime_s ? ago(Number(v.uptime_s)) : undefined], ["reset_reason", v.reset_reason],
     ["hangs", v.hangs],
+    ["session_ms", v.session_ms ? v.session_ms + " ms" : undefined],
     ["firmware", v.fw_version],
   ];
   for (const [key, value] of rows) {
@@ -2226,6 +2227,10 @@ function renderBattery() {
   add("bSessionsPerDay", f(d.sessions_day, 0));
   add("bWakesPerDay", f(d.wakes_day, 0));
   add("bSessPerPulse", f(d.sessions_per_pulse, 2));
+  if (d.awake) {
+    add("bSessionTime", d.awake.session_s.toFixed(2) + " s (" + (d.awake.session_mah * 1000).toFixed(1) + " µAh)");
+    add("bAwakeDay", d.awake.wifi_s_day.toFixed(0) + " s / " + (d.awake.other_s_day === null ? "—" : d.awake.other_s_day.toFixed(0) + " s"));
+  }
   if (trend) {
     add("bMvDay", trend.mv_per_day.toFixed(1) + " mV / " + "dobę");
     if (!isTest) add("bImplied", (trend.implied_ma * 1000).toFixed(0) + " µA");

@@ -28,6 +28,8 @@ The meter sleeps almost all the time, so:
 | `chatter_events` | times the flutter protection was triggered |
 | `restarts` | restarts that were not a normal wake-up (crash, brownout, power-on) |
 | `dhcp` | 1 when the last status session used DHCP instead of the static address (fallback after failures, firmware 0.4.2+) |
+| `awake_wifi_s`, `awake_other_s` | seconds awake since power-on in wake-ups with WiFi / without (firmware 0.4.4+, for the battery model) |
+| `session_ms` | how long the last wake-up with a WiFi session was awake, from the start of the program to sleep |
 | `ip`, `mac`, `ssid`, `bssid` | network information (status message) |
 
 Manual counter override (HA entity "Set counter"): publish the pulse count (retained) to

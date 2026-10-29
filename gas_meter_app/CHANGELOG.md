@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.30.8
+
+* Model baterii korzysta ze zmierzonego czasu pracy gazomierza (firmware 0.4.4+: `awake_wifi_s`, `awake_other_s`), zamiast stałego kosztu sesji. Wliczają się w to dłuższe łączenie przy słabym WiFi, statusy i nieudane sesje.
+* Bateria → Statystyki dla nerdów: czas pracy na sesję WiFi i czas pracy na dobę. Diagnostyka: czas ostatniej sesji WiFi.
+
 ## 0.30.7
 
 * Poprawka w dzienniku aktualizacji: ostrzeżenie „gazomierz zgłosił się, ale nie zaczął pobierać pliku” pojawiało się zaraz po uzbrojeniu, bo apka brała pod uwagę sesję z poprzedniej aktualizacji. Teraz liczy się tylko sesja po uzbrojeniu.

@@ -55,6 +55,8 @@ DEFAULTS = {
     "wake_mah": 0.0025,         # the second wake-up of every pulse (the contact opens): 0.35 s of CPU at about 25 mA, no WiFi
     "session_mah": 0.015,       # one WiFi session: about 0.7 s at about 80 mA with the hex WPA key and a static IP (measured)
     "sleep_ua": 50.0,           # deep sleep of the whole board
+    "wifi_ma": 80.0,            # average current of a wake-up with WiFi (firmware 0.4.4+ reports the time awake)
+    "cpu_ma": 25.0,             # average current of a wake-up without WiFi
     "selfdischarge_pct_month": 1.5,
     "status_sessions_per_day": 24.0,
     "warn_v": 3.10,
@@ -139,8 +141,8 @@ def forecast(now, soc_now, pct_per_day, curve, floor_v, steps=40):
 
 
 def analyze(volts, series, options, curve=None, now=None, season=None):
-    """volts: [[ts, V]...]. series: dict with optional 'sessions', 'wakes', 'meter', 'connect_ms', 'rssi'
-    (lists of [ts, value]). options: see DEFAULTS plus 'pulses_per_m3', 'static_ip', 'window_days'."""
+    """volts: [[ts, V]...]. series: dict with optional 'sessions', 'wakes', 'meter', 'connect_ms', 'rssi',
+    'awake_wifi', 'awake_other' (seconds awake, counters since power-on) (lists of [ts, value]). options: see DEFAULTS plus 'pulses_per_m3', 'static_ip', 'window_days'."""
     cfg = dict(DEFAULTS)
     cfg.update({k: v for k, v in options.items() if v is not None})
     curve = curve or GENERIC_CURVE
@@ -188,6 +190,21 @@ def analyze(volts, series, options, curve=None, now=None, season=None):
                 "sessions_per_pulse": spp})
 
     session_mah = cfg["session_mah"] * (0.625 if cfg.get("static_ip") else 1.0)
+    wake_mah = cfg["wake_mah"]
+    # firmware 0.4.4+ counts the time it is awake: the real cost of a session (connection time, retries, the status,
+    # failed sessions included) replaces the fixed estimate
+    aw, ao = series.get("awake_wifi") or [], series.get("awake_other") or []
+    if len(aw) > 1 and sessions_day:
+        first_a = max(aw[0][0], since)
+        sd = (now - first_a) / DAY
+        if sd >= 0.25:
+            wifi_s_day = counter_delta(aw, first_a) / sd
+            other_s_day = counter_delta(ao, first_a) / sd if len(ao) > 1 else None
+            session_mah = wifi_s_day * cfg["wifi_ma"] / 3600.0 / sessions_day
+            if other_s_day is not None and pulses_day:
+                wake_mah = other_s_day * cfg["cpu_ma"] / 3600.0 / pulses_day
+            out["awake"] = {"wifi_s_day": wifi_s_day, "other_s_day": other_s_day, "session_s": wifi_s_day / sessions_day,
+                            "session_mah": session_mah}
     cap = cfg["capacity_mah"]
     sleep_ma = cfg["sleep_ua"] / 1000.0
     self_ma = cap * cfg["selfdischarge_pct_month"] / 100.0 / (30.4 * 24)
@@ -206,7 +223,7 @@ def analyze(volts, series, options, curve=None, now=None, season=None):
     soc_warn, soc_cut = soc(cfg["warn_v"], curve), soc(cfg["cutoff_v"], curve)
     if sessions_for_model is not None:
         session_ma = sessions_for_model * session_mah / 24.0
-        wake_ma = (pulses_day or 0.0) * cfg["wake_mah"] / 24.0
+        wake_ma = (pulses_day or 0.0) * wake_mah / 24.0
         i_model = sleep_ma + self_ma + session_ma + wake_ma
         out["budget_ma"] = {"sleep": sleep_ma, "self": self_ma, "sessions": session_ma, "wakes": wake_ma, "total": i_model}
         remaining = cap * max(0.0, soc_now - soc_cut) / 100.0
@@ -230,7 +247,7 @@ def analyze(volts, series, options, curve=None, now=None, season=None):
             m3 = season.get("%02d" % lt.tm_mon, mean_m3)
             pulses = m3 / calendar.monthrange(lt.tm_year, lt.tm_mon)[1] * ppm3
             sessions = cfg["status_sessions_per_day"] + spp_use * pulses
-            drain = (sleep_ma + self_ma + sessions * session_mah / 24.0 + pulses * cfg["wake_mah"] / 24.0) * 24 / cap * 100.0
+            drain = (sleep_ma + self_ma + sessions * session_mah / 24.0 + pulses * wake_mah / 24.0) * 24 / cap * 100.0
             sim_soc -= drain
             key = "%04d-%02d" % (lt.tm_year, lt.tm_mon)
             row = monthly.setdefault(key, {"month": key, "pct": 0.0, "sessions_day": sessions, "pulses_day": pulses})

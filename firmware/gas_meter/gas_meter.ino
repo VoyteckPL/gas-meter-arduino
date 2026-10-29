@@ -42,7 +42,7 @@
 #include "esp_ota_ops.h"
 #include "esp_timer.h"
 
-#define FW_VERSION "0.4.3"
+#define FW_VERSION "0.4.4"
 // The version is also kept as a marker in the binary: the Gas Meter app reads it from the .bin file it serves for the update
 static const char FW_MARKER[] = "GASMETER_FW:" FW_VERSION;
 
@@ -131,7 +131,7 @@ IPAddress DNS_SERVER(192, 168, 1, 1);
 #endif
 
 // ------------------------------- RTC memory ---------------------------------
-#define CACHE_MAGIC 0x6A5C0DE3UL     // changed with the layout: the first start of a new layout is a cold start (counter from flash)
+#define CACHE_MAGIC 0x6A5C0DE4UL     // changed with the layout: the first start of a new layout is a cold start (counter from flash)
 
 struct Cache {
   uint32_t magic;
@@ -162,6 +162,9 @@ struct Cache {
   uint64_t burstStartUs;   // start of the current flutter window
   float    batteryV;       // last valid battery voltage
   uint8_t  dhcpSessions;   // sessions left on DHCP after the static address did not work (see wifiUp)
+  uint32_t awakeWifiMs;    // time awake in wake-ups with a WiFi session (or a try) since power-on: the battery model of the app
+  uint32_t awakeOtherMs;   // time awake in wake-ups without WiFi (the contact opens, flutter checks) since power-on
+  uint32_t lastSessionMs;  // how long the last wake-up with a WiFi session was awake, from the start of the program to sleep
 };
 
 RTC_NOINIT_ATTR Cache cache;
@@ -990,6 +993,13 @@ static bool publishAll(bool sendStatus) {
     snprintf(buf, sizeof(buf), "%u", (unsigned)(cache.hangs & 0x3F));
     mqtt.publish(topic("hangs"), String(buf), true, 0);
     mqtt.publish(topic("dhcp"), String(g_usedDhcp ? "1" : "0"), true, 0);
+    // time awake (counters since power-on, without this wake-up): with them the app knows what the battery really spends
+    snprintf(buf, sizeof(buf), "%.1f", cache.awakeWifiMs / 1000.0);
+    mqtt.publish(topic("awake_wifi_s"), String(buf), true, 0);
+    snprintf(buf, sizeof(buf), "%.1f", cache.awakeOtherMs / 1000.0);
+    mqtt.publish(topic("awake_other_s"), String(buf), true, 0);
+    snprintf(buf, sizeof(buf), "%lu", (unsigned long)cache.lastSessionMs);
+    mqtt.publish(topic("session_ms"), String(buf), true, 0);
     mqtt.publish(topic("ip"), WiFi.localIP().toString(), true, 0);
     mqtt.publish(topic("mac"), WiFi.macAddress(), true, 0);
     mqtt.publish(topic("ssid"), WiFi.SSID(), true, 0);
@@ -1156,7 +1166,9 @@ void setup() {
   bool newPulse  = (cache.pulsesTotal != pulsesAtWake) && (cache.failCount < 5 || now - cache.lastTryS >= 60);
   bool canTry    = coldStart || newPulse || (now - cache.lastTryS >= interval);
 
+  bool wifiWake = false;
   if (want && canTry && allowWifi) {
+    wifiWake = true;
     cache.lastTryS = now;
     bool ok = false;
     if (wifiUp((coldStart && !cache.baseKnown) ? WIFI_TIMEOUT_FIRST_MS : WIFI_TIMEOUT_MS)) {
@@ -1239,7 +1251,10 @@ void setup() {
     noInterrupts();
     bool moved = (isrPulses != 0) || (digitalRead(REED_GPIO) != endLevel);
     if (!moved || round == 9) {
-      LOG("awake %lu ms (Wi-Fi %lu ms)\r\n", (unsigned long)millis(), (unsigned long)cache.lastWifiMs);
+      uint32_t awakeMs = millis();         // from the start of the program; the boot before it (some 10 ms) is not included
+      if (wifiWake) { cache.awakeWifiMs += awakeMs; cache.lastSessionMs = awakeMs; }
+      else cache.awakeOtherMs += awakeMs;
+      LOG("awake %lu ms (Wi-Fi %lu ms)\r\n", (unsigned long)awakeMs, (unsigned long)cache.lastWifiMs);
       LOG("counter=%llu pending=%lu, sleeping %llu s\r\n", (unsigned long long)cache.counter,
           (unsigned long)cache.pending, (unsigned long long)sleepS);
 #if DEBUG_SERIAL

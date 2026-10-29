@@ -373,6 +373,14 @@ int main(int argc, char **) {
     expect("broker down 5 min: back within a minute and a pulse", firstAfter >= 0 && firstAfter <= S(320 + 80));
     expect("broker down 5 min: static address kept", !g_dhcp && cache.dhcpSessions == 0);
   }
+  { // the time awake is counted for the battery model: WiFi wake-ups and the others apart, published with the status
+    world_reset(); int n = train(10, 400, 6, 5.0);      // the contact stays closed longer than the session: its opening is a wake-up of its own
+    Result r = simulate(S(3 * 3600 + 120));
+    bool published = false;
+    for (auto &p : g_pubs) if (p.topic == "Gaz/Gazomierz/awake_wifi_s" && atof(p.payload.c_str()) > 0) published = true;
+    expect("time awake counted and published", r.chip == 1000 + (uint64_t)n && cache.awakeWifiMs > 0 && cache.awakeOtherMs > 0 &&
+           cache.lastSessionMs > 0 && cache.lastSessionMs < 5000 && published);
+  }
   { // the status (battery, WiFi signal) is sent every hour without any pulse
     world_reset(); simulate(S(3 * 3600 + 120));
     int status = 0; for (auto &p : g_pubs) if (p.topic == "Gaz/Gazomierz/BatteryVoltage") status++;
