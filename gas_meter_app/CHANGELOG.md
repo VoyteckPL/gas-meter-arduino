@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.28.1
+
+* Historia gazu: na liście encji do scalania nie ma już statystyk, które apka sama tworzy (podział pieca, encja „Licznik gazu (z historią)”), żeby nie dało się ich wybrać przez pomyłkę.
+
 ## 0.28.0
 
 * Aktualizacja firmware gazomierza przez WiFi (OTA), jednorazowa i bez trybu serwisowego. W zakładce Serwis wgrywasz plik `.bin`, klikasz „Zaktualizuj przy najbliższym impulsie”, a gazomierz przy najbliższym impulsie gazu pobiera plik, instaluje go i restartuje się. Polecenie jest podpisane (HMAC-SHA256, opcja `ota_key` = `OTA_KEY` w secrets.h), plik jest dostępny tylko, gdy aktualizacja jest uzbrojona, pod losowym adresem na porcie 8098. Gazomierz zapisuje licznik przed aktualizacją, sprawdza MD5, a gdy nowy firmware nie działa (2 awarie albo 6 nieudanych sesji), wraca sam do poprzedniego. Wymaga firmware 0.3.0 wgranego raz kablem. Opis: docs/ota.md.

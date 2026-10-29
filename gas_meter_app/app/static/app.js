@@ -1180,6 +1180,7 @@ function fillGasList() {
   select.textContent = "";
   for (const i of haState.ids) {
     if (!/m³|m3/i.test(i.unit || "")) continue;
+    if (i.id.startsWith("gas_meter_app:") || i.id.includes("licznik_gazu_z_historia")) continue;      // the app's own results are not a source
     if (q && !(i.id.toLowerCase().includes(q) || i.name.toLowerCase().includes(q))) continue;
     select.append(el("option", { value: i.id, text: (i.name ? i.name + " · " : "") + i.id + " · " + i.unit }));
   }
