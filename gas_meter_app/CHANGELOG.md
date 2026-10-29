@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.30.18
+
+* Wczytanie gotowej historii działa w tle i wysyła wszystkie paczki jednym połączeniem z HA. Wcześniej długa historia (ponad 60 tys. godzin) była przerywana przez limit czasu zapytania i w statystykach lądowała tylko jej część (u Ciebie do marca 2025). Strona pokazuje postęp i wynik.
+
 ## 0.30.17
 
 * Historia → „Wczytaj gotową historię”: zapisuje przygotowany plik godzinowych odczytów w statystykach encji gazu apki (czyści jej dotychczasowe statystyki, godziny po końcu pliku bierze z samej encji i liczy od nowa sumę, więc encja rośnie dalej od końca historii; pojedyncze błędne odczyty pomija). „Sprawdź plik” pokazuje, co zostanie zapisane, bez zapisywania.

@@ -1477,13 +1477,31 @@ async def api_stats_load(request):
     if body.get("dry"):
         return web.json_response({"entity": entity_id, "history_rows": len(states), "live_rows": len(live), "skipped_jumps": skipped,
                                   "first": rows[0], "last": rows[-1]})
-    try:
-        await core_ws_call([{"type": "recorder/clear_statistics", "statistic_ids": [entity_id]}])
-    except RuntimeError:
-        pass                                  # nothing to clear
-    await send_energy(rows, entity_id, None, "recorder")
-    return web.json_response({"entity": entity_id, "history_rows": len(states), "live_rows": len(live), "skipped_jumps": skipped,
-                              "first": rows[0], "last": rows[-1], "done": True})
+    job = app.get("load_job")
+    if job and job.get("state") == "running":
+        return web.json_response({"error": "Wczytywanie już trwa"}, status=409)
+    info = {"entity": entity_id, "history_rows": len(states), "live_rows": len(live), "skipped_jumps": skipped,
+            "first": rows[0], "last": rows[-1]}
+
+    async def work():
+        try:
+            try:
+                await core_ws_call([{"type": "recorder/clear_statistics", "statistic_ids": [entity_id]}])
+            except RuntimeError:
+                pass                              # nothing to clear
+            await send_energy(rows, entity_id, None, "recorder")
+            app["load_job"] = dict(info, state="done", finished=time.time())
+        except Exception as error:  # pragma: no cover
+            log.warning("loading the history failed: %s", error)
+            app["load_job"] = dict(info, state="error", error=str(error))
+
+    app["load_job"] = dict(info, state="running", started=time.time())
+    app["load_task"] = asyncio.create_task(work())        # the request would be cut by the proxy long before this is done
+    return web.json_response(dict(info, started=True))
+
+
+async def api_stats_load_status(request):
+    return web.json_response(request.app.get("load_job") or {"state": "idle"})
 
 
 async def api_cleanup(request):
@@ -2094,18 +2112,22 @@ def iso_hour(ts):
 
 
 async def send_energy(rows, statistic_id=ENERGY_ID, name="Gazomierz (z historią)", source="gas_meter_app"):
-    """Sends hourly rows as the external statistic; a Home Assistant that does not know unit_class gets it without."""
+    """Sends hourly rows as the external statistic, all chunks over one connection (a connection per chunk made a long
+    history take minutes). A Home Assistant that does not know unit_class gets the metadata without it."""
     metadata = {"has_mean": False, "has_sum": True, "name": name, "source": source,
                 "statistic_id": statistic_id, "unit_of_measurement": "m³", "unit_class": "volume"}
-    for start in range(0, len(rows), 3000):
-        stats = [{"start": iso_hour(r["start"]), "sum": round(r["sum"], 4), "state": round(r["state"], 4)} for r in rows[start:start + 3000]]
-        try:
-            await core_ws_call([{"type": "recorder/import_statistics", "metadata": metadata, "stats": stats}])
-        except RuntimeError as error:
-            if "unit_class" not in str(error) and "extra keys" not in str(error):
-                raise
-            metadata.pop("unit_class", None)
-            await core_ws_call([{"type": "recorder/import_statistics", "metadata": metadata, "stats": stats}])
+
+    def commands():
+        return [{"type": "recorder/import_statistics", "metadata": metadata,
+                 "stats": [{"start": iso_hour(r["start"]), "sum": round(r["sum"], 4), "state": round(r["state"], 4)} for r in rows[start:start + 3000]]}
+                for start in range(0, len(rows), 3000)]
+    try:
+        await core_ws_call(commands())
+    except RuntimeError as error:
+        if "unit_class" not in str(error) and "extra keys" not in str(error):
+            raise
+        metadata.pop("unit_class", None)
+        await core_ws_call(commands())
 
 
 def energy_status(app):
@@ -2525,6 +2547,7 @@ def create_app(options):
     app.router.add_post("/api/notify_targets", api_notify_targets)
     app.router.add_get("/api/stats_export", api_stats_export)
     app.router.add_post("/api/stats_load", api_stats_load)
+    app.router.add_get("/api/stats_load", api_stats_load_status)
     app.router.add_get("/api/cleanup", api_cleanup)
     app.router.add_post("/api/cleanup", api_cleanup)
     app.router.add_post("/api/set", api_set)

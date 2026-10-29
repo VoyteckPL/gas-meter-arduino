@@ -199,7 +199,17 @@ async function runLoad(dry) {
     row("Godzin dołożonych z encji", String(d.live_rows) + (d.skipped_jumps ? " (pominięte skoki: " + d.skipped_jumps + ")" : ""));
     row("Pierwszy odczyt", fmtWhen(d.first.start) + ": " + num(d.first.state, 2) + " m³");
     row("Ostatni odczyt", fmtWhen(d.last.start) + ": " + num(d.last.state, 2) + " m³");
-    toast(dry ? "Plik jest poprawny, nic nie zapisano" : "Wczytano historię do statystyk");
+    if (dry) { toast("Plik jest poprawny, nic nie zapisano"); return; }
+    toast("Wczytywanie trwa, nie zamykaj strony");
+    row("Stan", "wczytywanie…");
+    for (;;) {                                   // the load runs in the app, in the background
+      await new Promise((resolve) => setTimeout(resolve, 2500));
+      const job = await api("stats_load");
+      if (job.state === "running") continue;
+      info.lastChild.textContent = job.state === "done" ? "gotowe" : "błąd: " + job.error;
+      toast(job.state === "done" ? "Wczytano historię do statystyk" : "Błąd: " + job.error, job.state !== "done");
+      break;
+    }
   } catch (e) { toast(t("error") + ": " + e.message, true); }
 }
 
