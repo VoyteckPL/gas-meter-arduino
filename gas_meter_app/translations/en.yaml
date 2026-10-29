@@ -47,6 +47,15 @@ configuration:
   silent_alert_hours:
     name: Alarm ciszy gazomierza (godz.)
     description: Alarm, gdy gazomierz nic nie wysyła przez tyle godzin. 0 wyłącza.
+  boiler_entity:
+    name: Encja stanu pieca
+    description: Encja z Home Assistanta ze stanem pieca (np. Ariston), do podziału gazu na ciepłą wodę i ogrzewanie. Apka tylko ją czyta.
+  ota_key:
+    name: Klucz aktualizacji firmware (ota_key)
+    description: Tajny tekst (min. 12 znaków), ten sam co OTA_KEY w secrets.h firmware. Podpisuje polecenie aktualizacji gazomierza.
+  ota_host:
+    name: Adres HA dla aktualizacji (ota_host)
+    description: Adres IP Home Assistanta w sieci lokalnej (np. 192.168.1.9), z którego gazomierz pobierze firmware. Puste = wykryj automatycznie.
   publish_discovery:
     name: Utwórz encje w Home Assistant
     description: Tworzy encje (stan licznika, bateria, sygnał) przez MQTT discovery.

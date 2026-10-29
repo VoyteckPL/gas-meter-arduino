@@ -33,12 +33,17 @@
 #include <WiFi.h>
 #include <MQTT.h>
 #include <Preferences.h>
+#include <HTTPClient.h>
+#include <Update.h>
 #include <stdlib.h>
 #include <sys/time.h>
 #include "driver/rtc_io.h"
 #include "esp_sleep.h"
+#include "esp_ota_ops.h"
 
-#define FW_VERSION "0.2.12"
+#define FW_VERSION "0.3.0"
+// The version is also kept as a marker in the binary: the Gas Meter app reads it from the .bin file it serves for the update
+static const char FW_MARKER[] = "GASMETER_FW:" FW_VERSION;
 
 // ------------------------------- configuration -------------------------------
 // WiFi and MQTT credentials live in secrets.h (copy secrets.example.h, never commit it)
@@ -77,7 +82,7 @@ IPAddress DNS_SERVER(192, 168, 1, 1);
 #define MIN_CLOSED_MS         150       // a closure counts only when the contact stays closed this long
 #define DEBOUNCE_MS           300       // after a pulse the contact must stay open this long before the next one can count
 #define DEBOUNCE_MAX_MS       1500      // never wait longer than this for a stable level at wake-up
-#define MIN_SEND_INTERVAL_S   0         // 0 = send every single pulse (TEST value, use 20 or more for the final installation)
+#define MIN_SEND_INTERVAL_S   0         // 0 = send every single pulse; a larger value batches pulses into fewer WiFi sessions
 #define STATUS_INTERVAL_S     (6UL * 60UL * 60UL)   // status with its own WiFi session
 #define STATUS_PIGGYBACK_S    (5UL * 60UL)          // status added to a session that happens anyway
 
@@ -103,11 +108,14 @@ IPAddress DNS_SERVER(192, 168, 1, 1);
 #define MQTT_TIMEOUT_MS        2000
 #define CPU_MHZ                80       // 80 MHz is enough with WIFI_PSK_HEX (no key derivation); 240 only connects faster without it
 
-#define DEBUG_SERIAL           1        // set to 0 for the final installation
+// 1 = final installation: no serial log and no LED (both only cost battery). 0 = desk tests: log on USB and the green LED.
+#define PRODUCTION             1
+
+#define DEBUG_SERIAL           (!PRODUCTION)
 
 // 1 = the green LED (GPIO2) is on while the chip is awake, so every pulse and every WiFi session is
 //     visible. Costs about 0.25 mA only while awake (a few mAh per year). 0 = LED never used.
-#define STATUS_LED             1
+#define STATUS_LED             (!PRODUCTION)
 #define STATUS_LED_GPIO        2
 
 // 0 = Home Assistant entities come from the Gas Meter app (or home-assistant/packages/gas_meter.yaml)
@@ -133,7 +141,9 @@ struct Cache {
   uint8_t  discoverySent;  // 1 once the Home Assistant discovery was published
   uint8_t  failCount;      // consecutive failed send attempts
   uint8_t  resetReason;    // last restart that was not a normal wake-up from deep sleep
-  uint8_t  pad[3];
+  uint8_t  otaWatch;       // 1 while a freshly installed firmware waits to be confirmed (mirror of the flash state)
+  uint8_t  otaMsgPending;  // 1 when a result of an update still has to be reported
+  uint8_t  pad;
   uint32_t pending;        // pulses counted but not yet published
   uint64_t counter;        // total pulses (relative to the base until baseKnown)
   uint64_t savedCounter;   // value stored in flash
@@ -152,6 +162,100 @@ struct Cache {
 };
 
 RTC_NOINIT_ATTR Cache cache;
+
+// ------------------------------- OTA types ------------------------------------
+// (all types are declared before the first function: the Arduino builder puts the generated prototypes above the code)
+#ifdef OTA_KEY
+#define OTA_ENABLED 1
+#else
+#define OTA_ENABLED 0
+#endif
+#define OTA_MIN_BATTERY_V        3.60f
+#define OTA_MAX_TRIES            3
+#define OTA_MAX_CRASHES          2
+#define OTA_MAX_FAILED_SESSIONS  6
+#define OTA_MIN_SIZE             100000UL
+#define OTA_MAX_SIZE             1900000UL
+
+enum { OTA_MSG_NONE = 0, OTA_MSG_OK, OTA_MSG_DOWNLOAD, OTA_MSG_CHECK, OTA_MSG_ROLLBACK, OTA_MSG_BATTERY, OTA_MSG_SIGNATURE,
+       OTA_MSG_GAVE_UP, OTA_MSG_FORMAT, OTA_MSG_SAME };
+
+
+struct OtaSha256 {
+  uint32_t h[8];
+  uint8_t buf[64];
+  uint64_t len;
+  size_t fill;
+  static uint32_t rotr(uint32_t x, int n) { return (x >> n) | (x << (32 - n)); }
+  void init() {
+    static const uint32_t i0[8] = {0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19};
+    memcpy(h, i0, sizeof(h));
+    len = 0;
+    fill = 0;
+  }
+  void block(const uint8_t *p) {
+    static const uint32_t k[64] = {
+      0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+      0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+      0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+      0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+      0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+      0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+      0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+      0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2};
+    uint32_t w[64];
+    for (int i = 0; i < 16; i++) w[i] = ((uint32_t)p[4 * i] << 24) | ((uint32_t)p[4 * i + 1] << 16) | ((uint32_t)p[4 * i + 2] << 8) | p[4 * i + 3];
+    for (int i = 16; i < 64; i++) {
+      uint32_t s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >> 3);
+      uint32_t s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >> 10);
+      w[i] = w[i - 16] + s0 + w[i - 7] + s1;
+    }
+    uint32_t a = h[0], b = h[1], c = h[2], d = h[3], e = h[4], f = h[5], g = h[6], hh = h[7];
+    for (int i = 0; i < 64; i++) {
+      uint32_t t1 = hh + (rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)) + ((e & f) ^ (~e & g)) + k[i] + w[i];
+      uint32_t t2 = (rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)) + ((a & b) ^ (a & c) ^ (b & c));
+      hh = g; g = f; f = e; e = d + t1; d = c; c = b; b = a; a = t1 + t2;
+    }
+    h[0] += a; h[1] += b; h[2] += c; h[3] += d; h[4] += e; h[5] += f; h[6] += g; h[7] += hh;
+  }
+  void update(const uint8_t *d, size_t n) {
+    len += n;
+    while (n) {
+      size_t c = 64 - fill;
+      if (c > n) c = n;
+      memcpy(buf + fill, d, c);
+      fill += c; d += c; n -= c;
+      if (fill == 64) { block(buf); fill = 0; }
+    }
+  }
+  void finish(uint8_t out[32]) {
+    uint64_t bits = len * 8;
+    uint8_t pad = 0x80, zero = 0, lb[8];
+    update(&pad, 1);
+    while (fill != 56) update(&zero, 1);
+    for (int i = 0; i < 8; i++) lb[i] = (uint8_t)(bits >> (56 - 8 * i));
+    update(lb, 8);
+    for (int i = 0; i < 8; i++) { out[4 * i] = h[i] >> 24; out[4 * i + 1] = h[i] >> 16; out[4 * i + 2] = h[i] >> 8; out[4 * i + 3] = h[i]; }
+  }
+};
+
+
+struct OtaRequest {
+  bool valid;                 // accepted: signature, version, battery and tries are fine
+  char version[16];
+  char url[160];
+  char md5[33];
+  uint32_t size;
+  char sig[65];
+  char signedPart[240];
+};
+static OtaRequest g_otaReq;
+static const char *g_otaCurrent = FW_VERSION;        // what a request is compared with (a variable so that the simulator can pretend to be the new firmware)
+static bool g_otaAwaitingConfirm = false;
+
+enum OtaVerdict { OTA_OK = 0, OTA_BAD_FORMAT, OTA_BAD_SIGNATURE, OTA_SAME_VERSION, OTA_REJECTED, OTA_TOO_MANY, OTA_BATTERY, OTA_BAD_SIZE };
+
+
 
 // ------------------------------- pulse interrupt -----------------------------
 // Follows the reed while the chip is awake (WiFi session) with a small state machine:
@@ -326,6 +430,248 @@ static void hibernate() {
   esp_deep_sleep_start();
 }
 
+// ------------------------------- OTA update ---------------------------------
+// The update is armed in the Gas Meter app and happens once, at the next WiFi session (the next pulse):
+//   1. the app publishes the retained message  <root>/config/ota  =  version|url|md5|size|signature
+//      (signature = HMAC-SHA256 of the text before the last "|" with OTA_KEY from secrets.h, as hex),
+//   2. the meter checks the signature, the version, the battery (OTA_MIN_BATTERY_V) and the number of tries,
+//      publishes its counter as usual and only then downloads the image over HTTP into the other app partition,
+//   3. the new firmware must reach the broker and get the counter acknowledged; only then it is confirmed and the
+//      request is cleared. After OTA_MAX_CRASHES crashes or OTA_MAX_FAILED_SESSIONS failed sessions the meter returns to
+//      the previous firmware by itself and remembers the rejected image.
+// Without OTA_KEY in secrets.h the update is disabled.
+// SHA-256 and HMAC (small and self-contained, so that nothing depends on the version of mbedtls in the core)
+static void hmacSha256(const uint8_t *key, size_t keyLen, const uint8_t *msg, size_t msgLen, uint8_t out[32]) {
+  uint8_t k[64] = {0}, ipad[64], opad[64], inner[32];
+  if (keyLen > 64) { OtaSha256 s; s.init(); s.update(key, keyLen); s.finish(k); } else memcpy(k, key, keyLen);
+  for (int i = 0; i < 64; i++) { ipad[i] = k[i] ^ 0x36; opad[i] = k[i] ^ 0x5c; }
+  OtaSha256 a; a.init(); a.update(ipad, 64); a.update(msg, msgLen); a.finish(inner);
+  OtaSha256 b; b.init(); b.update(opad, 64); b.update(inner, 32); b.finish(out);
+}
+
+// "version|url|md5|size|signature"
+static bool otaParse(const char *payload, OtaRequest &r) {
+  memset(&r, 0, sizeof(r));
+  const char *last = strrchr(payload, '|');
+  if (!last || strlen(last + 1) != 64) return false;
+  size_t signedLen = (size_t)(last - payload);
+  if (signedLen == 0 || signedLen >= sizeof(r.signedPart)) return false;
+  memcpy(r.signedPart, payload, signedLen);
+  memcpy(r.sig, last + 1, 64);
+  char tmp[sizeof(r.signedPart)];
+  memcpy(tmp, r.signedPart, signedLen + 1);
+  char *f[4];
+  int n = 0;
+  for (char *p = tmp; n < 4;) {
+    f[n++] = p;
+    char *bar = strchr(p, '|');
+    if (!bar) break;
+    *bar = 0;
+    p = bar + 1;
+  }
+  if (n != 4 || strlen(f[0]) == 0 || strlen(f[0]) >= sizeof(r.version) || strlen(f[1]) >= sizeof(r.url) || strlen(f[2]) != 32) return false;
+  for (const char *c = f[0]; *c; c++) if (!((*c >= '0' && *c <= '9') || *c == '.')) return false;
+  strcpy(r.version, f[0]);
+  strcpy(r.url, f[1]);
+  strcpy(r.md5, f[2]);
+  r.size = (uint32_t)strtoul(f[3], NULL, 10);
+  return strncmp(r.url, "http://", 7) == 0;
+}
+
+static bool otaSignatureOk(const OtaRequest &r, const char *key) {
+  uint8_t mac[32];
+  hmacSha256((const uint8_t *)key, strlen(key), (const uint8_t *)r.signedPart, strlen(r.signedPart), mac);
+  char hex[65];
+  for (int i = 0; i < 32; i++) snprintf(hex + 2 * i, 3, "%02x", mac[i]);
+  uint8_t diff = 0;
+  for (int i = 0; i < 64; i++) diff |= (uint8_t)(hex[i] ^ r.sig[i]);         // no early exit
+  return diff == 0;
+}
+
+static void otaMd5Parts(const char *md5, uint64_t &a, uint64_t &b) {
+  char half[17] = {0};
+  memcpy(half, md5, 16);
+  a = strtoull(half, NULL, 16);
+  memcpy(half, md5 + 16, 16);
+  b = strtoull(half, NULL, 16);
+}
+
+static OtaVerdict otaDecide(const OtaRequest &r, const char *key, const char *currentVersion, float batteryV, bool rejectedBefore, uint32_t tries) {
+  if (!otaSignatureOk(r, key)) return OTA_BAD_SIGNATURE;
+  if (strcmp(r.version, currentVersion) == 0) return OTA_SAME_VERSION;
+  if (r.size < OTA_MIN_SIZE || r.size > OTA_MAX_SIZE) return OTA_BAD_SIZE;
+  if (rejectedBefore) return OTA_REJECTED;
+  if (tries >= OTA_MAX_TRIES) return OTA_TOO_MANY;
+  if (batteryV < OTA_MIN_BATTERY_V) return OTA_BATTERY;
+  return OTA_OK;
+}
+
+#if OTA_ENABLED
+static uint64_t otaNvGet(const char *k) {
+  Preferences prefs;
+  uint64_t v = 0;
+  if (prefs.begin("gas", true)) { v = prefs.getULong64(k, 0); prefs.end(); }
+  return v;
+}
+
+static void otaNvPut(const char *k, uint64_t v) {
+  Preferences prefs;
+  if (prefs.begin("gas", false)) { prefs.putULong64(k, v); prefs.end(); }
+}
+
+static const char *otaStatusText(int code) {
+  switch (code) {
+    case OTA_MSG_OK:        return "ok, running " FW_VERSION;
+    case OTA_MSG_DOWNLOAD:  return "error: download failed, will try again";
+    case OTA_MSG_CHECK:     return "error: image check failed, will try again";
+    case OTA_MSG_ROLLBACK:  return "rolled back to " FW_VERSION ", the new firmware did not work";
+    case OTA_MSG_BATTERY:   return "waiting: battery below 3.6 V";
+    case OTA_MSG_SIGNATURE: return "rejected: wrong signature";
+    case OTA_MSG_GAVE_UP:   return "gave up after 3 tries";
+    case OTA_MSG_FORMAT:    return "rejected: bad request";
+    case OTA_MSG_SAME:      return "already running this version";
+    default:                return "";
+  }
+}
+
+static void otaPublishStatus(MQTTClient &mqtt, int code) {
+  mqtt.publish(topic("ota_status"), String(otaStatusText(code)), true, 0);
+}
+
+// Back to the previous firmware: the other app partition still holds it.
+static void otaRollback() {
+  uint64_t a = otaNvGet("ota_ma"), b = otaNvGet("ota_mb");
+  otaNvPut("ota_bad_a", a);
+  otaNvPut("ota_bad_b", b);
+  otaNvPut("ota_state", 0);
+  otaNvPut("ota_crash", 0);
+  otaNvPut("ota_fail", 0);
+  otaNvPut("ota_msg", OTA_MSG_ROLLBACK);
+  cache.otaMsgPending = 1;
+  cache.otaWatch = 0;
+  g_otaAwaitingConfirm = false;
+  const esp_partition_t *other = esp_ota_get_next_update_partition(NULL);
+  LOG("OTA: the new firmware does not work, going back\r\n");
+  if (other && esp_ota_set_boot_partition(other) == ESP_OK) {
+    if (cache.baseKnown && cache.counter != cache.savedCounter) saveCounter();
+    delay(50);
+    ESP.restart();
+  }
+}
+
+// Called early in setup(): the first starts of a freshly installed firmware are watched.
+static void otaBootCheck(esp_reset_reason_t reason, bool coldStart) {
+  if (coldStart) cache.otaWatch = otaNvGet("ota_state") == 1;        // the RTC memory is lost on a power-on: ask the flash once
+  if (!cache.otaWatch) return;
+  g_otaAwaitingConfirm = true;
+  bool crashed = reason == ESP_RST_PANIC || reason == ESP_RST_INT_WDT || reason == ESP_RST_TASK_WDT || reason == ESP_RST_WDT;
+  if (crashed) otaNvPut("ota_crash", otaNvGet("ota_crash") + 1);
+  if (otaNvGet("ota_crash") >= OTA_MAX_CRASHES || otaNvGet("ota_fail") >= OTA_MAX_FAILED_SESSIONS) otaRollback();
+}
+
+// Reads the retained request while the MQTT session is open; sets g_otaReq.valid when the update should go ahead.
+static void otaHandleRequest(MQTTClient &mqtt, const String &payload) {
+  g_otaReq.valid = false;
+  if (payload.length() == 0) return;
+  OtaRequest r;
+  if (!otaParse(payload.c_str(), r)) { otaPublishStatus(mqtt, OTA_MSG_FORMAT); return; }
+  uint64_t a, b;
+  otaMd5Parts(r.md5, a, b);
+  bool rejected = a == otaNvGet("ota_bad_a") && b == otaNvGet("ota_bad_b") && (a || b);
+  bool sameImage = a == otaNvGet("ota_ma") && b == otaNvGet("ota_mb");
+  uint32_t tries = sameImage ? (uint32_t)otaNvGet("ota_tries") : 0;
+  OtaVerdict v = otaDecide(r, OTA_KEY, g_otaCurrent, cache.batteryV, rejected, tries);
+  LOG("OTA request %s, verdict %d\r\n", r.version, (int)v);
+  switch (v) {
+    case OTA_OK:            r.valid = true; g_otaReq = r; return;
+    case OTA_BAD_SIGNATURE: otaPublishStatus(mqtt, OTA_MSG_SIGNATURE); return;
+    case OTA_BATTERY:       otaPublishStatus(mqtt, OTA_MSG_BATTERY); return;
+    case OTA_TOO_MANY:      otaPublishStatus(mqtt, OTA_MSG_GAVE_UP); return;
+    case OTA_BAD_SIZE:      otaPublishStatus(mqtt, OTA_MSG_FORMAT); return;
+    case OTA_SAME_VERSION:  otaPublishStatus(mqtt, OTA_MSG_SAME); mqtt.publish(topic("config/ota"), String(""), true, 0); return;
+    case OTA_REJECTED:      otaPublishStatus(mqtt, OTA_MSG_ROLLBACK); mqtt.publish(topic("config/ota"), String(""), true, 0); return;
+    default:                otaPublishStatus(mqtt, OTA_MSG_FORMAT); return;
+  }
+}
+
+// After the counter was acknowledged: report an earlier failure and confirm a new firmware.
+static void otaAfterSession(MQTTClient &mqtt, bool confirmed) {
+  if (!g_otaAwaitingConfirm && !cache.otaMsgPending) return;         // nothing to do, no flash access
+  int msg = cache.otaMsgPending ? (int)otaNvGet("ota_msg") : OTA_MSG_NONE;
+  if (g_otaAwaitingConfirm && confirmed) {
+    cache.otaWatch = 0;
+    otaNvPut("ota_state", 0);
+    otaNvPut("ota_crash", 0);
+    otaNvPut("ota_fail", 0);
+    otaNvPut("ota_tries", 0);
+    msg = OTA_MSG_OK;
+    g_otaAwaitingConfirm = false;
+    mqtt.publish(topic("config/ota"), String(""), true, 0);          // done: the request is used up
+  }
+  if (msg != OTA_MSG_NONE) {
+    otaPublishStatus(mqtt, msg);
+    otaNvPut("ota_msg", OTA_MSG_NONE);
+    cache.otaMsgPending = 0;
+  }
+}
+
+// Downloads the image and starts it. Returns only when something went wrong.
+static void otaRun() {
+  absorbInterruptPulses();
+  if (cache.baseKnown && cache.counter != cache.savedCounter) saveCounter();
+  uint64_t a, b;
+  otaMd5Parts(g_otaReq.md5, a, b);
+  bool sameImage = a == otaNvGet("ota_ma") && b == otaNvGet("ota_mb");
+  otaNvPut("ota_tries", (sameImage ? otaNvGet("ota_tries") : 0) + 1);
+  otaNvPut("ota_ma", a);
+  otaNvPut("ota_mb", b);
+  LOG("OTA: downloading %s (%lu bytes)\r\n", g_otaReq.url, (unsigned long)g_otaReq.size);
+
+  WiFiClient client;
+  HTTPClient http;
+  int code = 0;
+  if (http.begin(client, g_otaReq.url)) {
+    http.setTimeout(15000);
+    code = http.GET();
+  }
+  if (code != 200 || http.getSize() != (int)g_otaReq.size) {
+    LOG("OTA: HTTP %d, size %d\r\n", code, (int)http.getSize());
+    http.end();
+    otaNvPut("ota_msg", OTA_MSG_DOWNLOAD);
+    cache.otaMsgPending = 1;
+    return;
+  }
+  bool ok = Update.begin(g_otaReq.size);
+  if (ok) {
+    Update.setMD5(g_otaReq.md5);
+    size_t written = Update.writeStream(*http.getStreamPtr());
+    ok = written == g_otaReq.size && Update.end();
+  }
+  http.end();
+  if (!ok) {
+    LOG("OTA: image rejected (written or MD5 wrong)\r\n");
+    otaNvPut("ota_msg", OTA_MSG_CHECK);
+    cache.otaMsgPending = 1;
+    return;
+  }
+  // the pulses counted during the download are in the counter; the restart must not count the same closure again
+  absorbInterruptPulses();
+  noInterrupts();
+  cache.lastLevel = (isrState == R_CLOSED || isrState == R_RELEASING) ? LOW : HIGH;
+  interrupts();
+  if (cache.baseKnown) saveCounter();
+  otaNvPut("ota_state", 1);
+  otaNvPut("ota_crash", 0);
+  otaNvPut("ota_fail", 0);
+  otaNvPut("ota_msg", OTA_MSG_NONE);
+  cache.otaWatch = 1;
+  cache.otaMsgPending = 0;
+  LOG("OTA: installed, restarting\r\n");
+  delay(100);
+  ESP.restart();
+}
+#endif
+
 // ------------------------------- WiFi ---------------------------------------
 static bool waitForWifi(unsigned long timeoutMs) {
   for (unsigned long t = millis(); millis() - t < timeoutMs;) {
@@ -481,17 +827,26 @@ static void restoreBase(MQTTClient &mqtt) {
 // that arrives too late stays retained and is applied in the next session. No unsubscribe: the session ends anyway.
 static void checkRemoteCounter(MQTTClient &mqtt) {
   String overrideTopic = topic("config/counter");
+  String otaTopic = topic("config/ota");
   bool got = false;
   uint64_t value = 0;
+  String otaPayload;
   mqtt.onMessage((MQTTClientCallbackSimpleFunction)([&](String &t, String &payload) -> void {
     if (t == overrideTopic && payload.length() > 0) { value = strtoull(payload.c_str(), NULL, 10); got = true; }
+    if (t == otaTopic) otaPayload = payload;
   }));
   mqtt.subscribe(overrideTopic);
+#if OTA_ENABLED
+  mqtt.subscribe(otaTopic);
+#endif
   for (unsigned long t = millis(); millis() - t < 100;) {
     mqtt.loop();
     delay(5);
   }
   mqtt.onMessage((MQTTClientCallbackSimpleFunction)([](String &, String &) -> void {}));   // the lambda above points to this function's locals
+#if OTA_ENABLED
+  otaHandleRequest(mqtt, otaPayload);
+#endif
   if (!got) return;
   absorbInterruptPulses();
   cache.counter = value;
@@ -532,7 +887,7 @@ static bool publishAll(bool sendStatus) {
     snprintf(buf, sizeof(buf), "%lu", (unsigned long)cache.sends);
     mqtt.publish(topic("WifiSessions"), String(buf), true, 0);
     // diagnostics
-    mqtt.publish(topic("fw_version"), String(FW_VERSION), true, 0);
+    mqtt.publish(topic("fw_version"), String(FW_MARKER + 12), true, 0);
     mqtt.publish(topic("reset_reason"), String(resetReasonText(cache.resetReason)), true, 0);
     snprintf(buf, sizeof(buf), "%lu", (unsigned long)nowSeconds());
     mqtt.publish(topic("uptime_s"), String(buf), true, 0);
@@ -578,6 +933,9 @@ static bool publishAll(bool sendStatus) {
     confirmed = mqtt.publish(topic("counter"), String(buf), true, 1);   // false: no acknowledgement, the session is repeated
   }
 
+#if OTA_ENABLED
+  otaAfterSession(mqtt, confirmed);
+#endif
   mqtt.disconnect();
   LOG("MQTT %s at %lu ms\r\n", confirmed ? "published and disconnected" : "counter NOT acknowledged", (unsigned long)millis());
   return confirmed;
@@ -623,6 +981,9 @@ void setup() {
     cache.restarts++;
   }
   cache.wakes++;
+#if OTA_ENABLED
+  otaBootCheck(resetReason, coldStart);                     // a freshly installed firmware is watched, and replaced if it does not work
+#endif
 
   // ---- flutter protection ----
   uint64_t nowUs = nowMicros();
@@ -695,7 +1056,7 @@ void setup() {
   bool statusDue = coldStart || (now - cache.lastStatusS >= STATUS_INTERVAL_S);
   // include the status in a session that happens anyway when the last one is a few minutes old
   bool statusWanted = statusDue || (now - cache.lastStatusS >= STATUS_PIGGYBACK_S);
-  bool want      = coldStart || cache.pending > 0 || statusDue || !cache.mqttSynced;
+  bool want      = coldStart || cache.pending > 0 || statusDue || !cache.mqttSynced || g_otaAwaitingConfirm;
   // a new pulse is always sent at once, also while a failed session is still being waited out: the counter that is
   // published is the absolute value, so one successful session makes up for all the failed ones. Only a longer outage
   // (5 sessions in a row) falls back to the slow retries, to save the battery.
@@ -707,6 +1068,9 @@ void setup() {
     bool ok = false;
     if (wifiUp((coldStart && !cache.baseKnown) ? WIFI_TIMEOUT_FIRST_MS : WIFI_TIMEOUT_MS)) {
       ok = publishAll(statusWanted);
+#if OTA_ENABLED
+      if (ok && g_otaReq.valid) otaRun();        // returns only when the update failed; a good one restarts the chip
+#endif
     } else {
       LOG("WiFi connection failed\r\n");
     }
@@ -722,6 +1086,9 @@ void setup() {
       cache.failCount++;
       interval = retryDelayS(cache.failCount);
       LOG("Send failed (%u in a row), next try in %lu s\r\n", (unsigned)cache.failCount, (unsigned long)interval);
+#if OTA_ENABLED
+      if (g_otaAwaitingConfirm) otaNvPut("ota_fail", otaNvGet("ota_fail") + 1);    // counts towards going back to the old firmware
+#endif
     }
     cache.lastTryS = now;
   }
@@ -760,7 +1127,7 @@ void setup() {
       uint32_t statusAt = cache.lastStatusS + STATUS_INTERVAL_S;
       if (statusAt < nextTryAt) statusAt = nextTryAt;
       uint32_t dueAt = statusAt;
-      if ((cache.pending > 0 || !cache.mqttSynced) && nextTryAt < dueAt) dueAt = nextTryAt;
+      if ((cache.pending > 0 || !cache.mqttSynced || g_otaAwaitingConfirm) && nextTryAt < dueAt) dueAt = nextTryAt;
       sleepS = (dueAt > now) ? (dueAt - now) : 1;
     }
     if (sleepS < 1) sleepS = 1;

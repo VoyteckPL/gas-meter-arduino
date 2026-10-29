@@ -375,6 +375,7 @@ function build() {
   views.network.append(note("networkNote"));
   views.network.append(network);
 
+  views.service.append(otaCard());
   views.service.append(gasHistoryCard());
   // history imported from Home Assistant statistics
   views.service.append(el("section", { class: "card", id: "hsCard" }, [
@@ -1061,6 +1062,77 @@ async function boilerEnergy(action) {
     toast(action === "energy_import" ? "Wysłano statystyki do Home Assistanta" : "Usunięto statystyki");
     renderBoilerEnergy(r);
   } catch (e) { toast(e.message, true); }
+}
+
+// ------------------------------------------------------------- firmware update over the air
+const otaUi = { data: null, timer: null };
+
+function otaCard() {
+  const btn = (text, cls, fn, id) => { const b = el("button", { class: cls, text, id, "data-keep": "" }); b.addEventListener("click", fn); return b; };
+  const file = el("input", { type: "file", id: "otaFile", accept: ".bin" });
+  return el("section", { class: "card wide", id: "otaCard" }, [
+    el("h2", { text: "Aktualizacja firmware gazomierza (OTA)" }),
+    el("p", { class: "hint", style: "margin-top:0", text: "Gazomierz śpi, więc aktualizacja startuje dopiero przy jego najbliższym połączeniu z WiFi, czyli przy impulsie gazu (włącz piec na chwilę albo przyłóż magnes do kontaktronu). Dzieje się to raz i nic nie zostaje włączone na stałe. Gazomierz wymaga firmware 0.3.0 lub nowszego, wgranego kablem, z OTA_KEY w secrets.h równym opcji „ota_key” tej apki." }),
+    el("div", { class: "muted small", id: "otaState" }),
+    el("div", { class: "field", style: "gap:8px;flex-wrap:wrap;margin:10px 0;align-items:center" }, [file, btn("Wgraj plik", "secondary", otaUpload)]),
+    el("div", { class: "muted small", id: "otaFileInfo" }),
+    el("div", { class: "field", style: "gap:8px;flex-wrap:wrap;margin-top:10px" }, [
+      btn("Zaktualizuj przy najbliższym impulsie", "", otaArm, "otaArmBtn"), btn("Anuluj", "ghost", () => otaAction("cancel"), "otaCancelBtn"), btn("Usuń plik", "ghost", otaDelete, "otaDelBtn")]),
+    el("p", { class: "hint", text: "Plik .bin: w Arduino IDE wybierz Szkic → Eksportuj skompilowane archiwum binarne i weź plik gas_meter.ino.bin z podfolderu build (nie ten z „with_bootloader”). Schemat partycji musi mieć OTA (np. „Default” albo „Minimal SPIFFS”, nie „No OTA”)." })]);
+}
+
+async function loadOta() {
+  try { otaUi.data = await api("ota"); } catch (e) { otaUi.data = null; }
+  renderOta();
+  clearTimeout(otaUi.timer);
+  if (otaUi.data && otaUi.data.armed) otaUi.timer = setTimeout(loadOta, 8000);
+}
+
+function renderOta() {
+  const d = otaUi.data, box = $("#otaState");
+  if (!box) return;
+  if (!d) { box.textContent = "Nie mogę odczytać stanu aktualizacji."; return; }
+  const lines = ["Firmware w gazomierzu: " + (d.device_version || "—") + (d.device_status ? " · ostatni raport: " + d.device_status : "")];
+  if (!d.key_set) lines.push("Brak opcji „ota_key” w ustawieniach apki: bez niej nie da się podpisać aktualizacji.");
+  if (d.armed) lines.push("Aktualizacja do " + d.file.version + " czeka na impuls gazu (uzbrojona " + new Date(d.armed_at * 1000).toLocaleString("pl-PL") + "). Gazomierz pobierze plik z " + d.url_host + ":" + d.port + ".");
+  else if (d.done) lines.push("Zaktualizowano do " + d.file.version + " (" + new Date(d.done * 1000).toLocaleString("pl-PL") + ").");
+  box.textContent = "";
+  for (const l of lines) box.append(el("div", { text: l }));
+  $("#otaFileInfo").textContent = d.has_file ? "Wgrany plik: " + (d.file.name || "firmware") + ", wersja " + d.file.version + ", " + num(d.file.size / 1024, 0) + " kB, MD5 " + d.file.md5 + "." : "Nie wgrano pliku.";
+  $("#otaArmBtn").disabled = !d.has_file || d.armed || !d.key_set;
+  $("#otaCancelBtn").disabled = !d.armed;
+  $("#otaDelBtn").disabled = !d.has_file;
+}
+
+async function otaUpload() {
+  const f = $("#otaFile").files[0];
+  if (!f) { toast("Wybierz plik .bin.", true); return; }
+  try {
+    const response = await fetch("api/ota_upload?name=" + encodeURIComponent(f.name), { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: f });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    otaUi.data = data; renderOta(); toast("Plik wgrany, wersja " + data.file.version);
+  } catch (e) { toast(e.message, true); }
+}
+
+async function otaAction(action) {
+  try {
+    otaUi.data = await api("ota", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) });
+    renderOta(); toast(action === "arm" ? "Uzbrojone: czeka na impuls gazu" : action === "cancel" ? "Anulowano" : "Usunięto plik");
+    clearTimeout(otaUi.timer);
+    if (otaUi.data.armed) otaUi.timer = setTimeout(loadOta, 8000);
+  } catch (e) { toast(e.message, true); }
+}
+
+async function otaArm() {
+  const d = otaUi.data;
+  if (await confirmDialog({ title: "Zaktualizować firmware gazomierza?", danger: true, confirmText: "Uzbrój",
+    message: "Przy najbliższym impulsie gazomierz pobierze nowy firmware i uruchomi się ponownie. Jeśli nowa wersja nie połączy się z WiFi i brokerem, wróci sam do poprzedniej. Licznik jest zapisywany przed aktualizacją.",
+    details: [["Wersja w gazomierzu", d.device_version || "—"], ["Nowa wersja", d.file.version], ["Rozmiar", num(d.file.size / 1024, 0) + " kB"]] })) otaAction("arm");
+}
+
+async function otaDelete() {
+  if (await confirmDialog({ title: "Usunąć wgrany plik?", confirmText: "Usuń", message: "Plik firmware zniknie z apki, a uzbrojona aktualizacja zostanie anulowana." })) otaAction("delete");
 }
 
 // ------------------------------------------------------------- gas history: merge, check, correct
@@ -2234,7 +2306,7 @@ function showView(view, from) {
     }
     if (from) window.scrollTo(0, 0);
     if (view === "battery") loadBattery();
-    if (view === "service") loadGasHistory();
+    if (view === "service") { loadGasHistory(); loadOta(); }
     if (view === "usage") loadUsage();
   };
   if (from && current && current !== next && !reducedMotion()) {

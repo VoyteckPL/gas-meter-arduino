@@ -34,6 +34,15 @@ Manual counter override (HA entity "Set counter"): publish the pulse count (reta
 at the latest in the next status session after `STATUS_INTERVAL_S`, 6 h); after a reset or power-on it is read at once. The value is used once and cleared.
 Example: meter reading 7282.35 m3 with 100 pulses per m3 -> 728235.
 
+## Update over the air (firmware 0.3.0 and newer)
+
+| Topic | Direction | Meaning |
+|---|---|---|
+| `config/ota` | app -> meter (retained) | `version\|url\|md5\|size\|signature`, cleared by the meter after a confirmed update |
+| `ota_status` | meter -> app (retained) | `ok, running <version>`, `error: ...`, `waiting: battery below 3.6 V`, `rolled back ...`, `gave up after 3 tries`, `rejected: ...` |
+
+See [ota.md](ota.md).
+
 ## Planned (stage 2, neither the firmware nor the app supports it yet)
 
 State: `flow_m3h`, `service_state` and `update`

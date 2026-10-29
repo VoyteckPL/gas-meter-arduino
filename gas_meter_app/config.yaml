@@ -1,5 +1,5 @@
 name: "Energia Gazomierz"
-version: "0.27.0"
+version: "0.28.0"
 slug: "gas_meter"
 description: "Panel i ustawienia gazomierza na baterii (ESP32, MQTT): odczyty, historia, bateria z prognozą żywotności, powiadomienia."
 url: "https://github.com/VoyteckPL/gas-meter-arduino"
@@ -16,6 +16,10 @@ ingress_port: 8099
 panel_icon: "mdi:meter-gas"
 panel_title: "Energia Gazomierz"
 panel_admin: false
+ports:
+  8098/tcp: 8098
+ports_description:
+  8098/tcp: "Pobieranie firmware przez gazomierz (tylko przy uzbrojonej aktualizacji)"
 services:
   - mqtt:want
 options:
@@ -36,6 +40,8 @@ options:
   battery_critical_days: 14
   silent_alert_hours: 48
   boiler_entity: "sensor.ariston_genus_one_status_kotla"
+  ota_key: ""
+  ota_host: ""
   publish_discovery: true
   language: "auto"
 schema:
@@ -56,5 +62,7 @@ schema:
   battery_critical_days: "int(1,365)"
   silent_alert_hours: "int(0,720)"
   boiler_entity: "str?"
+  ota_key: "password?"
+  ota_host: "str?"
   publish_discovery: "bool"
   language: "list(auto|pl|en)"

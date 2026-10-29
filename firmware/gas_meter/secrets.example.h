@@ -22,3 +22,8 @@
 // with the same WiFi name only if it is not reachable. The BSSID of the access point the meter is
 // connected to is shown in the panel ("Access point"). Use the 2.4 GHz address.
 // #define WIFI_PREFERRED_BSSID "AA:BB:CC:DD:EE:FF"
+
+// Optional: key of the update over the air (firmware 0.3.0 and newer). Any long random text (at least 12 characters), the
+// same text as the "ota_key" option of the Gas Meter app. The app signs every update with it and the meter installs nothing
+// that is not signed. Without this line the meter cannot be updated over the air (only with the cable).
+// #define OTA_KEY "put-a-long-random-text-here"

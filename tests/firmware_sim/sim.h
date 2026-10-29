@@ -27,6 +27,7 @@
 #define WL_CONNECTED 3
 #define WIFI_SSID "ssid"
 #define WIFI_PASSWORD "password"
+#define OTA_KEY "test-ota-key"
 #define MQTT_SERVER_IP 1, 2, 3, 4
 #define MQTT_USERNAME "u"
 #define MQTT_PASSWORD "p"
@@ -95,6 +96,40 @@ class IPAddress {
   String toString() const { return String("1.2.3.4"); }
 };
 class WiFiClient {};
+// OTA: what the simulated web server and flash writer answer
+static int g_http_code = 200;
+static int g_http_size = 900000;
+static int g_http_gets = 0;
+static bool g_update_begin_ok = true;
+static bool g_update_end_ok = true;
+static int g_update_writes = 0;
+static bool g_boot_other = false;
+static int g_restarts_called = 0;
+static const char *g_after_restart_version = nullptr;   // the version the simulated chip reports after a software restart
+struct RestartException {};
+class HTTPClient {
+ public:
+  bool begin(WiFiClient &, const char *) { return true; }
+  void setTimeout(int) {}
+  int GET() { g_http_gets++; advance_to(g_now_us + 300000); return g_http_code; }
+  int getSize() { return g_http_size; }
+  WiFiClient *getStreamPtr() { static WiFiClient c; return &c; }
+  void end() {}
+};
+class UpdateClass {
+ public:
+  bool begin(size_t) { return g_update_begin_ok; }
+  void setMD5(const char *) {}
+  size_t writeStream(WiFiClient &) { g_update_writes++; advance_to(g_now_us + 20000000); return (size_t)g_http_size; }
+  bool end() { return g_update_end_ok; }
+};
+static UpdateClass Update;
+class EspClass { public: [[noreturn]] void restart() { g_restarts_called++; throw RestartException(); } };
+static EspClass ESP;
+struct esp_partition_t { int id; };
+#define ESP_OK 0
+static const esp_partition_t *esp_ota_get_next_update_partition(const esp_partition_t *) { static esp_partition_t p{1}; return &p; }
+static int esp_ota_set_boot_partition(const esp_partition_t *) { g_boot_other = true; return ESP_OK; }
 
 class WiFiClass {
  public:

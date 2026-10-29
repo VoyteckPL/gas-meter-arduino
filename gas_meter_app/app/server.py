@@ -12,6 +12,9 @@ import json
 import logging
 import os
 import re
+import hashlib
+import hmac
+import secrets
 import threading
 import time
 from datetime import datetime
@@ -42,6 +45,9 @@ WEATHER_FILE = os.path.join(DATA_DIR, "weather.json")
 ENERGY_FILE = os.path.join(DATA_DIR, "energy.json")
 BOILER_FILE = os.path.join(DATA_DIR, "boiler.json")
 GASFIX_FILE = os.path.join(DATA_DIR, "gas_fixes.json")
+OTA_FILE = os.path.join(DATA_DIR, "firmware.bin")
+OTA_META = os.path.join(DATA_DIR, "ota.json")
+OTA_PORT = int(os.environ.get("OTA_PORT", "8098"))
 ENERGY_ID = "gas_meter_app:gas_history"
 WEATHER_API = os.environ.get("WEATHER_API", "https://archive-api.open-meteo.com/v1/archive")
 
@@ -1238,6 +1244,171 @@ async def api_gas_history(request):
     return web.json_response(gas_payload(app, gas_rebuild(app, sources), sources))
 
 
+# ------------------------------- firmware update over the air -------------------------------
+# The firmware file is kept here and served on a separate port (OTA_PORT) only while an update is armed, under a
+# random address. The meter gets that address in a signed retained MQTT message (config/ota) and fetches the file at its
+# next WiFi session. Nothing is installed without the signature, which only this app and the meter (OTA_KEY) can make.
+OTA_MARKER = re.compile(rb"GASMETER_FW:(\d+(?:\.\d+){0,3})")
+
+
+def load_ota():
+    try:
+        with open(OTA_META, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError):
+        data = {}
+    data.setdefault("armed", False)
+    return data
+
+
+def save_ota(data):
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        with open(OTA_META + ".tmp", "w", encoding="utf-8") as handle:
+            json.dump(data, handle)
+        os.replace(OTA_META + ".tmp", OTA_META)
+    except OSError as error:  # pragma: no cover
+        log.warning("cannot save the update state: %s", error)
+
+
+def ota_inspect(data):
+    """Checks an uploaded image and returns its description; raises ValueError when it is not a firmware of this meter."""
+    if len(data) < 100000 or len(data) > 1900000:
+        raise ValueError("Plik ma %d bajtów, a firmware powinien mieć od 100 kB do 1,9 MB." % len(data))
+    if data[0] != 0xE9:
+        raise ValueError("To nie jest obraz firmware ESP32 (plik .bin ze szkicu, nie z „merged” ani bootloadera).")
+    found = OTA_MARKER.findall(data)
+    if not found:
+        raise ValueError("W pliku nie ma wersji firmware gazomierza (potrzebny firmware 0.3.0 lub nowszy).")
+    return {"version": found[0].decode(), "size": len(data), "md5": hashlib.md5(data).hexdigest()}
+
+
+def ota_sign(key, version, url, md5, size):
+    part = "%s|%s|%s|%d" % (version, url, md5, size)
+    return part + "|" + hmac.new(key.encode("utf-8"), part.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+async def ota_host(app):
+    """Address of this Home Assistant on the local network, for the meter to download from."""
+    host = (app["options"].get("ota_host") or "").strip()
+    if host:
+        return host
+    token = os.environ.get("SUPERVISOR_TOKEN")
+    if token:
+        try:
+            async with ClientSession() as session:
+                async with session.get("http://supervisor/network/info", headers={"Authorization": "Bearer " + token}, timeout=5) as response:
+                    info = (await response.json()).get("data") or {}
+            interfaces = sorted(info.get("interfaces") or [], key=lambda i: not i.get("primary"))
+            for interface in interfaces:
+                for address in (interface.get("ipv4") or {}).get("address") or []:
+                    return address.split("/")[0]
+        except Exception as error:  # pragma: no cover
+            log.warning("cannot read the network address: %s", error)
+    return ""
+
+
+def ota_state(app):
+    meta = app["ota"]
+    values = app["store"].values
+    return {"has_file": os.path.exists(OTA_FILE) and bool(meta.get("version")), "file": {k: meta.get(k) for k in ("version", "size", "md5", "uploaded_at", "name")},
+            "armed": bool(meta.get("armed")), "armed_at": meta.get("armed_at"), "url_host": meta.get("host"), "done": meta.get("done"),
+            "key_set": bool((app["options"].get("ota_key") or "").strip()), "device_version": values.get("fw_version"), "device_status": values.get("ota_status"),
+            "port": OTA_PORT, "in_ha": bool(core_token())}
+
+
+async def api_ota(request):
+    app = request.app
+    meta = app["ota"]
+    if request.method == "GET":
+        return web.json_response(ota_state(app))
+    try:
+        body = await request.json()
+        action = body.get("action")
+    except (ValueError, AttributeError):
+        return web.json_response({"error": "bad request"}, status=400)
+    bridge = app["bridge"]
+    if action == "arm":
+        key = (app["options"].get("ota_key") or "").strip()
+        if len(key) < 12:
+            return web.json_response({"error": "Ustaw w opcjach apki „ota_key” (co najmniej 12 znaków, ten sam tekst co OTA_KEY w secrets.h)."}, status=409)
+        if not os.path.exists(OTA_FILE) or not meta.get("version"):
+            return web.json_response({"error": "Najpierw wgraj plik firmware."}, status=409)
+        host = await ota_host(app)
+        if not host:
+            return web.json_response({"error": "Nie znam adresu Home Assistanta w sieci. Wpisz go w opcji „ota_host” apki (np. 192.168.1.9)."}, status=409)
+        token = secrets.token_hex(16)
+        url = "http://%s:%d/fw/%s.bin" % (host, OTA_PORT, token)
+        payload = ota_sign(key, meta["version"], url, meta["md5"], meta["size"])
+        if not bridge.publish("config/ota", payload, retain=True):
+            return web.json_response({"error": "Brak połączenia z MQTT"}, status=503)
+        meta.update(armed=True, token=token, host=host, armed_at=time.time(), done=None)
+        save_ota(meta)
+    elif action == "cancel":
+        bridge.publish("config/ota", "", retain=True)
+        meta.update(armed=False, token=None)
+        save_ota(meta)
+    elif action == "delete":
+        bridge.publish("config/ota", "", retain=True)
+        for path in (OTA_FILE,):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        meta.clear()
+        meta["armed"] = False
+        save_ota(meta)
+    else:
+        return web.json_response({"error": "unknown action"}, status=400)
+    return web.json_response(ota_state(app))
+
+
+async def api_ota_upload(request):
+    app = request.app
+    data = await request.read()
+    try:
+        info = ota_inspect(data)
+    except ValueError as error:
+        return web.json_response({"error": str(error)}, status=400)
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(OTA_FILE + ".tmp", "wb") as handle:
+        handle.write(data)
+    os.replace(OTA_FILE + ".tmp", OTA_FILE)
+    meta = app["ota"]
+    if meta.get("armed"):
+        app["bridge"].publish("config/ota", "", retain=True)                # an armed request would point to the old file
+    meta.clear()
+    meta.update(info, armed=False, token=None, uploaded_at=time.time(), name=request.query.get("name", "")[:80])
+    save_ota(meta)
+    return web.json_response(ota_state(app))
+
+
+async def ota_file(request):
+    """Served to the meter on OTA_PORT, only while armed and with the right random address."""
+    meta = request.app["ota_state"]
+    token = meta.get("token")
+    if not meta.get("armed") or not token or not hmac.compare_digest(request.match_info["token"], token) or not os.path.exists(OTA_FILE):
+        raise web.HTTPNotFound()
+    log.info("firmware sent to %s", request.remote)
+    return web.FileResponse(OTA_FILE, headers={"Content-Type": "application/octet-stream"})
+
+
+async def ota_loop(app):
+    """Disarms the update when the meter runs the new version."""
+    await asyncio.sleep(20)
+    while True:
+        try:
+            meta = app["ota"]
+            if meta.get("armed") and app["store"].values.get("fw_version") == meta.get("version"):
+                app["bridge"].publish("config/ota", "", retain=True)
+                meta.update(armed=False, token=None, done=time.time())
+                save_ota(meta)
+                log.info("firmware %s is running on the meter", meta.get("version"))
+        except Exception as error:  # pragma: no cover
+            log.warning("update watch failed: %s", error)
+        await asyncio.sleep(15)
+
+
 # ------------------------------- invoices pasted from the gas supplier's customer portal -------------------------------
 NUMBER_RE = re.compile(r"^[A-Za-z0-9]+(?:/[A-Za-z0-9]+)+$")        # P/1453267/0009/26, 1453267/37/2022/F, 1453267/2/NO
 DATE_RE = re.compile(r"^(\d{2})-(\d{2})-(\d{4})$")
@@ -1995,6 +2166,16 @@ async def on_startup(app):
     app["energy_task"] = asyncio.create_task(energy_loop(app))
     app["entities_task"] = asyncio.create_task(app_entities_loop(app))
     app["boiler_task"] = asyncio.create_task(boiler_loop(app))
+    app["ota_task"] = asyncio.create_task(ota_loop(app))
+    ota_site = web.Application()
+    ota_site["ota_state"] = app["ota"]
+    ota_site.router.add_get("/fw/{token}.bin", ota_file)
+    app["ota_runner"] = web.AppRunner(ota_site)
+    await app["ota_runner"].setup()
+    try:
+        await web.TCPSite(app["ota_runner"], "0.0.0.0", OTA_PORT).start()
+    except OSError as error:  # pragma: no cover
+        log.warning("cannot open the update port %s: %s", OTA_PORT, error)
 
 
 async def on_cleanup(app):
@@ -2004,13 +2185,15 @@ async def on_cleanup(app):
     app["energy_task"].cancel()
     app["entities_task"].cancel()
     app["boiler_task"].cancel()
+    app["ota_task"].cancel()
+    await app["ota_runner"].cleanup()
     app["store"].save()
     app["bridge"].client.loop_stop()
     app["bridge"].client.disconnect()
 
 
 def create_app(options):
-    app = web.Application(middlewares=[ingress_only, no_cache_static])
+    app = web.Application(middlewares=[ingress_only, no_cache_static], client_max_size=4 * 1024 * 1024)
     app["options"] = options
     app["notify_state"] = load_notify_state()
     app["notify_log"] = []
@@ -2019,6 +2202,7 @@ def create_app(options):
     app["energy"] = load_energy()
     app["boiler"] = load_boiler()
     app["gasfix"] = load_gasfix()
+    app["ota"] = load_ota()
     app["gas_view"] = None
     app["notify_targets"] = load_targets()
     app["store"] = Store(options.get("root_topic") or "Gaz/Gazomierz",
@@ -2039,6 +2223,9 @@ def create_app(options):
     app.router.add_post("/api/weather", api_weather)
     app.router.add_get("/api/ha_stats", api_ha_stats)
     app.router.add_post("/api/ha_stats", api_ha_stats)
+    app.router.add_get("/api/ota", api_ota)
+    app.router.add_post("/api/ota", api_ota)
+    app.router.add_post("/api/ota_upload", api_ota_upload)
     app.router.add_get("/api/gas_history", api_gas_history)
     app.router.add_post("/api/gas_history", api_gas_history)
     app.router.add_get("/api/notify", api_notify)
