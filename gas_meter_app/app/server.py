@@ -415,6 +415,13 @@ class Bridge:
                 client.publish(message.topic, "", qos=1, retain=True)
             return
         self.store.on_message(message.topic, payload)
+        if message.topic == self.store.root + "/RSSI":
+            # the signal in percent for Home Assistant: -90 dBm and worse is 0 %, -30 dBm and better is 100 %
+            try:
+                rssi = float(payload)
+            except ValueError:
+                return
+            self.publish("app/wifi_percent", "%d" % round((min(-30.0, max(-90.0, rssi)) + 90.0) / 60.0 * 100.0))
 
     def publish(self, suffix, payload, retain=True):
         info = self.client.publish("%s/%s" % (self.store.root, suffix), payload, qos=1, retain=retain)
@@ -449,7 +456,8 @@ class Bridge:
                  ("battery_charge_by", "Naładuj baterię do", "app/battery_charge_by", None, "timestamp", None, None),
                  ("bill_next", "Prognoza najbliższej faktury", "app/bill_next", "PLN", "monetary", None, None),
                  ("bill_year", "Prognoza rachunków 12 miesięcy", "app/bill_year", "PLN", "monetary", None, None),
-                 ("month_m3", "Zużycie gazu w miesiącu (prognoza)", "app/month_m3", "m³", None, None, None)]
+                 ("month_m3", "Zużycie gazu w miesiącu (prognoza)", "app/month_m3", "m³", None, None, None),
+                 ("wifi_percent", "WiFi sygnał (%)", "app/wifi_percent", "%", None, "measurement", None)]
         # sensors of older versions of the app: an empty retained discovery message removes them from Home Assistant
         for key in ("history_meter",):
             self.client.publish("homeassistant/sensor/gas_meter_app/%s/config" % key, "", qos=1, retain=True)

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.31.1
+
+* Nowa encja w HA „WiFi sygnał (%)”: apka przelicza RSSI gazomierza na procenty (−90 dBm i gorzej to 0 %, −30 dBm i lepiej to 100 %) i publikuje je od razu po każdym odczycie RSSI.
+
 ## 0.31.0
 
 * Porządki po uporządkowaniu historii gazu w HA. Usunięte z apki: scalanie historii gazu z kilku encji, korekty dni i miesięcy, karta „Start od montażu”, eksport i wczytanie pliku, wysyłanie statystyki „Gazomierz (z historią)” do panelu Energia oraz encja „Licznik gazu (z historią)”. Historia gazu żyje teraz w statystykach samej encji „Gazomierz”.
