@@ -328,7 +328,7 @@ function build() {
     target.addEventListener("click", () => openHistory(entity));
   }
 
-  // the meter chart: live, zoomable, the boiler modes in the background, in one of four looks
+  // the meter chart: live, zoomable, the boiler modes in the background, in one of three looks
   const ranges = el("div", { class: "tabs", id: "ovRanges" });
   for (const [label, seconds] of [["1 godz.", 3600], ["6 godz.", 6 * 3600], ["24 godz.", 86400], ["48 godz.", 2 * 86400], ["7 dni", 7 * 86400]]) {
     const bt = el("button", { class: "secondary", "data-seconds": seconds, text: label });
@@ -540,7 +540,7 @@ function update() {
 }
 
 // ----------------------------------------------------------------------- chart
-// Four looks of the overview chart, all in the colours of a sunset. The last chosen one is remembered in this browser.
+// Three looks of the overview chart, all in the colours of a sunset. The last chosen one is remembered in this browser.
 const SUNSET_LINE = [[0, "#ffcf5c"], [0.45, "#ff7a45"], [1, "#d6336c"]];
 const DUSK_LINE = [[0, "#ffd76e"], [0.45, "#ff8a50"], [1, "#ff4f8b"]];
 const SUNSET_PILL = [[0, "#ff9a3c"], [1, "#e8437a"]];
@@ -551,10 +551,6 @@ const OVERVIEW_LOOKS = {
   dusk: { label: "Zmierzch", dark: true, bg: "linear-gradient(165deg,#2a1530 0%,#1d1630 50%,#141a33 100%)",
     fancy: { width: 3.2, line: DUSK_LINE, fill: [[0, "rgba(255,138,80,0.50)"], [0.5, "rgba(255,79,139,0.24)"], [1, "rgba(120,60,200,0.10)"]], sheen: 0.15,
              glow: "rgba(255,140,90,0.9)", glowBlur: 20, highlight: 0.5, dot: "#ffb35c", pill: SUNSET_PILL } },
-  sunset3d: { label: "Zachód 3D", dark: false, bg: "linear-gradient(165deg,#fff8ef 0%,#ffeef0 55%,#f7ecfb 100%)",
-    fancy: { width: 2.6, line: SUNSET_LINE, extrude: [9, 8], face: [[0, "#ffe08a"], [0.5, "#ffab7a"], [1, "#f27aa0"]], faceAlpha: 0.85,
-             back: [[0, "rgba(214,51,108,0.16)"], [1, "rgba(214,51,108,0.02)"]], fill: [[0, "rgba(255,122,69,0.55)"], [0.5, "rgba(255,94,98,0.30)"], [1, "rgba(214,51,108,0.12)"]],
-             sheen: 0.35, shadow: "rgba(150,30,80,0.30)", highlight: 0.7, dot: "#ff5e62", pill: SUNSET_PILL } },
   duskbars: { label: "Zmierzch + godziny", dark: true, bars: true, bg: "linear-gradient(165deg,#2a1530 0%,#1d1630 50%,#141a33 100%)",
     fancy: { width: 3.2, line: DUSK_LINE, fill: [[0, "rgba(255,138,80,0.42)"], [0.5, "rgba(255,79,139,0.18)"], [1, "rgba(120,60,200,0.08)"]], sheen: 0.12,
              glow: "rgba(255,140,90,0.9)", glowBlur: 20, highlight: 0.5, dot: "#ffb35c", pill: SUNSET_PILL } },

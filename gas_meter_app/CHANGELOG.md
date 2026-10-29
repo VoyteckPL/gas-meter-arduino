@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.33.1
+
+* Usunięty wygląd „Zachód 3D”. Zostają „Zachód słońca”, „Zmierzch” i „Zmierzch + godziny”. Kto miał wybrany 3D, dostaje „Zachód słońca”.
+
 ## 0.33.0
 
 * Przegląd: wykres licznika w kolorach zachodu słońca, do wyboru cztery wyglądy (przyciski w nagłówku karty, wybór jest zapamiętany w przeglądarce): „Zachód słońca” (jasny), „Zmierzch” (ciemny), „Zachód 3D” (wstęga wyciągnięta w głąb) i „Zmierzch + godziny” (dodatkowo słupki m³ w każdej godzinie).
