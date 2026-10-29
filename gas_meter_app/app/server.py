@@ -1271,6 +1271,15 @@ def save_ota(data):
         log.warning("cannot save the update state: %s", error)
 
 
+def ota_log(app, text):
+    """One line of the update diary (newest last, kept in ota.json), shown in the app."""
+    meta = app["ota"]
+    meta.setdefault("log", []).append([round(time.time(), 1), text])
+    del meta["log"][:-80]
+    save_ota(meta)
+    log.info("update: %s", text)
+
+
 def ota_inspect(data):
     """Checks an uploaded image and returns its description; raises ValueError when it is not a firmware of this meter."""
     if len(data) < 100000 or len(data) > 1900000:
@@ -1315,7 +1324,7 @@ def ota_state(app):
             "armed": bool(meta.get("armed")), "armed_at": meta.get("armed_at"), "url_host": meta.get("host"), "done": meta.get("done"),
             "key_set": bool((app["options"].get("ota_key") or "").strip()), "device_version": values.get("fw_version"), "device_status": values.get("ota_status"),
             "port": OTA_PORT, "in_ha": bool(core_token()), "progress": dict(app["ota_progress"]),
-            "last_session": app["store"].updated.get("counter"), "now": time.time()}
+            "last_session": app["store"].updated.get("counter"), "now": time.time(), "log": list(meta.get("log", []))[-40:]}
 
 
 async def api_ota(request):
@@ -1346,10 +1355,13 @@ async def api_ota(request):
         app["ota_progress"].update(sent=0, total=0, started=None, finished=None, remote=None, active=False)
         meta.update(armed=True, token=token, host=host, armed_at=time.time(), done=None)
         save_ota(meta)
+        app["ota_watch"].update(session=app["store"].updated.get("counter"), status=app["store"].values.get("ota_status"), warned=False)
+        ota_log(app, "Uzbrojono aktualizację do %s (%s, %d kB). Polecenie opublikowane w MQTT, plik pod %s:%d." % (meta["version"], meta.get("name") or "firmware", meta["size"] // 1024, host, OTA_PORT))
     elif action == "cancel":
         bridge.publish("config/ota", "", retain=True)
         meta.update(armed=False, token=None)
         save_ota(meta)
+        ota_log(app, "Anulowano aktualizację, polecenie usunięte z MQTT.")
     elif action == "delete":
         bridge.publish("config/ota", "", retain=True)
         for path in (OTA_FILE,):
@@ -1379,9 +1391,11 @@ async def api_ota_upload(request):
     meta = app["ota"]
     if meta.get("armed"):
         app["bridge"].publish("config/ota", "", retain=True)                # an armed request would point to the old file
+    keep = list(meta.get("log", []))
     meta.clear()
-    meta.update(info, armed=False, token=None, uploaded_at=time.time(), name=request.query.get("name", "")[:80])
+    meta.update(info, armed=False, token=None, uploaded_at=time.time(), name=request.query.get("name", "")[:80], log=keep)
     save_ota(meta)
+    ota_log(app, "Wgrano plik %s: wersja %s, %d kB, MD5 %s." % (meta["name"] or "firmware", info["version"], info["size"] // 1024, info["md5"]))
     return web.json_response(ota_state(app))
 
 
@@ -1394,7 +1408,7 @@ async def ota_file(request):
     size = os.path.getsize(OTA_FILE)
     progress = request.app["ota_progress"]
     progress.update(sent=0, total=size, started=time.time(), finished=None, remote=request.remote, active=True)
-    log.info("firmware (%d bytes) is being sent to %s", size, request.remote)
+    ota_log(request.app["ota_app"], "Gazomierz (%s) zaczął pobierać plik, %d kB." % (request.remote, size // 1024))
     response = web.StreamResponse(headers={"Content-Type": "application/octet-stream", "Content-Length": str(size)})
     await response.prepare(request)
     try:
@@ -1407,25 +1421,51 @@ async def ota_file(request):
                 progress["sent"] += len(chunk)
         await response.write_eof()
         progress["finished"] = time.time()
+        ota_log(request.app["ota_app"], "Plik wysłany w całości (%.0f s). Czekam, aż gazomierz zainstaluje go i uruchomi się ponownie." % (progress["finished"] - progress["started"]))
+    except Exception as error:
+        ota_log(request.app["ota_app"], "Pobieranie przerwane po %d z %d kB: %s" % (progress["sent"] // 1024, size // 1024, error or type(error).__name__))
+        raise
     finally:
         progress["active"] = False
     return response
 
 
 async def ota_loop(app):
-    """Disarms the update when the meter runs the new version."""
-    await asyncio.sleep(20)
+    """Writes what the meter does into the update diary and disarms the update when the meter runs the new version."""
+    await asyncio.sleep(10)
+    watch = app["ota_watch"]
+    values = app["store"].values
+    watch.update(session=app["store"].updated.get("counter"), status=values.get("ota_status"), version=values.get("fw_version"))
     while True:
         try:
             meta = app["ota"]
-            if meta.get("armed") and app["store"].values.get("fw_version") == meta.get("version"):
+            session, status, version = app["store"].updated.get("counter"), values.get("ota_status"), values.get("fw_version")
+            if status != watch["status"]:
+                watch["status"] = status
+                if status:
+                    ota_log(app, "Raport gazomierza: %s" % status)
+            if version != watch["version"]:
+                if watch["version"] is not None and version:
+                    ota_log(app, "Gazomierz zgłosił wersję firmware %s (była %s)." % (version, watch["version"]))
+                watch["version"] = version
+            if session and session != watch["session"]:
+                watch["session"] = session
+                if meta.get("armed"):
+                    ota_log(app, "Gazomierz połączył się z MQTT i wysłał licznik. Jeśli polecenie dotarło, za chwilę zacznie pobierać plik.")
+                    watch["warned"] = False
+                    watch["seen_at"] = time.time()
+            if (meta.get("armed") and watch.get("seen_at") and not watch["warned"] and time.time() - watch["seen_at"] > 25
+                    and (app["ota_progress"].get("started") or 0) < watch["seen_at"]):
+                watch["warned"] = True
+                ota_log(app, "Gazomierz zgłosił się, ale nie zaczął pobierać pliku. Możliwe przyczyny: firmware bez OTA_KEY, inny klucz niż w apce, wersja taka sama jak w pliku, za słaba bateria albo polecenie nie zdążyło dotrzeć w czasie sesji (spróbuj kolejnego impulsu). Sprawdź raport gazomierza.")
+            if meta.get("armed") and values.get("fw_version") == meta.get("version"):
                 app["bridge"].publish("config/ota", "", retain=True)
                 meta.update(armed=False, token=None, done=time.time())
                 save_ota(meta)
-                log.info("firmware %s is running on the meter", meta.get("version"))
+                ota_log(app, "Gazomierz działa na wersji %s. Aktualizacja zakończona, polecenie usunięte." % meta.get("version"))
         except Exception as error:  # pragma: no cover
             log.warning("update watch failed: %s", error)
-        await asyncio.sleep(15)
+        await asyncio.sleep(3)
 
 
 # ------------------------------- invoices pasted from the gas supplier's customer portal -------------------------------
@@ -2189,6 +2229,7 @@ async def on_startup(app):
     ota_site = web.Application()
     ota_site["ota_state"] = app["ota"]
     ota_site["ota_progress"] = app["ota_progress"]
+    ota_site["ota_app"] = app
     ota_site.router.add_get("/fw/{token}.bin", ota_file)
     app["ota_runner"] = web.AppRunner(ota_site)
     await app["ota_runner"].setup()
@@ -2224,6 +2265,7 @@ def create_app(options):
     app["gasfix"] = load_gasfix()
     app["ota"] = load_ota()
     app["ota_progress"] = {"sent": 0, "total": 0, "started": None, "finished": None, "remote": None, "active": False}
+    app["ota_watch"] = {"session": None, "status": None, "version": None, "warned": False}
     app["gas_view"] = None
     app["notify_targets"] = load_targets()
     app["store"] = Store(options.get("root_topic") or "Gaz/Gazomierz",

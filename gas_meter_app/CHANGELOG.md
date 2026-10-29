@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.29.1
+
+* Karta aktualizacji ma „Dziennik aktualizacji”: kolejne kroki z godziną (wgranie pliku, uzbrojenie, zgłoszenie się gazomierza, początek i koniec pobierania albo jego przerwanie, raport gazomierza, zmiana wersji, zakończenie). Jeśli gazomierz zgłosi się, a po 25 sekundach nie zacznie pobierać, dziennik wypisze możliwe przyczyny. Dziennik zapisuje się w apce i nie znika po restarcie.
+
 ## 0.29.0
 
 * Aktualizacja firmware ma pasek postępu i kroki: plik wgrany, uzbrojona, gazomierz się zgłosił, pobieranie pliku z procentami (apka liczy bajty wysłane do gazomierza), instalacja i potwierdzenie nowej wersji albo problem z raportu gazomierza. Podczas aktualizacji karta odświeża się co 2 sekundy.

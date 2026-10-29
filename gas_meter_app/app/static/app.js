@@ -1077,6 +1077,8 @@ function otaCard() {
     el("div", { id: "otaSteps", style: "margin:10px 0" }),
     el("div", { class: "field", style: "gap:8px;flex-wrap:wrap;margin:10px 0;align-items:center" }, [file, btn("Wgraj plik", "secondary", otaUpload)]),
     el("div", { class: "muted small", id: "otaFileInfo" }),
+    el("h3", { text: "Dziennik aktualizacji" }),
+    el("div", { id: "otaLog", class: "muted small", style: "max-height:220px;overflow:auto;font-family:ui-monospace,monospace;line-height:1.5" }),
     el("div", { class: "field", style: "gap:8px;flex-wrap:wrap;margin-top:10px" }, [
       btn("Zaktualizuj przy najbliższym impulsie", "", otaArm, "otaArmBtn"), btn("Anuluj", "ghost", () => otaAction("cancel"), "otaCancelBtn"), btn("Usuń plik", "ghost", otaDelete, "otaDelBtn")]),
     el("p", { class: "hint", text: "Plik .bin: w Arduino IDE wybierz Szkic → Eksportuj skompilowane archiwum binarne i weź plik gas_meter.ino.bin z podfolderu build (nie ten z „with_bootloader”). Schemat partycji musi mieć OTA (np. „Default” albo „Minimal SPIFFS”, nie „No OTA”)." })]);
@@ -1130,6 +1132,10 @@ function renderOta() {
   box.textContent = "";
   for (const l of lines) box.append(el("div", { text: l }));
   renderOtaSteps(d);
+  const logBox = $("#otaLog");
+  logBox.textContent = "";
+  for (const [t, text] of (d.log || []).slice().reverse().slice(0, 30)) logBox.append(el("div", { text: new Date(t * 1000).toLocaleTimeString("pl-PL") + "  " + text }));
+  if (!(d.log || []).length) logBox.textContent = "Brak wpisów. Tu pojawią się kolejne kroki aktualizacji.";
   $("#otaFileInfo").textContent = d.has_file ? "Wgrany plik: " + (d.file.name || "firmware") + ", wersja " + d.file.version + ", " + num(d.file.size / 1024, 0) + " kB, MD5 " + d.file.md5 + "." : "Nie wgrano pliku.";
   $("#otaArmBtn").disabled = !d.has_file || d.armed || !d.key_set;
   $("#otaCancelBtn").disabled = !d.armed;
