@@ -1475,6 +1475,12 @@ async def ota_loop(app):
                 meta.update(armed=False, token=None, done=time.time())
                 save_ota(meta)
                 ota_log(app, "Gazomierz zainstalował plik ponownie i potwierdził wersję %s. Zakończono." % meta.get("version"))
+            progress = app["ota_progress"]
+            if (meta.get("armed") and meta.get("forced") and progress.get("finished") and session and session > progress["finished"] + 3
+                    and not values.get("config/ota")):
+                meta.update(armed=False, token=None, done=time.time())                       # installed, restarted and reported again, request cleared
+                save_ota(meta)
+                ota_log(app, "Gazomierz zgłosił się po ponownej instalacji. Zakończono.")
             if meta.get("armed") and not meta.get("forced") and values.get("fw_version") == meta.get("version"):
                 app["bridge"].publish("config/ota", "", retain=True)
                 meta.update(armed=False, token=None, done=time.time())

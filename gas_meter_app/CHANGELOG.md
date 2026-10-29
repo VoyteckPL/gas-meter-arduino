@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.30.3
+
+* Ponowna instalacja tej samej wersji kończy się też wtedy, gdy gazomierz zgłosi się po instalacji, a polecenie zniknie z brokera. Firmware 0.3.8 wysyła potwierdzenie aktualizacji z QoS 1 (wcześniej mogło zginąć przy zamknięciu połączenia, przez co polecenie zostawało na brokerze) i pamięta zainstalowane polecenie, więc to samo polecenie nie zainstaluje się drugi raz.
+
 ## 0.30.2
 
 * Można zainstalować ponownie tę samą wersję bez kompilowania: gdy plik ma wersję, którą gazomierz już ma, pojawia się przycisk „Zainstaluj ponownie tę samą wersję”. Apka wysyła wtedy polecenie z numerowaną wersją (np. 0.3.6.1), gazomierz pobiera ten sam plik, instaluje go i potwierdza. Przydatne do testów aktualizacji, wycofania i odbioru polecenia.

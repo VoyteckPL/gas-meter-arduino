@@ -42,7 +42,7 @@
 #include "esp_ota_ops.h"
 #include "esp_timer.h"
 
-#define FW_VERSION "0.3.6"
+#define FW_VERSION "0.3.8"
 // The version is also kept as a marker in the binary: the Gas Meter app reads it from the .bin file it serves for the update
 static const char FW_MARKER[] = "GASMETER_FW:" FW_VERSION;
 
@@ -566,8 +566,14 @@ static const char *otaStatusText(int code) {
   }
 }
 
+// The update messages are sent with QoS 1: they follow the acknowledged counter right before the disconnect, and a QoS 0
+// message there can be lost when the connection is closed with the broker's own echo still unread (a reset).
 static void otaPublishText(MQTTClient &mqtt, const String &text) {
-  mqtt.publish(topic("ota_status"), text, true, 0);
+  mqtt.publish(topic("ota_status"), text, true, 1);
+}
+
+static void otaClearRequest(MQTTClient &mqtt) {
+  mqtt.publish(topic("config/ota"), String(""), true, 1);
 }
 
 static void otaPublishStatus(MQTTClient &mqtt, int code) {
@@ -619,6 +625,10 @@ static void otaHandleRequest(MQTTClient &mqtt, const String &payload) {
   bool sameImage = a == otaNvGet("ota_ma") && b == otaNvGet("ota_mb");
   uint32_t tries = sameImage ? (uint32_t)otaNvGet("ota_tries") : 0;
   OtaVerdict v = otaDecide(r, OTA_KEY, g_otaCurrent, cache.batteryV, rejected, tries);
+  char idText[17] = {0};
+  memcpy(idText, r.sig, 16);
+  uint64_t requestId = strtoull(idText, NULL, 16);
+  if (v == OTA_OK && requestId && requestId == otaNvGet("ota_done_id")) v = OTA_SAME_VERSION;    // this very request was installed already
   LOG("OTA request %s, verdict %d\r\n", r.version, (int)v);
   switch (v) {
     case OTA_OK:            r.valid = true; g_otaReq = r;
@@ -628,8 +638,8 @@ static void otaHandleRequest(MQTTClient &mqtt, const String &payload) {
     case OTA_BATTERY:       otaPublishStatus(mqtt, OTA_MSG_BATTERY); return;
     case OTA_TOO_MANY:      otaPublishStatus(mqtt, OTA_MSG_GAVE_UP); return;
     case OTA_BAD_SIZE:      otaPublishStatus(mqtt, OTA_MSG_FORMAT); return;
-    case OTA_SAME_VERSION:  otaPublishStatus(mqtt, OTA_MSG_SAME); mqtt.publish(topic("config/ota"), String(""), true, 0); return;
-    case OTA_REJECTED:      otaPublishStatus(mqtt, OTA_MSG_ROLLBACK); mqtt.publish(topic("config/ota"), String(""), true, 0); return;
+    case OTA_SAME_VERSION:  otaPublishStatus(mqtt, OTA_MSG_SAME); otaClearRequest(mqtt); return;
+    case OTA_REJECTED:      otaPublishStatus(mqtt, OTA_MSG_ROLLBACK); otaClearRequest(mqtt); return;
     default:                otaPublishStatus(mqtt, OTA_MSG_FORMAT); return;
   }
 }
@@ -646,7 +656,7 @@ static void otaAfterSession(MQTTClient &mqtt, bool confirmed) {
     otaNvPut("ota_tries", 0);
     msg = OTA_MSG_OK;
     g_otaAwaitingConfirm = false;
-    mqtt.publish(topic("config/ota"), String(""), true, 0);          // done: the request is used up
+    otaClearRequest(mqtt);                                           // done: the request is used up
   }
   if (msg != OTA_MSG_NONE) {
     if (msg == OTA_MSG_DOWNLOAD) otaPublishText(mqtt, String("error: download failed (HTTP ") + String((int)((int64_t)otaNvGet("ota_code") - 1000)) + "), will try again");
@@ -703,6 +713,9 @@ static void otaRun() {
   cache.lastLevel = (isrState == R_CLOSED || isrState == R_RELEASING) ? LOW : HIGH;
   interrupts();
   if (cache.baseKnown) saveCounter();
+  char idText[17] = {0};
+  memcpy(idText, g_otaReq.sig, 16);
+  otaNvPut("ota_done_id", strtoull(idText, NULL, 16));
   otaNvPut("ota_state", 1);
   otaNvPut("ota_crash", 0);
   otaNvPut("ota_fail", 0);

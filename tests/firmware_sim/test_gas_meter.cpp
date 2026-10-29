@@ -273,6 +273,17 @@ int main(int argc, char **) {
     g_retained["Gaz/Gazomierz/config/counter"] = "";
     simulate(S(80)); expect("update: request seen with the status of the session", g_http_gets == 1 && g_flash["ota_state"] == 0);
   }
+  { // reinstalling the same version: the request carries a numbered version, the binary keeps reporting its own
+    world_reset(); std::string same = "0.3.6.1|http://192.168.1.5:8098/fw/abc.bin|0123456789abcdef0123456789abcdef|900000|7e298b788ede371631464d45527c531051cdbfc24bbb3b594a134dc284a3924f";
+    g_retained["Gaz/Gazomierz/config/ota"] = same; train(10, 10, 1, 1.0);
+    Result r = simulate(S(80));
+    expect("reinstall of the same version: downloaded once, restarted once", g_http_gets == 1 && g_restarts_called == 1);
+    expect("reinstall of the same version: confirmed, request cleared, status ok", g_flash["ota_state"] == 0 && g_retained.count("Gaz/Gazomierz/config/ota") == 0 && status().rfind("ok", 0) == 0);
+    check("reinstall of the same version keeps the counter", 1, r);
+    // the request is still on the broker (a lost clear): it must not be installed again
+    g_retained["Gaz/Gazomierz/config/ota"] = same; r = simulate(S(80));
+    expect("a request that was installed already is never installed twice", g_http_gets == 1 && g_retained.count("Gaz/Gazomierz/config/ota") == 0);
+  }
   { world_reset(); std::string bad = good; bad[bad.size() - 1] = bad[bad.size() - 1] == '0' ? '1' : '0'; g_retained["Gaz/Gazomierz/config/ota"] = bad; train(10, 10, 1, 1.0);
     simulate(S(40)); expect("a wrong signature is never installed", g_http_gets == 0 && status().find("signature") != std::string::npos); }
   { world_reset(); g_retained["Gaz/Gazomierz/config/ota"] = good; g_adc_mv = 1700; train(10, 10, 1, 1.0);     // about 3.36 V
