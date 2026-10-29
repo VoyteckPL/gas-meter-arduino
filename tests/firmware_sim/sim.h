@@ -122,6 +122,7 @@ class UpdateClass {
   void setMD5(const char *) {}
   size_t writeStream(WiFiClient &) { g_update_writes++; advance_to(g_now_us + 20000000); return (size_t)g_http_size; }
   bool end() { return g_update_end_ok; }
+  void abort() {}
 };
 static UpdateClass Update;
 class EspClass { public: [[noreturn]] void restart() { g_restarts_called++; throw RestartException(); } };

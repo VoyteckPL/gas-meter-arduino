@@ -649,6 +649,7 @@ static void otaRun() {
   }
   http.end();
   if (!ok) {
+    Update.abort();
     LOG("OTA: image rejected (written or MD5 wrong)\r\n");
     otaNvPut("ota_msg", OTA_MSG_CHECK);
     cache.otaMsgPending = 1;
