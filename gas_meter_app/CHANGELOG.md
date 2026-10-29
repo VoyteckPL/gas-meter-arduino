@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.30.17
+
+* Historia → „Wczytaj gotową historię”: zapisuje przygotowany plik godzinowych odczytów w statystykach encji gazu apki (czyści jej dotychczasowe statystyki, godziny po końcu pliku bierze z samej encji i liczy od nowa sumę, więc encja rośnie dalej od końca historii; pojedyncze błędne odczyty pomija). „Sprawdź plik” pokazuje, co zostanie zapisane, bez zapisywania.
+* Urządzenie w HA nazywa się „Gazomierz”, a główny czujnik gazu nie ma własnej nazwy, więc też jest „Gazomierz”. Identyfikator encji zostaje, zmieniasz go w HA.
+
 ## 0.30.16
 
 * Eksport statystyk zawiera też zużycie miesięczne z faktur (sam miesiąc i m³, bez numerów), do dopasowania historii do faktur.

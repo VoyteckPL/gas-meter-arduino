@@ -168,6 +168,41 @@ async function runExport() {
   } catch (e) { toast(t("error") + ": " + e.message, true); }
 }
 
+function loadCard() {
+  const file = el("input", { type: "file", id: "ldFile", accept: ".json,application/json" });
+  const check = el("button", { class: "secondary", text: "Sprawdź plik" });
+  const go = el("button", { class: "danger", text: "Wczytaj do statystyk" });
+  check.addEventListener("click", () => runLoad(true));
+  go.addEventListener("click", () => runLoad(false));
+  return el("section", { class: "card", id: "ldCard" }, [
+    el("h2", { text: "Wczytaj gotową historię (jednorazowo)" }),
+    el("p", { class: "hint", style: "margin-top:0", text: "Zapisuje historię z przygotowanego pliku w statystykach encji gazu apki („Cubic meters”, po zmianie nazwy „Gazomierz”). Najpierw usuwa jej dotychczasowe statystyki. Godziny po końcu pliku zostają z odczytów encji, a suma jest liczona od nowa, żeby encja dalej rosła od końca historii." }),
+    el("div", { class: "row" }, [el("label", { for: "ldFile", text: "Plik" }), el("div", { class: "field" }, [file])]),
+    el("div", { class: "field", style: "gap:8px;flex-wrap:wrap" }, [check, go]),
+    el("div", { class: "kv", id: "ldInfo", style: "margin-top:10px" }),
+  ]);
+}
+async function runLoad(dry) {
+  const f = $("#ldFile").files[0];
+  if (!f) { toast("Wybierz plik", true); return; }
+  if (!dry && !(await confirmDialog({ title: "Wczytać historię?", danger: true, confirmText: "Wczytaj",
+    message: "Dotychczasowe statystyki encji gazu apki zostaną zastąpione historią z pliku. Zrób wcześniej kopię zapasową HA." }))) return;
+  let body;
+  try { body = JSON.parse(await f.text()); } catch (e) { toast("To nie jest poprawny plik JSON", true); return; }
+  body.dry = dry;
+  try {
+    const d = await api("stats_load", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const info = $("#ldInfo"); info.textContent = "";
+    const row = (k, v) => info.append(el("span", { text: k }), el("span", { class: "v", text: v }));
+    row("Encja", d.entity);
+    row("Godzin historii z pliku", String(d.history_rows));
+    row("Godzin dołożonych z encji", String(d.live_rows) + (d.skipped_jumps ? " (pominięte skoki: " + d.skipped_jumps + ")" : ""));
+    row("Pierwszy odczyt", fmtWhen(d.first.start) + ": " + num(d.first.state, 2) + " m³");
+    row("Ostatni odczyt", fmtWhen(d.last.start) + ": " + num(d.last.state, 2) + " m³");
+    toast(dry ? "Plik jest poprawny, nic nie zapisano" : "Wczytano historię do statystyk");
+  } catch (e) { toast(t("error") + ": " + e.message, true); }
+}
+
 // ------------------------------------------------------------- fresh start after the installation
 const toLocalInput = (ts) => { const d = new Date(ts * 1000 - new Date().getTimezoneOffset() * 60000); return d.toISOString().slice(0, 16); };
 const fmtWhen = (ts) => new Date(ts * 1000).toLocaleString("pl-PL", { dateStyle: "short", timeStyle: "short" });
@@ -488,6 +523,7 @@ function build() {
   views.service.append(otaCard());
   views.history.append(note("historyNote"));
   views.history.append(exportCard());
+  views.history.append(loadCard());
   views.history.append(cleanupCard());
   views.history.append(gasHistoryCard());
   // history imported from Home Assistant statistics

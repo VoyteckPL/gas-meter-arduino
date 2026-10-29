@@ -427,12 +427,12 @@ class Bridge:
         root = self.store.root
         device = {
             "ids": ["gas_meter_fb2"],
-            "name": "Gas meter",
+            "name": "Gazomierz",
             "mf": "DFRobot",
             "mdl": "FireBeetle 2 ESP32-UE (DFR1140)",
         }
         entities = [
-            ("cubic_meters", "Cubic meters", "cubic_meters", "m³", "gas", "total_increasing", None),
+            ("cubic_meters", None, "cubic_meters", "m³", "gas", "total_increasing", None),     # no name: the entity takes the name of the device, "Gazomierz"
             ("battery_voltage", "Battery voltage", "BatteryVoltage", "V", "voltage", "measurement", None),
             ("battery", "Battery", "BatteryPercent", "%", "battery", "measurement", None),
             ("wifi_signal", "WiFi signal", "RSSI", "dBm", "signal_strength", "measurement", "diagnostic"),
@@ -466,7 +466,7 @@ class Bridge:
             self.client.publish("homeassistant/sensor/gas_meter_app/%s/config" % key, json.dumps(config), qos=1, retain=True)
         for key, name, topic, unit, device_class, state_class, category in entities:
             config = {
-                "name": name,
+                "name": name,                        # null for the main sensor: it is called like the device
                 "uniq_id": "gas_meter_app_" + key,
                 "stat_t": "%s/%s" % (root, topic),
                 "stat_cla": state_class,
@@ -1433,6 +1433,57 @@ async def api_stats_export(request):
     monthly, factor = bills_context(request.app)
     out["invoices_monthly"] = [{"month": e["month"], "m3": round(e["m3"] if e.get("m3") is not None else e["kwh"] / factor, 2)} for e in monthly]
     return web.json_response(out)
+
+
+async def api_stats_load(request):
+    """Writes a prepared history (hourly readings from t0) into the statistics of the app's gas sensor, after the
+    statistics of that sensor were cleared. Hours after the prepared ones are kept from the sensor itself: their readings
+    are taken over and the sums are rebuilt from them, so the live data continues the prepared history."""
+    app = request.app
+    if not core_token():
+        return web.json_response({"error": "Apka nie działa w Home Assistant"}, status=409)
+    try:
+        body = await request.json()
+        t0 = int(body["t0"])
+        states = [float(x) for x in body["states"]]
+        if body.get("format") != "hourly-states-v1" or len(states) < 24 or t0 % 3600:
+            raise ValueError("zły format pliku")
+    except (ValueError, KeyError, TypeError) as error:
+        return web.json_response({"error": "Zły plik: %s" % error}, status=400)
+    registry = (await core_ws_call([{"type": "config/entity_registry/list"}]))[0] or []
+    entity_id = next((e.get("entity_id") for e in registry if e.get("unique_id") == "gas_meter_app_cubic_meters"), None)
+    if not entity_id:
+        return web.json_response({"error": "Nie znaleziono encji gazu apki (Cubic meters)"}, status=409)
+    last = t0 + 3600 * (len(states) - 1)
+    live_rows = (await core_ws_call([{
+        "type": "recorder/statistics_during_period", "start_time": "2000-01-01T00:00:00+00:00",
+        "statistic_ids": [entity_id], "period": "hour", "types": ["state"]}]))[0] or {}
+    live = sorted(((stat_time(r["start"]), float(r["state"])) for r in live_rows.get(entity_id) or []
+                   if r.get("state") is not None and stat_time(r["start"]) > last), key=lambda x: x[0])
+    rows = [{"start": t0 + 3600 * i, "state": round(v, 4), "sum": round(v - states[0], 4)} for i, v in enumerate(states)]
+    total, prev_state, prev_t, skipped = rows[-1]["sum"], states[-1], last, 0
+    for n, (t, state) in enumerate(live):
+        step = state - prev_state
+        if 0 <= step and meterclean.step_ok(step, t - prev_t):
+            total += step
+        else:
+            skipped += 1
+            nxt = live[n + 1] if n + 1 < len(live) else None
+            if nxt is not None and not (0 <= nxt[1] - state and meterclean.step_ok(nxt[1] - state, nxt[0] - t)):
+                continue                      # a single wrong reading (a glitch): left out
+            # otherwise the reading stays at a new level (the counter was set): not gas, the sum stays
+        prev_state, prev_t = state, t
+        rows.append({"start": t, "state": round(state, 4), "sum": round(total, 4)})
+    if body.get("dry"):
+        return web.json_response({"entity": entity_id, "history_rows": len(states), "live_rows": len(live), "skipped_jumps": skipped,
+                                  "first": rows[0], "last": rows[-1]})
+    try:
+        await core_ws_call([{"type": "recorder/clear_statistics", "statistic_ids": [entity_id]}])
+    except RuntimeError:
+        pass                                  # nothing to clear
+    await send_energy(rows, entity_id, None, "recorder")
+    return web.json_response({"entity": entity_id, "history_rows": len(states), "live_rows": len(live), "skipped_jumps": skipped,
+                              "first": rows[0], "last": rows[-1], "done": True})
 
 
 async def api_cleanup(request):
@@ -2473,6 +2524,7 @@ def create_app(options):
     app.router.add_get("/api/notify_targets", api_notify_targets)
     app.router.add_post("/api/notify_targets", api_notify_targets)
     app.router.add_get("/api/stats_export", api_stats_export)
+    app.router.add_post("/api/stats_load", api_stats_load)
     app.router.add_get("/api/cleanup", api_cleanup)
     app.router.add_post("/api/cleanup", api_cleanup)
     app.router.add_post("/api/set", api_set)
