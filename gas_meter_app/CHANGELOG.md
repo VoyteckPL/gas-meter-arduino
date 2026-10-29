@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.24.1
+
+* Przesunięcie palcem w bok po wykresie nie przełącza już zakładki: wykres sam się przewija. Dotyczy wszystkich przewijanych wykresów.
+* Historia gazu: poprawka dnia zrobiona na samym podglądzie (przed „Wczytaj i scal”) nie kasuje już podglądu. Podgląd zostaje, a poprawka jest od razu widoczna.
+
 ## 0.24.0
 
 * Nowa karta „Historia gazu z Home Assistanta” w zakładce Serwis: wybierasz kilka encji ze statystykami gazu (np. starą od 2019 i nową), a apka składa z nich jedną historię. Najnowsza encja jest wzorcem, starsze są przesuwane tak, żeby odczyty się zszyły; gdy encje się pokrywają, wygrywa nowsza. Karta pokazuje wykres zużycia na dobę w kolorach encji, informację o każdym zszyciu (przerwa, przesunięcie) i listę podejrzanych dni (nagły skok, ponad 6 m³ w godzinę, brak zużycia w środku sezonu).

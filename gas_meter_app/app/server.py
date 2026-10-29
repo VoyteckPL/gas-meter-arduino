@@ -1056,6 +1056,9 @@ async def api_gas_history(request):
         sources = gas_sources(store)
         if app.get("gas_view") is None and sources:
             gas_rebuild(app, sources)
+        elif not sources and app.get("gas_preview"):
+            sources = app["gas_preview"]                                    # only previewed so far: keep showing it
+            app["gas_view"] = gashistory.build(sources, app["gasfix"]["days"], app["gasfix"]["accepted"])
         result = app.get("gas_view") or {"joins": [], "days": [], "anomalies": [], "segments": []}
         return web.json_response(gas_payload(app, result, sources))
     try:
@@ -1088,7 +1091,10 @@ async def api_gas_history(request):
         if empty:
             return web.json_response({"error": "Brak statystyk godzinowych: " + ", ".join(empty)}, status=409)
         if action == "preview":
-            return web.json_response(gas_payload(app, gashistory.build(sources, fixes["days"], fixes["accepted"]), sources))
+            app["gas_preview"] = sources
+            app["gas_view"] = gashistory.build(sources, fixes["days"], fixes["accepted"])
+            return web.json_response(gas_payload(app, app["gas_view"], sources))
+        app["gas_preview"] = None
         result = gas_rebuild(app, sources)
         return web.json_response(gas_payload(app, result, sources))
     if action == "fix":
@@ -1109,6 +1115,7 @@ async def api_gas_history(request):
             store.imported.pop("meter", None)
         app["gasfix"] = {"days": {}, "accepted": []}
         app["gas_view"] = None
+        app["gas_preview"] = None
         save_gasfix(app["gasfix"])
         store.save_imported()
         return web.json_response(gas_payload(app, {"joins": [], "days": [], "anomalies": [], "segments": []}, []))
@@ -1116,6 +1123,10 @@ async def api_gas_history(request):
         return web.json_response({"error": "unknown action"}, status=400)
     save_gasfix(fixes)
     sources = gas_sources(store)
+    if not sources and app.get("gas_preview"):                              # a correction made on a preview that is not loaded yet
+        sources = app["gas_preview"]
+        app["gas_view"] = gashistory.build(sources, fixes["days"], fixes["accepted"])
+        return web.json_response(gas_payload(app, app["gas_view"], sources))
     return web.json_response(gas_payload(app, gas_rebuild(app, sources), sources))
 
 

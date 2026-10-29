@@ -2169,7 +2169,7 @@ window.addEventListener("message", (e) => {
     if (e.target.closest("input[type=range], select, textarea, .viewtabs, .overlay, .switch, [data-noswipe]")) return true;
     if (e.target.matches("input") && e.target === document.activeElement) return true;      // the field being edited
     const canvas = e.target.closest("canvas");
-    return !!(canvas && canvas._timeChart && canvas._timeChart.inNav(e.touches[0].clientY));
+    return !!(canvas && canvas._timeChart);        // a chart pans sideways itself, it must not change the tab
   };
   document.addEventListener("touchstart", (e) => {
     start = e.touches.length === 1 && !blocked(e) ? { x: e.touches[0].clientX, y: e.touches[0].clientY, time: Date.now() } : null;
