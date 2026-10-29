@@ -42,7 +42,7 @@
 #include "esp_ota_ops.h"
 #include "esp_timer.h"
 
-#define FW_VERSION "0.3.5"
+#define FW_VERSION "0.3.6"
 // The version is also kept as a marker in the binary: the Gas Meter app reads it from the .bin file it serves for the update
 static const char FW_MARKER[] = "GASMETER_FW:" FW_VERSION;
 
@@ -257,6 +257,9 @@ static bool g_otaAwaitingConfirm = false;
 
 enum OtaVerdict { OTA_OK = 0, OTA_BAD_FORMAT, OTA_BAD_SIGNATURE, OTA_SAME_VERSION, OTA_REJECTED, OTA_TOO_MANY, OTA_BATTERY, OTA_BAD_SIZE };
 
+// the retained update request, kept by the MQTT callback during the whole session and looked at when the session is over
+static String g_otaPayload;
+
 
 
 // ------------------------------- pulse interrupt -----------------------------
@@ -330,6 +333,12 @@ static uint32_t nowSeconds() {
 
 static String topic(const char *name) {
   return String(ROOT_TOPIC) + "/" + name;
+}
+
+// Callback that stays installed for the whole session: remembers the retained update request (and logs what arrives).
+static void sessionMessage(String &t, String &payload) {
+  LOG("MQTT message %s (%u bytes)\r\n", t.c_str(), (unsigned)payload.length());
+  if (t == topic("config/ota")) g_otaPayload = payload;
 }
 
 static const char *resetReasonText(uint8_t reason) {
@@ -601,7 +610,7 @@ static void otaBootCheck(esp_reset_reason_t reason, bool coldStart) {
 // Reads the retained request while the MQTT session is open; sets g_otaReq.valid when the update should go ahead.
 static void otaHandleRequest(MQTTClient &mqtt, const String &payload) {
   g_otaReq.valid = false;
-  if (payload.length() == 0) return;
+  if (payload.length() == 0 || g_otaAwaitingConfirm) return;      // a new firmware first confirms itself
   OtaRequest r;
   if (!otaParse(payload.c_str(), r)) { otaPublishStatus(mqtt, OTA_MSG_FORMAT); return; }
   uint64_t a, b;
@@ -820,6 +829,7 @@ static void restoreBase(MQTTClient &mqtt) {
       overrideValue = strtoull(payload.c_str(), NULL, 10);
       gotOverride = true;
     }
+    sessionMessage(t, payload);
   }));
 
   mqtt.subscribe(counterTopic);
@@ -832,7 +842,7 @@ static void restoreBase(MQTTClient &mqtt) {
   }
   mqtt.unsubscribe(counterTopic);
   mqtt.unsubscribe(overrideTopic);
-  mqtt.onMessage((MQTTClientCallbackSimpleFunction)([](String &, String &) -> void {}));   // the lambda above points to this function's locals
+  mqtt.onMessage((MQTTClientCallbackSimpleFunction)sessionMessage);   // the lambda above points to this function's locals
 
   if (gotOverride) {
     cache.counter = overrideValue;
@@ -864,26 +874,18 @@ static void restoreBase(MQTTClient &mqtt) {
 // that arrives too late stays retained and is applied in the next session. No unsubscribe: the session ends anyway.
 static void checkRemoteCounter(MQTTClient &mqtt) {
   String overrideTopic = topic("config/counter");
-  String otaTopic = topic("config/ota");
   bool got = false;
   uint64_t value = 0;
-  String otaPayload;
   mqtt.onMessage((MQTTClientCallbackSimpleFunction)([&](String &t, String &payload) -> void {
     if (t == overrideTopic && payload.length() > 0) { value = strtoull(payload.c_str(), NULL, 10); got = true; }
-    if (t == otaTopic) otaPayload = payload;
+    sessionMessage(t, payload);
   }));
   mqtt.subscribe(overrideTopic);
-#if OTA_ENABLED
-  mqtt.subscribe(otaTopic);
-#endif
   for (unsigned long t = millis(); millis() - t < 100;) {
     mqtt.loop();
     delay(5);
   }
-  mqtt.onMessage((MQTTClientCallbackSimpleFunction)([](String &, String &) -> void {}));   // the lambda above points to this function's locals
-#if OTA_ENABLED
-  otaHandleRequest(mqtt, otaPayload);
-#endif
+  mqtt.onMessage((MQTTClientCallbackSimpleFunction)sessionMessage);   // the lambda above points to this function's locals
   if (!got) return;
   absorbInterruptPulses();
   cache.counter = value;
@@ -903,8 +905,16 @@ static bool publishAll(bool sendStatus) {
     LOG("MQTT connection failed\r\n");
     return false;
   }
+  net.setNoDelay(true);       // send every message at once: with Nagle's algorithm each small publish waits for an acknowledgement (about 60 ms each)
   LOG("MQTT connected at %lu ms (fw %s), publishing counter %llu%s\r\n", (unsigned long)millis(), FW_VERSION,
       (unsigned long long)cache.counter, sendStatus ? " + status" : "");
+
+  // the update request is subscribed at once and read at the end of the session, when the broker has surely delivered it
+  g_otaPayload = "";
+  mqtt.onMessage((MQTTClientCallbackSimpleFunction)sessionMessage);
+#if OTA_ENABLED
+  mqtt.subscribe(topic("config/ota"));
+#endif
 
   if (!cache.mqttSynced) restoreBase(mqtt);
   else checkRemoteCounter(mqtt);
@@ -973,6 +983,11 @@ static bool publishAll(bool sendStatus) {
   }
 
 #if OTA_ENABLED
+  for (unsigned long t = millis(); millis() - t < 40;) {      // anything the broker still has for us
+    mqtt.loop();
+    delay(5);
+  }
+  otaHandleRequest(mqtt, g_otaPayload);
   otaAfterSession(mqtt, confirmed);
 #endif
   mqtt.disconnect();

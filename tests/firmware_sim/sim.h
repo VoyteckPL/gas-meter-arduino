@@ -99,7 +99,7 @@ class IPAddress {
   IPAddress(uint8_t a, uint8_t b, uint8_t c, uint8_t d) { zero = !(a | b | c | d); }
   String toString() const { return String("1.2.3.4"); }
 };
-class WiFiClient {};
+class WiFiClient { public: int setNoDelay(bool) { return 1; } };
 // OTA: what the simulated web server and flash writer answer
 static int g_http_code = 200;
 static int g_http_size = 900000;
