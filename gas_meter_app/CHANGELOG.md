@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.30.7
+
+* Poprawka w dzienniku aktualizacji: ostrzeżenie „gazomierz zgłosił się, ale nie zaczął pobierać pliku” pojawiało się zaraz po uzbrojeniu, bo apka brała pod uwagę sesję z poprzedniej aktualizacji. Teraz liczy się tylko sesja po uzbrojeniu.
+
 ## 0.30.6
 
 * Ustawienie stanu licznika wysyła też licznik, który apka widziała w chwili zapisu. Firmware 0.4.1 dolicza impulsy od tej chwili, więc impuls, który obudził gazomierz, już nie przepada (wcześniej licznik zostawał o 1 w tyle za tarczą). Starszy firmware czyta samą wartość jak dotąd.
