@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.30.6
+
+* Ustawienie stanu licznika wysyła też licznik, który apka widziała w chwili zapisu. Firmware 0.4.1 dolicza impulsy od tej chwili, więc impuls, który obudził gazomierz, już nie przepada (wcześniej licznik zostawał o 1 w tyle za tarczą). Starszy firmware czyta samą wartość jak dotąd.
+* Czekające polecenie stanu licznika jest pokazywane w m³.
+
 ## 0.30.5
 
 * Nowa zakładka „Historia”: przeniesiono do niej karty historii gazu i historii baterii z Home Assistanta (zakładka „Serwis” ma teraz aktualizację firmware i diagnostykę).

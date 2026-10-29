@@ -443,7 +443,7 @@ function setPending(name) {
   }
   box.hidden = false;
   box.textContent = "";
-  const shown = name === "wifi_password" ? "••••" : payload;
+  const shown = name === "counter" ? (Number(String(payload).split("|")[0]) / (Number(cfg("pulses_per_m3")) || 100)).toFixed(2) + " m³" : payload;
   box.append(el("span", { text: "⏳ " + t("waiting") + ": " + shown }));
   const link = el("a", { text: t("cancel") });
   link.addEventListener("click", () => cancelCommand(name));

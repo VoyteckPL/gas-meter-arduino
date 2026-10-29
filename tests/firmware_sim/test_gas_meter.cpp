@@ -326,6 +326,18 @@ int main(int argc, char **) {
     expect("counter set from the app: taken by the next session, later pulses on top, command cleared",
            r.chip == 5004 && r.broker == 5004 && g_retained.count("Gaz/Gazomierz/config/counter") == 0);
   }
+  { // the same with the counter the app saw (the counter starts at 1000, 5 pulses before 55 s): the pulse that starts the session is not lost
+    world_reset(); train(10, 10, 10, 1.0);
+    g_inject_t = S(55); g_inject_topic = "Gaz/Gazomierz/config/counter"; g_inject_payload = "5000|1005";
+    Result r = simulate(S(200));
+    expect("counter set with the base: every pulse after the setting counts", r.chip == 5005 && r.broker == 5005);
+  }
+  { // a base far behind is not trusted: the value is taken as it is
+    world_reset(); train(10, 10, 10, 1.0);
+    g_inject_t = S(55); g_inject_topic = "Gaz/Gazomierz/config/counter"; g_inject_payload = "5000|1009";
+    Result r = simulate(S(200));
+    expect("counter set with a base higher than the counter: plain value", r.chip == 5004 && r.broker == 5004);
+  }
 
   // ------------------------------------------------------------------ awake limit, DHCP fallback, hourly status
   { // a hang restarts the chip and the counter survives in RTC memory

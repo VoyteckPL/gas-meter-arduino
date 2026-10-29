@@ -2210,6 +2210,13 @@ async def api_set(request):
         return web.json_response({"error": str(error)}, status=400)
     spec = SCHEMA[name]
     suffix = spec.get("topic", "set/" + name)
+    if name == "counter":
+        # with the counter the app saw at this moment the firmware (0.4.1+) adds the pulses counted after the setting,
+        # including the one that starts the session that takes it; older firmware reads only the number before "|"
+        with app["store"].lock:
+            seen = app["store"].values.get("counter")
+        if seen is not None and str(seen).strip().isdigit():
+            payload = "%s|%s" % (payload, str(seen).strip())
     if not app["bridge"].publish(suffix, payload, retain=True):
         return web.json_response({"error": "MQTT not connected"}, status=503)
     with app["store"].lock:

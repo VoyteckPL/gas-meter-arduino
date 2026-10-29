@@ -31,8 +31,10 @@ The meter sleeps almost all the time, so:
 
 Manual counter override (HA entity "Set counter"): publish the pulse count (retained) to
 `config/counter`. A running meter reads it in every WiFi session, so the first pulse after it was set replaces the counter (without a pulse,
-at the latest in the next status session after `STATUS_INTERVAL_S`, 6 h); after a reset or power-on it is read at once. The value is used once and cleared.
+at the latest in the next status session after `STATUS_INTERVAL_S`, 1 h); after a reset or power-on it is read at once. The value is used once and cleared.
 Example: meter reading 7282.35 m3 with 100 pulses per m3 -> 728235.
+Firmware 0.4.1+ also accepts `value|base`, where `base` is the `counter` the sender saw when the reading was taken: the pulses counted
+since then (counter − base, at most 1000) are added to the value, so the pulse that starts the session is not lost. The app sends this form.
 
 ## Update over the air (firmware 0.3.0 and newer)
 

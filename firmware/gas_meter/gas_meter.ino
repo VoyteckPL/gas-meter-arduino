@@ -42,7 +42,7 @@
 #include "esp_ota_ops.h"
 #include "esp_timer.h"
 
-#define FW_VERSION "0.4.0"
+#define FW_VERSION "0.4.1"
 // The version is also kept as a marker in the binary: the Gas Meter app reads it from the .bin file it serves for the update
 static const char FW_MARKER[] = "GASMETER_FW:" FW_VERSION;
 
@@ -262,7 +262,7 @@ enum OtaVerdict { OTA_OK = 0, OTA_BAD_FORMAT, OTA_BAD_SIGNATURE, OTA_SAME_VERSIO
 // same connection they always arrive before that acknowledgement and no extra waiting is needed
 static String g_otaPayload;
 static bool g_gotOverride = false;
-static uint64_t g_overrideValue = 0;
+static String g_overridePayload;
 
 
 
@@ -343,7 +343,21 @@ static String topic(const char *name) {
 static void sessionMessage(String &t, String &payload) {
   LOG("MQTT message %s (%u bytes)\r\n", t.c_str(), (unsigned)payload.length());
   if (t == topic("config/ota")) g_otaPayload = payload;
-  if (t == topic("config/counter") && payload.length() > 0) { g_overrideValue = strtoull(payload.c_str(), NULL, 10); g_gotOverride = true; }
+  if (t == topic("config/counter") && payload.length() > 0) { g_overridePayload = payload; g_gotOverride = true; }
+}
+
+// The counter command from the app: "value|base". value is the meter reading typed in the app (in pulses), base the
+// counter the app had last received when it was saved. The pulses counted since then (counter - base, at least the one
+// that started this session) happened after the reading was taken, so they are added on top. A plain "value" (older
+// app) or a base that does not fit (the counter is lower, or far ahead) takes the value as it is.
+static uint64_t overrideCounter(const String &payload, uint64_t counter, bool counterKnown) {
+  const char *p = payload.c_str();
+  uint64_t value = strtoull(p, NULL, 10);
+  const char *bar = strchr(p, '|');
+  if (!bar || !counterKnown) return value;
+  uint64_t base = strtoull(bar + 1, NULL, 10);
+  if (counter < base || counter - base > 1000) return value;      // more than 10 m3 since the app saw the counter: not trusted
+  return value + (counter - base);
 }
 
 static const char *resetReasonText(uint8_t reason) {
@@ -839,12 +853,13 @@ static void restoreBase(MQTTClient &mqtt) {
   String counterTopic  = topic("counter");
   String overrideTopic = topic("config/counter");
   bool gotCounter = false, gotOverride = g_gotOverride;         // the override may have arrived already with the config/# subscription
-  uint64_t counterValue = 0, overrideValue = g_overrideValue;
+  uint64_t counterValue = 0;
+  String overridePayload = g_overridePayload;
 
   mqtt.onMessage((MQTTClientCallbackSimpleFunction)([&](String &t, String &payload) -> void {
     if (t == counterTopic)  { counterValue = strtoull(payload.c_str(), NULL, 10);  gotCounter = true; }
     if (t == overrideTopic && payload.length() > 0) {
-      overrideValue = strtoull(payload.c_str(), NULL, 10);
+      overridePayload = payload;
       gotOverride = true;
     }
     sessionMessage(t, payload);
@@ -862,10 +877,10 @@ static void restoreBase(MQTTClient &mqtt) {
   g_gotOverride = false;                    // handled here
 
   if (gotOverride) {
-    cache.counter = overrideValue;
+    cache.counter = overrideCounter(overridePayload, cache.counter, cache.baseKnown);
     cache.baseKnown = 1;
     // clear the override so that it is used only once
-    mqtt.publish(overrideTopic, String(""), true, 0);
+    mqtt.publish(overrideTopic, String(""), true, 1);
     LOG("Counter override from MQTT: %llu\r\n", (unsigned long long)cache.counter);
   } else if (cache.baseKnown) {
     if (gotCounter && counterValue > cache.counter) {
@@ -887,12 +902,13 @@ static void restoreBase(MQTTClient &mqtt) {
 
 // A counter value set from the app while the meter is already running: the retained command is read in every WiFi
 // session (subscribed at the start, looked at once the counter is acknowledged), so the first pulse after it was set (or
-// the next status) replaces the counter, without a restart. The new value is published at once and the command cleared.
+// the next status) replaces the counter, without a restart, with the pulses since the setting added on top (see
+// overrideCounter). The new value is published at once and the command cleared.
 static bool applyRemoteCounter(MQTTClient &mqtt) {
   if (!g_gotOverride) return true;
   g_gotOverride = false;
   absorbInterruptPulses();
-  cache.counter = g_overrideValue;
+  cache.counter = overrideCounter(g_overridePayload, cache.counter, cache.baseKnown);
   cache.baseKnown = 1;
   saveCounter();
   LOG("Counter set remotely: %llu\r\n", (unsigned long long)cache.counter);
