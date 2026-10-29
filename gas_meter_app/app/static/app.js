@@ -13,9 +13,7 @@ const TEXT = {
     btHint: "Napięcie = napięcie na pinie x współczynnik. Porównaj z miernikiem i popraw współczynnik.",
     noMeterTitle: "Brak danych z gazomierza",
     noMeterText: "Panel czeka na tematy nowego szkicu gazomierza ({root}/cubic_meters, BatteryVoltage, BatteryPercent, RSSI). Wgraj szkic firmware/gas_meter z repozytorium albo opublikuj je raz r\u0119cznie w MQTT (retained), \u017ceby zobaczy\u0107 panel z danymi.",
-    service: "Tryb serwisowy", serviceMode: "Tryb serwisowy",
-    serviceHint: "Gazomierz śpi. Tryb serwisowy odbierze przy najbliższym połączeniu z WiFi (impuls gazu, czyli ogrzewanie lub ciepła woda) i zostanie obudzony, aż go wyłączysz lub minie limit czasu.",
-    restart: "Restart gazomierza", update: "Zainstaluj aktualizację firmware", confirm: "Na pewno?",
+    service: "Serwis", confirm: "Na pewno?",
     settings: "Ustawienia", save: "Zapisz", cancel: "anuluj", meterValue: "gazomierz",
     waiting: "czeka na gazomierz", saved: "Zapisane, czeka na gazomierz", error: "Błąd",
     send_interval: "Odstęp wysyłki (0 = każdy impuls)", status_interval: "Odstęp raportu statusu",
@@ -70,9 +68,9 @@ const TEXT = {
     bTestNote: "Test rozładowania: prognoza wynika z trendu napięcia. Gdy test dojdzie do 3,0 V, panel nauczy się prawdziwej krzywej Twoich ogniw i użyje jej dla gazomierza.",
     bDays: "dni", bMonths: "mies.", bOn: "włączone", bUnknown: "nieznane",
     tabPanel: "Przegląd", tabUsage: "Zużycie", meterSub: "wskazanie gazomierza", flowSub: "średnio z ostatnich 15 min", todaySub: "od północy", signalSub: "WiFi gazomierza", lastSub: "ostatni odczyt z gazomierza", tabSettings: "Ustawienia", tabNetwork: "Sieć", tabService: "Serwis", tabDemo: "Demo",
-    settingsNote: "Zmiany są zapisywane na brokerze MQTT, a gazomierz odbierze je przy najbliższym połączeniu z WiFi (gdy płynie gaz). Włącz tryb serwisowy w zakładce Serwis, żeby zastosował je od razu. Uwaga: odczyt ustawień w firmware gazomierza jest jeszcze w przygotowaniu; dziś działa „Ustaw stan licznika” z obecnym firmware.",
-    networkNote: "Zmiany sieci są próbne: gazomierz wraca do poprzednich ustawień, jeśli nie może się połączyć. Wymaga firmware etapu 2.",
-    serviceNote: "Tryb serwisowy utrzymuje gazomierz w stanie czuwania, żeby ustawienia, restart i aktualizacje zadziałały od razu. Zużywa baterię, więc wyłącz go po skończeniu.", histHint: "Kliknij wartość, żeby zobaczyć jej historię.", close: "Zamknij", range1h: "1 godz.", range6h: "6 godz.",
+    settingsNote: "Gazomierz odbiera z apki tylko stan licznika, przy najbliższym połączeniu z WiFi (czyli przy impulsie gazu). Pozostałe parametry (WiFi, stałe IP, progi baterii, odstęp wysyłki) są wpisane w firmware: plik secrets.h i definicje na początku szkicu.",
+    networkNote: "Tylko podgląd tego, co gazomierz zgłasza. Dane sieci zmienia się w firmware (secrets.h).",
+    serviceNote: "Import historii z Home Assistanta i diagnostyka gazomierza.", histHint: "Kliknij wartość, żeby zobaczyć jej historię.", close: "Zamknij", range1h: "1 godz.", range6h: "6 godz.",
     range24h: "24 godz.", range7d: "7 dni", range14d: "14 dni", hMeter: "Stan licznika", hFlow: "Przepływ",
     hHourly: "Zużycie na godzinę", hBattery: "Napięcie baterii", hPercent: "Poziom baterii", hRssi: "Sygnał WiFi",
     hBtPin: "Napięcie na pinie (test)", hBtVolt: "Napięcie baterii (test)", sMin: "Min", sMax: "Maks", sAvg: "Średnia",
@@ -230,16 +228,6 @@ function confirmDialog({ title, message, details, confirmText, danger }) {
 }
 
 const CONFIRM_ACTIONS = {
-  restart: () => ({ title: "Zrestartować gazomierz?", danger: true, confirmText: "Zrestartuj",
-    message: "Gazomierz uruchomi się ponownie przy najbliższym połączeniu z WiFi. Stan licznika jest zapisywany w pamięci gazomierza." }),
-  update: () => ({ title: "Zainstalować aktualizację firmware?", danger: true, confirmText: "Zainstaluj",
-    message: "Gazomierz pobierze i zainstaluje nowe oprogramowanie przy najbliższym połączeniu. Aktualizacja chwilę trwa i zużywa więcej baterii. Upewnij się, że bateria jest naładowana." }),
-  service_mode: (value) => value === "ON"
-    ? { title: "Włączyć tryb serwisowy?", confirmText: "Włącz",
-        message: "Gazomierz będzie stale czuwał i od razu odbierał polecenia. To szybko zużywa baterię, więc wyłącz tryb po skończeniu pracy." }
-    : { title: "Wyłączyć tryb serwisowy?", confirmText: "Wyłącz", message: "Gazomierz wróci do oszczędnego snu." },
-  static_ip: (value) => ({ title: value === "ON" ? "Włączyć stałe IP?" : "Wyłączyć stałe IP?", danger: true, confirmText: "Zmień",
-    message: "Zła konfiguracja sieci może odciąć gazomierz od WiFi. Zmiana jest próbna: jeśli gazomierz nie połączy się po restarcie, wraca do poprzednich ustawień (wymaga firmware etapu 2)." }),
   counter: (value) => {
     const perM3 = Number(cfg("pulses_per_m3")) || 100, current = Number(state.values.counter);
     return { title: "Ustawić stan licznika?", danger: true, confirmText: "Ustaw stan",
@@ -247,34 +235,9 @@ const CONFIRM_ACTIONS = {
       details: [["Teraz", Number.isFinite(current) ? num(current / perM3, 2) + " m³" : "—"], ["Nowy stan", num(Number(value) / perM3, 2) + " m³ (" + value + " impulsów)"]] };
   },
 };
-const NETWORK_NAMES = ["ip", "gateway", "subnet", "dns", "wifi_ssid", "wifi_password"];
-const SETTING_WARNINGS = {
-  pulses_per_m3: "Zła wartość zafałszuje wszystkie odczyty zużycia gazu.",
-  debounce: "Zbyt mała lub zbyt duża wartość może powodować pomijanie albo podwójne liczenie impulsów.",
-  battery_cal: "Zła wartość zafałszuje pomiar napięcia baterii i ostrzeżenia o rozładowaniu.",
-  battery_cutoff_v: "Zbyt wysoki próg odcięcia wyłączy gazomierz za wcześnie, a zbyt niski może uszkodzić ogniwa.",
-  battery_warn_v: "Ta wartość decyduje o ostrzeżeniach o niskiej baterii.",
-  send_interval: "Dłuższy odstęp opóźnia dane w Home Assistant, ale oszczędza baterię.",
-  status_interval: "Częstszy raport statusowy zużywa więcej baterii.",
-};
-
 // What to ask before sending a command. Returns null when the command needs no confirmation.
 function describeAction(name, value) {
   if (CONFIRM_ACTIONS[name]) return CONFIRM_ACTIONS[name](value);
-  const label = t(name) || name;
-  if (NETWORK_NAMES.includes(name)) {
-    const secret = name === "wifi_password";
-    return { title: "Zmienić ustawienie sieci?", danger: true, confirmText: "Zmień",
-      message: "Zła konfiguracja sieci może odciąć gazomierz od WiFi. Zmiana jest próbna: jeśli gazomierz nie połączy się po restarcie, wraca do poprzednich ustawień (wymaga firmware etapu 2).",
-      details: [[label, secret ? "•••••••• (hasło nie jest pokazywane)" : String(value)]] };
-  }
-  const spec = (state.schema || {})[name];
-  if (spec && spec.group === "settings") {
-    const current = cfg(name), unit = spec.unit ? " " + spec.unit : "";
-    return { title: "Zmienić ustawienie?", danger: ["pulses_per_m3", "debounce", "battery_cal", "battery_cutoff_v"].includes(name), confirmText: "Zmień",
-      message: SETTING_WARNINGS[name] || "Zmiana zostanie zapisana i odebrana przez gazomierz przy najbliższym połączeniu.",
-      details: [[label, (current === undefined ? "—" : current + unit) + "  →  " + value + unit]] };
-  }
   return null;
 }
 
@@ -303,45 +266,6 @@ async function cancelCommand(name) {
 function cfg(name) { return state.values["cfg/" + name]; }
 
 // ------------------------------------------------------------------- building
-function numberRow(name, spec, labelKey, saveHook) {
-  const input = el("input", { type: "number", id: "in-" + name, min: spec.min, max: spec.max, step: spec.step });
-  input.addEventListener("input", () => dirty.add(name));
-  const save = el("button", { text: t("save") });
-  save.addEventListener("click", () => (saveHook ? saveHook(input) : send(name, input.value)));
-  return el("div", { class: "row", id: "row-" + name }, [
-    el("label", { for: "in-" + name, "data-i18n": labelKey || name }),
-    el("div", { class: "field" }, [input, el("span", { class: "unit", text: spec.unit || "" }), save]),
-    el("div", { class: "pending", id: "pend-" + name, hidden: "" }),
-  ]);
-}
-function textRow(name, spec) {
-  const input = el("input", { type: spec.type === "password" ? "password" : "text", id: "in-" + name,
-                              autocomplete: "off", maxlength: spec.max || 64 });
-  input.addEventListener("input", () => dirty.add(name));
-  const save = el("button", { text: t("save") });
-  save.addEventListener("click", () => send(name, input.value));
-  return el("div", { class: "row", id: "row-" + name }, [
-    el("label", { for: "in-" + name, "data-i18n": name }),
-    el("div", { class: "field" }, [input, save]),
-    el("div", { class: "pending", id: "pend-" + name, hidden: "" }),
-  ]);
-}
-function switchRow(name, labelKey) {
-  const sw = el("div", { class: "switch", id: "sw-" + name, role: "switch", tabindex: "0" });
-  const toggle = () => send(name, sw.classList.contains("on") ? "OFF" : "ON");
-  sw.addEventListener("click", toggle);
-  sw.addEventListener("keydown", (event) => { if (event.key === " " || event.key === "Enter") toggle(); });
-  return el("div", { class: "row", id: "row-" + name }, [
-    el("div", { class: "switch-row" }, [el("span", { "data-i18n": labelKey || name }), sw]),
-    el("div", { class: "pending", id: "pend-" + name, hidden: "" }),
-  ]);
-}
-function actionButton(name, labelKey) {
-  const button = el("button", { class: "secondary", "data-i18n": labelKey });
-  button.addEventListener("click", () => send(name, "1"));
-  return button;
-}
-
 function build() {
   const root = $("#root");                 // Overview
   root.textContent = "";
@@ -350,7 +274,6 @@ function build() {
   };
   for (const node of Object.values(views)) node.textContent = "";
   const note = (key) => el("section", { class: "card wide" }, [el("p", { class: "muted small", style: "margin:0", "data-i18n": key })]);
-  const schema = state.schema;
 
   // notice shown while the meter has not published anything yet
   root.append(el("section", { class: "card wide", id: "notice", hidden: "" }, [
@@ -420,24 +343,8 @@ function build() {
 
   // service
   views.service.append(note("serviceNote"));
-  views.service.append(el("section", { class: "card" }, [
-    el("h2", { "data-i18n": "service" }),
-    switchRow("service_mode", "serviceMode"),
-    el("div", { class: "muted small", id: "serviceState" }),
-    el("p", { class: "hint", "data-i18n": "serviceHint" }),
-    el("div", { class: "field", style: "gap:8px;flex-wrap:wrap" }, [
-      actionButton("restart", "restart"), actionButton("update", "update"),
-    ]),
-    el("div", { class: "muted small", id: "firmware", style: "margin-top:10px" }),
-  ]));
 
-  // settings
-  const settings = el("section", { class: "card" }, [el("h2", { "data-i18n": "settings" })]);
-  for (const [name, spec] of Object.entries(schema)) {
-    if (spec.group === "settings") settings.append(numberRow(name, spec));
-  }
   views.settings.append(note("settingsNote"));
-  views.settings.append(settings);
 
   // counter
   const counterInput = el("input", { type: "number", id: "in-counter", min: 0, step: "0.01" });
@@ -466,14 +373,6 @@ function build() {
     el("span", { "data-i18n": "ssid" }), el("span", { class: "v", id: "curSsid" }),
     el("span", { "data-i18n": "bssid" }), el("span", { class: "v", id: "curBssid" }),
   ]));
-  network.append(el("div", { style: "height:14px" }));
-  network.append(switchRow("static_ip", "static_ip"));
-  for (const [name, spec] of Object.entries(schema)) {
-    if (spec.group === "network" && (spec.type === "ip" || spec.type === "text" || spec.type === "password")) {
-      network.append(textRow(name, spec));
-    }
-  }
-  network.append(el("p", { class: "hint", "data-i18n": "networkHint" }));
   views.network.append(note("networkNote"));
   views.network.append(network);
 
@@ -597,34 +496,6 @@ function update() {
   }
 
   // service
-  $("#serviceState").textContent = v.service_state ? v.service_state : "";
-  $("#firmware").textContent = "";
-  try {
-    const info = JSON.parse(v.update || "null");
-    if (info) {
-      $("#firmware").textContent = t("installed") + ": " + info.installed_version +
-        (info.latest_version ? "   " + t("available") + ": " + info.latest_version : "");
-    }
-  } catch (e) { /* not JSON */ }
-
-  // switches
-  for (const name of ["service_mode", "static_ip"]) {
-    const sw = $("#sw-" + name);
-    const value = state.pending[name] !== undefined ? state.pending[name] : cfg(name);
-    sw.classList.toggle("on", value === "ON");
-    setPending(name);
-  }
-
-  // inputs
-  for (const [name, spec] of Object.entries(state.schema)) {
-    if (!["number", "ip", "text", "password"].includes(spec.type) || name === "counter") continue;
-    const input = $("#in-" + name);
-    if (input && !dirty.has(name) && document.activeElement !== input && spec.type !== "password") {
-      const value = cfg(name);
-      if (value !== undefined) input.value = value;
-    }
-    setPending(name);
-  }
   const counterInput = $("#in-counter");
   if (counterInput && !dirty.has("counter") && document.activeElement !== counterInput && v.cubic_meters !== undefined) {
     counterInput.value = num(v.cubic_meters, 2);
@@ -657,8 +528,7 @@ function update() {
   // number of commands waiting for the meter, shown on the tab where they belong
   const counts = { settings: 0, network: 0, service: 0 };
   for (const name of Object.keys(state.pending || {})) {
-    const group = (state.schema[name] || {}).group;
-    const tab = group === "counter" || group === "settings" ? "settings" : group;
+    const tab = "settings";
     if (tab in counts) counts[tab]++;
   }
   for (const [tab, count] of Object.entries(counts)) {

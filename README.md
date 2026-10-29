@@ -92,7 +92,6 @@ The plain YAML alternative is in `home-assistant/` (package + dashboard, see the
   flash backup of the counter, flutter protection), batched WiFi/MQTT sessions, battery measurement,
   counter restore, status with diagnostics, optional preferred access point (`WIFI_PREFERRED_BSSID`).
   The pulse logic is checked by `tests/firmware_sim` (the real code against simulated reed pulses).
-* App (done, v0.1.0): sidebar panel, charts, settings, service mode, set meter reading.
-* Stage 2 (planned): the firmware side of the settings, service mode, OTA update with rollback,
-  network settings with automatic revert. The panel already has the controls, they stay
-  "waiting for the meter" until the firmware supports them.
+* App: sidebar panel, charts, statistics, battery forecast, bill forecast, weather, boiler split, set meter reading.
+* Stage 2 (planned, not in the app yet): remote settings, a one-shot OTA update at the next pulse with rollback,
+  network settings with automatic revert. The app has no controls for them until the firmware supports them.

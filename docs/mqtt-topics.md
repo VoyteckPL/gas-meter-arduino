@@ -34,7 +34,7 @@ Manual counter override (HA entity "Set counter"): publish the pulse count (reta
 at the latest in the next status session after `STATUS_INTERVAL_S`, 6 h); after a reset or power-on it is read at once. The value is used once and cleared.
 Example: meter reading 7282.35 m3 with 100 pulses per m3 -> 728235.
 
-## Planned (stage 2, not implemented yet)
+## Planned (stage 2, neither the firmware nor the app supports it yet)
 
 State: `flow_m3h`, `service_state` and `update`
 (JSON `{"installed_version": "...", "latest_version": "..."}`).

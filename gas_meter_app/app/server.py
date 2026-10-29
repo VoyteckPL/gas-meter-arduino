@@ -53,32 +53,11 @@ import boiler
 
 log = logging.getLogger("gas_meter")
 
-# name -> description of a setting. Used for validation and to build the UI.
+# name -> description of a command the meter understands. Used for validation and to build the UI.
 SCHEMA = {
-    # numbers
-    "send_interval":     {"type": "number", "min": 0,   "max": 3600,  "step": 1,     "unit": "s",  "group": "settings"},
-    "status_interval":   {"type": "number", "min": 1,   "max": 48,    "step": 1,     "unit": "h",  "group": "settings"},
-    "debounce":          {"type": "number", "min": 10,  "max": 2000,  "step": 10,    "unit": "ms", "group": "settings"},
-    "pulses_per_m3":     {"type": "number", "min": 1,   "max": 10000, "step": 1,     "unit": "",   "group": "settings"},
-    "battery_cal":       {"type": "number", "min": 1.5, "max": 2.5,   "step": 0.001, "unit": "",   "group": "settings"},
-    "battery_warn_v":    {"type": "number", "min": 3.2, "max": 4.0,   "step": 0.05,  "unit": "V",  "group": "settings"},
-    "battery_cutoff_v":  {"type": "number", "min": 2.8, "max": 3.4,   "step": 0.05,  "unit": "V",  "group": "settings"},
-    # counter (applied once after a restart of the meter)
+    # the only thing the firmware reads from the broker: the counter (applied once per WiFi session)
     "counter":           {"type": "number", "min": 0,   "max": 99999999, "step": 1,   "unit": "",   "group": "counter",
                           "topic": "config/counter"},
-    # switches
-    "service_mode":      {"type": "switch", "group": "service"},
-    "static_ip":         {"type": "switch", "group": "network"},
-    # texts
-    "ip":                {"type": "ip",   "group": "network"},
-    "gateway":           {"type": "ip",   "group": "network"},
-    "subnet":            {"type": "ip",   "group": "network"},
-    "dns":               {"type": "ip",   "group": "network"},
-    "wifi_ssid":         {"type": "text", "min": 1, "max": 32, "group": "network"},
-    "wifi_password":     {"type": "password", "min": 8, "max": 63, "group": "network"},
-    # actions
-    "restart":           {"type": "action", "payload": "RESTART", "group": "service"},
-    "update":            {"type": "action", "payload": "INSTALL", "group": "service"},
 }
 
 

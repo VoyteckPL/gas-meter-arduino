@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.23.1
+
+* Z apki usunięte wszystkie ustawienia, których firmware nie obsługuje: tryb serwisowy, restart i aktualizacja gazomierza, zmiana parametrów (odstęp wysyłki, debounce, kalibracja baterii i inne) oraz edycja sieci. Gazomierz odbiera z brokera tylko stan licznika, więc reszta tylko wisiała jako „czeka na gazomierz”. Zakładka Ustawienia ma teraz ustawianie stanu licznika, Sieć pokazuje tylko podgląd, a Serwis import historii z Home Assistanta i diagnostykę.
+
 ## 0.23.0
 
 * Karta pieca ma widok „Miesiące i sezony”: gaz na ciepłą wodę, ogrzewanie oraz postój i resztę w każdym miesiącu, z udziałem wody w procentach. Podział dni apka zapisuje na stałe, więc historia rośnie, choć Home Assistant trzyma stany pieca tylko około 10 dni.
