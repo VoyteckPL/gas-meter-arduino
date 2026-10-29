@@ -1324,7 +1324,7 @@ def ota_state(app):
             "armed": bool(meta.get("armed")), "armed_at": meta.get("armed_at"), "url_host": meta.get("host"), "done": meta.get("done"),
             "key_set": bool((app["options"].get("ota_key") or "").strip()), "device_version": values.get("fw_version"), "device_status": values.get("ota_status"),
             "port": OTA_PORT, "in_ha": bool(core_token()), "progress": dict(app["ota_progress"]),
-            "last_session": app["store"].updated.get("counter"), "now": time.time(), "on_broker": bool(values.get("config/ota")), "log": list(meta.get("log", []))[-40:]}
+            "last_session": app["store"].updated.get("counter"), "now": time.time(), "on_broker": bool(values.get("config/ota")), "forced": bool(meta.get("forced")), "log": list(meta.get("log", []))[-40:]}
 
 
 async def api_ota(request):
@@ -1349,14 +1349,20 @@ async def api_ota(request):
             return web.json_response({"error": "Nie znam adresu Home Assistanta w sieci. Wpisz go w opcji „ota_host” apki (np. 192.168.1.9)."}, status=409)
         token = secrets.token_hex(16)
         url = "http://%s:%d/fw/%s.bin" % (host, OTA_PORT, token)
-        payload = ota_sign(key, meta["version"], url, meta["md5"], meta["size"])
+        # the meter installs only a version different from its own: a forced reinstall of the same file gets a numbered
+        # request version (0.3.6.1), the binary itself is unchanged and still reports 0.3.6
+        force = bool(body.get("force"))
+        meta["force_n"] = int(meta.get("force_n") or 0) + 1 if force else int(meta.get("force_n") or 0)
+        wanted = meta["version"] + (".%d" % meta["force_n"] if force else "")
+        payload = ota_sign(key, wanted, url, meta["md5"], meta["size"])
         if not bridge.publish("config/ota", payload, retain=True):
             return web.json_response({"error": "Brak połączenia z MQTT"}, status=503)
         app["ota_progress"].update(sent=0, total=0, started=None, finished=None, remote=None, active=False)
-        meta.update(armed=True, token=token, host=host, armed_at=time.time(), done=None, payload=payload)
+        meta.update(armed=True, token=token, host=host, armed_at=time.time(), done=None, payload=payload, forced=force)
         save_ota(meta)
         app["ota_watch"].update(session=app["store"].updated.get("counter"), status=app["store"].values.get("ota_status"), warned=False)
-        ota_log(app, "Uzbrojono aktualizację do %s (%s, %d kB). Polecenie opublikowane w MQTT, plik pod %s:%d." % (meta["version"], meta.get("name") or "firmware", meta["size"] // 1024, host, OTA_PORT))
+        ota_log(app, "Uzbrojono %s do %s (%s, %d kB). Polecenie opublikowane w MQTT, plik pod %s:%d." % (
+            "ponowną instalację tej samej wersji" if force else "aktualizację", meta["version"], meta.get("name") or "firmware", meta["size"] // 1024, host, OTA_PORT))
     elif action == "cancel":
         bridge.publish("config/ota", "", retain=True)
         meta.update(armed=False, token=None)
@@ -1463,7 +1469,13 @@ async def ota_loop(app):
                 watch["republished"] = time.time()
                 app["bridge"].publish("config/ota", meta["payload"], retain=True)           # the request must wait on the broker for the meter
                 ota_log(app, "Polecenia nie było na brokerze MQTT, opublikowano je ponownie.")
-            if meta.get("armed") and values.get("fw_version") == meta.get("version"):
+            reported = app["store"].updated.get("ota_status") or 0
+            if meta.get("armed") and meta.get("forced") and reported > (meta.get("armed_at") or 0) and str(values.get("ota_status", "")).startswith("ok"):
+                app["bridge"].publish("config/ota", "", retain=True)                      # the same version again: the meter confirmed itself
+                meta.update(armed=False, token=None, done=time.time())
+                save_ota(meta)
+                ota_log(app, "Gazomierz zainstalował plik ponownie i potwierdził wersję %s. Zakończono." % meta.get("version"))
+            if meta.get("armed") and not meta.get("forced") and values.get("fw_version") == meta.get("version"):
                 app["bridge"].publish("config/ota", "", retain=True)
                 meta.update(armed=False, token=None, done=time.time())
                 save_ota(meta)

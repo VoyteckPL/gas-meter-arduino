@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.30.2
+
+* Można zainstalować ponownie tę samą wersję bez kompilowania: gdy plik ma wersję, którą gazomierz już ma, pojawia się przycisk „Zainstaluj ponownie tę samą wersję”. Apka wysyła wtedy polecenie z numerowaną wersją (np. 0.3.6.1), gazomierz pobiera ten sam plik, instaluje go i potwierdza. Przydatne do testów aktualizacji, wycofania i odbioru polecenia.
+
 ## 0.30.1
 
 * Karta aktualizacji pokazuje, czy polecenie aktualizacji jest na brokerze MQTT. Jeśli uzbrojone polecenie zniknie z brokera, apka sama publikuje je ponownie i zapisuje to w dzienniku.

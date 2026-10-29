@@ -1102,7 +1102,7 @@ function renderOtaSteps(d) {
   const fmtT = (t) => new Date(t * 1000).toLocaleTimeString("pl-PL");
   const reported = d.last_session && d.armed_at && d.last_session > d.armed_at;
   const downloaded = !!p.finished, downloading = !!p.active;
-  const confirmed = d.done || (downloaded && d.device_version === d.file.version);
+  const confirmed = d.done || (downloaded && !d.forced && d.device_version === d.file.version);
   const pct = p.total ? Math.min(100, Math.round(p.sent / p.total * 100)) : 0;
   const failed = /error|rolled back|gave up|rejected/.test(d.device_status || "") && !confirmed;
   const row = (state, text) => el("div", { style: "display:flex;gap:8px;align-items:flex-start;margin:4px 0" }, [
@@ -1149,10 +1149,17 @@ function renderOta() {
     } else {
       const arm = el("button", { text: "Zaktualizuj przy najbliższym impulsie", "data-keep": "" });
       arm.disabled = !d.key_set || same;
-      arm.addEventListener("click", otaArm);
+      arm.addEventListener("click", () => otaArm(false));
       const del = el("button", { class: "ghost", text: "Usuń plik", "data-keep": "" });
       del.addEventListener("click", otaDelete);
-      row.append(arm, pick("Zmień plik", "secondary"), del);
+      row.append(arm);
+      if (same) {
+        const again = el("button", { class: "secondary", text: "Zainstaluj ponownie tę samą wersję", "data-keep": "" });
+        again.disabled = !d.key_set;
+        again.addEventListener("click", () => otaArm(true));
+        row.append(again);
+      }
+      row.append(pick("Zmień plik", "secondary"), del);
     }
     main.append(row);
   }
@@ -1178,20 +1185,20 @@ async function otaUpload() {
   input.value = "";
 }
 
-async function otaAction(action) {
+async function otaAction(action, force) {
   try {
-    otaUi.data = await api("ota", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) });
+    otaUi.data = await api("ota", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, force: !!force }) });
     renderOta(); toast(action === "arm" ? "Uzbrojone: czeka na impuls gazu" : action === "cancel" ? "Anulowano" : "Usunięto plik");
     clearTimeout(otaUi.timer);
     if (otaUi.data.armed) otaUi.timer = setTimeout(loadOta, 2000);
   } catch (e) { toast(e.message, true); }
 }
 
-async function otaArm() {
+async function otaArm(force) {
   const d = otaUi.data;
-  if (await confirmDialog({ title: "Zaktualizować firmware gazomierza?", danger: true, confirmText: "Uzbrój",
-    message: "Przy najbliższym impulsie gazomierz pobierze nowy firmware i uruchomi się ponownie. Jeśli nowa wersja nie połączy się z WiFi i brokerem, wróci sam do poprzedniej. Licznik jest zapisywany przed aktualizacją.",
-    details: [["Wersja w gazomierzu", d.device_version || "—"], ["Nowa wersja", d.file.version], ["Rozmiar", num(d.file.size / 1024, 0) + " kB"]] })) otaAction("arm");
+  if (await confirmDialog({ title: force ? "Zainstalować ponownie tę samą wersję?" : "Zaktualizować firmware gazomierza?", danger: true, confirmText: "Uzbrój",
+    message: (force ? "Gazomierz zainstaluje ten sam plik jeszcze raz (do testów, bez kompilowania). " : "") + "Przy najbliższym impulsie gazomierz pobierze nowy firmware i uruchomi się ponownie. Jeśli nowa wersja nie połączy się z WiFi i brokerem, wróci sam do poprzedniej. Licznik jest zapisywany przed aktualizacją.",
+    details: [["Wersja w gazomierzu", d.device_version || "—"], ["Nowa wersja", d.file.version], ["Rozmiar", num(d.file.size / 1024, 0) + " kB"]] })) otaAction("arm", force);
 }
 
 async function otaDelete() {
