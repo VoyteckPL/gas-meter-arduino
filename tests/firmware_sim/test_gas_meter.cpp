@@ -36,7 +36,7 @@ static void world_reset() {
   g_mqtt_ok = true; g_wifi_ok = true; g_isr = nullptr; g_adc_mv = 2000; g_wifi_sessions = 0; g_ack_failures = 0;
   g_retained["Gaz/Gazomierz/counter"] = "1000";
   g_http_code = 200; g_http_size = 900000; g_http_gets = 0; g_update_begin_ok = true; g_update_end_ok = true; g_update_writes = 0;
-  g_boot_other = false; g_restarts_called = 0; g_after_restart_version = nullptr; g_static_ok = true; g_dhcp = false; g_timer_cb = nullptr;
+  g_boot_other = false; g_restarts_called = 0; g_after_restart_version = nullptr; g_static_ok = true; g_dhcp = false; g_timer_cb = nullptr; g_inject_t = -1;
   g_otaReq.valid = false; g_otaAwaitingConfirm = false; g_otaCurrent = FW_VERSION;
 }
 
@@ -317,6 +317,14 @@ int main(int argc, char **) {
     world_reset(); g_flash["ota_bad_a"] = 0x0123456789abcdefULL; g_flash["ota_bad_b"] = 0x0123456789abcdefULL;
     g_retained["Gaz/Gazomierz/config/ota"] = good; train(10, 10, 1, 1.0);
     simulate(S(40)); expect("a rejected image is not installed again", g_http_gets == 0 && g_retained.count("Gaz/Gazomierz/config/ota") == 0);
+  }
+
+  { // the counter is set from the app while the meter runs: the next session takes it, the pulses after it count on top
+    world_reset(); train(10, 10, 10, 1.0);
+    g_inject_t = S(55); g_inject_topic = "Gaz/Gazomierz/config/counter"; g_inject_payload = "5000";
+    Result r = simulate(S(200));
+    expect("counter set from the app: taken by the next session, later pulses on top, command cleared",
+           r.chip == 5004 && r.broker == 5004 && g_retained.count("Gaz/Gazomierz/config/counter") == 0);
   }
 
   // ------------------------------------------------------------------ awake limit, DHCP fallback, hourly status

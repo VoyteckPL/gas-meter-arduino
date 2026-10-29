@@ -52,7 +52,6 @@ static bool g_dhcp = false;                // the last WiFi.config asked for DHC
 static uint32_t g_adc_mv = 2000;
 static int64_t g_wifi_start = -1;
 static int g_wifi_sessions = 0;
-static std::map<std::string, std::string> g_retained;
 static std::map<std::string, uint64_t> g_flash;
 static int g_flash_writes = 0;
 struct PubLog { int64_t t; std::string topic, payload; };
@@ -63,7 +62,11 @@ static int level_at(int64_t t) {
   for (auto &e : g_wave) { if (e.t <= t) l = e.level; else break; }
   return l;
 }
+static int64_t g_inject_t = -1;               // at this time the app sets a retained message (g_inject_topic = g_inject_payload)
+static std::string g_inject_topic, g_inject_payload;
+static std::map<std::string, std::string> g_retained;
 static void advance_to(int64_t t) {
+  if (g_inject_t >= 0 && t >= g_inject_t) { g_retained[g_inject_topic] = g_inject_payload; g_inject_t = -1; }
   int prev = level_at(g_now_us);
   for (auto &e : g_wave) {
     if (e.t <= g_now_us) continue;

@@ -42,7 +42,7 @@
 #include "esp_ota_ops.h"
 #include "esp_timer.h"
 
-#define FW_VERSION "0.3.8"
+#define FW_VERSION "0.3.9"
 // The version is also kept as a marker in the binary: the Gas Meter app reads it from the .bin file it serves for the update
 static const char FW_MARKER[] = "GASMETER_FW:" FW_VERSION;
 
@@ -257,8 +257,12 @@ static bool g_otaAwaitingConfirm = false;
 
 enum OtaVerdict { OTA_OK = 0, OTA_BAD_FORMAT, OTA_BAD_SIGNATURE, OTA_SAME_VERSION, OTA_REJECTED, OTA_TOO_MANY, OTA_BATTERY, OTA_BAD_SIZE };
 
-// the retained update request, kept by the MQTT callback during the whole session and looked at when the session is over
+// the retained commands (update request, counter set from the app), kept by the MQTT callback during the whole session and
+// looked at when the counter is acknowledged: the broker sends retained messages right after the subscription, so on the
+// same connection they always arrive before that acknowledgement and no extra waiting is needed
 static String g_otaPayload;
+static bool g_gotOverride = false;
+static uint64_t g_overrideValue = 0;
 
 
 
@@ -335,10 +339,11 @@ static String topic(const char *name) {
   return String(ROOT_TOPIC) + "/" + name;
 }
 
-// Callback that stays installed for the whole session: remembers the retained update request (and logs what arrives).
+// Callback that stays installed for the whole session: remembers the retained commands (and logs what arrives).
 static void sessionMessage(String &t, String &payload) {
   LOG("MQTT message %s (%u bytes)\r\n", t.c_str(), (unsigned)payload.length());
   if (t == topic("config/ota")) g_otaPayload = payload;
+  if (t == topic("config/counter") && payload.length() > 0) { g_overrideValue = strtoull(payload.c_str(), NULL, 10); g_gotOverride = true; }
 }
 
 static const char *resetReasonText(uint8_t reason) {
@@ -856,6 +861,7 @@ static void restoreBase(MQTTClient &mqtt) {
   mqtt.unsubscribe(counterTopic);
   mqtt.unsubscribe(overrideTopic);
   mqtt.onMessage((MQTTClientCallbackSimpleFunction)sessionMessage);   // the lambda above points to this function's locals
+  g_gotOverride = false;                    // handled here
 
   if (gotOverride) {
     cache.counter = overrideValue;
@@ -882,30 +888,22 @@ static void restoreBase(MQTTClient &mqtt) {
 }
 
 // A counter value set from the app while the meter is already running: the retained command is read in every WiFi
-// session, so the first pulse after it was set (or the next status) replaces the counter, without a restart.
-// The broker sends a retained command right after it confirmed the subscription, so a short wait is enough; a command
-// that arrives too late stays retained and is applied in the next session. No unsubscribe: the session ends anyway.
-static void checkRemoteCounter(MQTTClient &mqtt) {
-  String overrideTopic = topic("config/counter");
-  bool got = false;
-  uint64_t value = 0;
-  mqtt.onMessage((MQTTClientCallbackSimpleFunction)([&](String &t, String &payload) -> void {
-    if (t == overrideTopic && payload.length() > 0) { value = strtoull(payload.c_str(), NULL, 10); got = true; }
-    sessionMessage(t, payload);
-  }));
-  mqtt.subscribe(overrideTopic);
-  for (unsigned long t = millis(); millis() - t < 100;) {
-    mqtt.loop();
-    delay(5);
-  }
-  mqtt.onMessage((MQTTClientCallbackSimpleFunction)sessionMessage);   // the lambda above points to this function's locals
-  if (!got) return;
+// session (subscribed at the start, looked at once the counter is acknowledged), so the first pulse after it was set (or
+// the next status) replaces the counter, without a restart. The new value is published at once and the command cleared.
+static bool applyRemoteCounter(MQTTClient &mqtt) {
+  if (!g_gotOverride) return true;
+  g_gotOverride = false;
   absorbInterruptPulses();
-  cache.counter = value;
+  cache.counter = g_overrideValue;
   cache.baseKnown = 1;
-  mqtt.publish(overrideTopic, String(""), true, 0);        // used once
   saveCounter();
   LOG("Counter set remotely: %llu\r\n", (unsigned long long)cache.counter);
+  mqtt.publish(topic("config/counter"), String(""), true, 1);      // used once
+  char buf[32];
+  snprintf(buf, sizeof(buf), "%.2f", cache.counter / (double)PULSES_PER_M3);
+  mqtt.publish(topic("cubic_meters"), String(buf), true, 0);
+  snprintf(buf, sizeof(buf), "%llu", (unsigned long long)cache.counter);
+  return mqtt.publish(topic("counter"), String(buf), true, 1);
 }
 
 static bool publishAll(bool sendStatus) {
@@ -922,16 +920,16 @@ static bool publishAll(bool sendStatus) {
   LOG("MQTT connected at %lu ms (fw %s), publishing counter %llu%s\r\n", (unsigned long)millis(), FW_VERSION,
       (unsigned long long)cache.counter, sendStatus ? " + status" : "");
 
-  // the update request is subscribed at once and read at the end of the session, when the broker has surely delivered it
+  // the commands are subscribed at once and read when the counter is acknowledged (see g_otaPayload)
   g_otaPayload = "";
+  g_gotOverride = false;
   mqtt.onMessage((MQTTClientCallbackSimpleFunction)sessionMessage);
 #if OTA_ENABLED
   mqtt.subscribe(topic("config/ota"));
 #endif
-
   if (!cache.mqttSynced) restoreBase(mqtt);
-  else checkRemoteCounter(mqtt);
-  LOG("command check done at %lu ms\r\n", (unsigned long)millis());
+  else mqtt.subscribe(topic("config/counter"));
+  LOG("subscribed at %lu ms\r\n", (unsigned long)millis());
   absorbInterruptPulses();                 // include pulses counted during the session so far
 
   char buf[48];
@@ -995,11 +993,12 @@ static bool publishAll(bool sendStatus) {
     confirmed = mqtt.publish(topic("counter"), String(buf), true, 1);   // false: no acknowledgement, the session is repeated
   }
 
-#if OTA_ENABLED
-  for (unsigned long t = millis(); millis() - t < 40;) {      // anything the broker still has for us
-    mqtt.loop();
-    delay(5);
+  mqtt.loop();                             // whatever has arrived with the acknowledgement
+  if (!cache.baseKnown) {                  // no counter was published, so nothing told us the broker is done: wait a little
+    for (unsigned long t = millis(); millis() - t < 100;) { mqtt.loop(); delay(5); }
   }
+  if (!applyRemoteCounter(mqtt)) confirmed = false;
+#if OTA_ENABLED
   otaHandleRequest(mqtt, g_otaPayload);
   otaAfterSession(mqtt, confirmed);
 #endif
