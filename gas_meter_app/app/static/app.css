@@ -220,3 +220,17 @@ table.mini th, table.mini td { padding: 4px 12px 4px 0; text-align: left; border
 .legend .sw.dot { width: 8px; height: 8px; border-radius: 50%; }
 .legend .sw.band { width: 14px; height: 10px; border: 1px solid var(--c); }
 #bhCanvas { height: 240px; touch-action: pan-y; width: 100%; }
+
+/* overview chart in the colours of a sunset (light and dark looks, chosen in the card) */
+.ovcard { --text: #3a2233; --muted: #9a7a88; --line: #c9a3b04d; --chip: rgba(255,255,255,.55); --card: #fff;
+          color: var(--text); box-shadow: 0 10px 30px rgba(80,30,60,.12); border-radius: 20px; }
+.ovcard.ovdark { --text: #f6e9f0; --muted: #b897b5; --line: #ffffff1f; --chip: rgba(255,255,255,.08); --card: rgba(255,255,255,.16);
+                 box-shadow: 0 10px 30px rgba(20,0,30,.35); }
+.ovhead { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+.ovhead h2 { margin: 0; }
+.ovhead .tabs { margin-bottom: 0; }
+.ovwrap { position: relative; }
+.ovpulse { position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; pointer-events: none;
+           box-shadow: 0 0 0 0 var(--c); animation: ovpulse 2s ease-out infinite; }
+@keyframes ovpulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--c) 70%, transparent); } 100% { box-shadow: 0 0 0 18px color-mix(in srgb, var(--c) 0%, transparent); } }
+@media (prefers-reduced-motion: reduce) { .ovpulse { animation: none; } }

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.33.0
+
+* Przegląd: wykres licznika w kolorach zachodu słońca, do wyboru cztery wyglądy (przyciski w nagłówku karty, wybór jest zapamiętany w przeglądarce): „Zachód słońca” (jasny), „Zmierzch” (ciemny), „Zachód 3D” (wstęga wyciągnięta w głąb) i „Zmierzch + godziny” (dodatkowo słupki m³ w każdej godzinie).
+* Płynna krzywa, gdy impulsów jest dużo; po powiększeniu schodki z zaokrąglonymi rogami. Linia z gradientem, blaskiem i cieniem, wypełnienie z połyskiem, gradientowe tło karty.
+* Aktualny odczyt to świecąca, pulsująca kropka z wartością w kapsułce. Pasy pieca to kolumny od dołu z ikonami 🔥 (ogrzewanie) i 💧 (ciepła woda); w legendzie „Inne” bez dopisku.
+
 ## 0.32.1
 
 * Wykres licznika na Przeglądzie: „teraz” jest w środku, po prawej zostaje miejsce na przyszłość, a linia nie jest już ucięta przy prawej krawędzi. Okno przesuwa się z czasem, dopóki go nie ruszysz. Przyciski zakresów (1 godz. – 7 dni) ustawiają szerokość okna wokół „teraz”.

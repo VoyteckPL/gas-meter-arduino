@@ -296,6 +296,123 @@
       return out;
     }
 
+    // A meter reading drawn for show: a smooth curve where the steps are too dense to see (they would only make a
+    // jagged edge), steps with rounded corners when zoomed in, a gradient line with a glow and a soft shadow, a gradient
+    // area with a glossy top, optionally extruded into a 3D ribbon, and the present reading as a glowing dot with its value.
+    drawFancy(ctx, s, pts, g) {
+      const { sx, sy, top, plotBottom, plotW, left, base } = g;
+      const f = s.fancy, w = f.width || 3;
+      const xs = pts.map((p) => sx(p[0])), ys = pts.map((p) => sy(p[1]));
+      let steps = 0;
+      for (let i = 1; i < pts.length; i++) if (pts[i][1] !== pts[i - 1][1] && xs[i] >= left && xs[i] <= left + plotW) steps++;
+      const dense = steps > plotW / 10;
+      const path = new Path2D();
+      let poly = [];
+      if (dense) {
+        // the reading at regular pixel steps, then a monotone cubic through them (never overshoots, so it keeps rising)
+        const x0 = Math.max(xs[0], left - 20), x1 = Math.min(xs[xs.length - 1], left + plotW + 20), stepPx = 5;
+        let j = 0;
+        for (let x = x0; x <= x1 + 0.01; x += stepPx) {
+          while (j + 1 < xs.length && xs[j + 1] <= x) j++;
+          poly.push([x, ys[j]]);
+        }
+        if (poly.length && poly[poly.length - 1][0] < x1) poly.push([x1, ys[ys.length - 1]]);
+        const n = poly.length, d = [], m = [];
+        for (let i = 0; i < n - 1; i++) d.push((poly[i + 1][1] - poly[i][1]) / (poly[i + 1][0] - poly[i][0] || 1));
+        for (let i = 0; i < n; i++) {
+          if (i === 0) m.push(d[0] || 0); else if (i === n - 1) m.push(d[n - 2] || 0);
+          else m.push(d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2);
+        }
+        for (let i = 0; i < n - 1; i++) {
+          if (d[i] === 0) { m[i] = 0; m[i + 1] = 0; continue; }
+          const a = m[i] / d[i], b = m[i + 1] / d[i], h = a * a + b * b;
+          if (h > 9) { const t = 3 / Math.sqrt(h); m[i] = t * a * d[i]; m[i + 1] = t * b * d[i]; }
+        }
+        path.moveTo(poly[0][0], poly[0][1]);
+        for (let i = 0; i < n - 1; i++) {
+          const dx = (poly[i + 1][0] - poly[i][0]) / 3;
+          path.bezierCurveTo(poly[i][0] + dx, poly[i][1] + m[i] * dx, poly[i + 1][0] - dx, poly[i + 1][1] - m[i + 1] * dx, poly[i + 1][0], poly[i + 1][1]);
+        }
+      } else {
+        const V = [];
+        pts.forEach((p, i) => { if (i) V.push([xs[i], ys[i - 1]]); V.push([xs[i], ys[i]]); });
+        poly = V.filter((v, i) => !i || Math.abs(v[0] - V[i - 1][0]) > 0.01 || Math.abs(v[1] - V[i - 1][1]) > 0.01);
+        path.moveTo(poly[0][0], poly[0][1]);
+        for (let k = 1; k < poly.length - 1; k++) {
+          const A = poly[k - 1], B = poly[k], C = poly[k + 1];
+          const r = Math.min(f.round || 8, Math.hypot(B[0] - A[0], B[1] - A[1]) / 2, Math.hypot(C[0] - B[0], C[1] - B[1]) / 2);
+          if (r > 0.3) path.arcTo(B[0], B[1], C[0], C[1], r); else path.lineTo(B[0], B[1]);
+        }
+        if (poly.length > 1) path.lineTo(poly[poly.length - 1][0], poly[poly.length - 1][1]);
+      }
+      const vgrad = (stops) => { const gr = ctx.createLinearGradient(0, top, 0, plotBottom); for (const [at, c] of stops) gr.addColorStop(at, c); return gr; };
+      const hgrad = (stops) => { const gr = ctx.createLinearGradient(left, 0, left + plotW, 0); for (const [at, c] of stops) gr.addColorStop(at, c); return gr; };
+      const lineStyle = f.lineH ? hgrad(f.lineH) : f.line ? vgrad(f.line) : g.color;
+      const firstX = poly[0][0], lastX = poly[poly.length - 1][0];
+      const area = new Path2D(path); area.lineTo(lastX, base); area.lineTo(firstX, base); area.closePath();
+      // a 3D ribbon: the same area pushed back, and the top face between the front and the back edge
+      if (f.extrude) {
+        const [ex, ey] = f.extrude;
+        ctx.save(); ctx.translate(ex, -ey); ctx.fillStyle = vgrad(f.back || [[0, "rgba(0,0,0,0.25)"], [1, "rgba(0,0,0,0.05)"]]); ctx.fill(area); ctx.restore();
+        const face = new Path2D();
+        face.moveTo(poly[0][0], poly[0][1]);
+        for (const [x, y] of poly) face.lineTo(x, y);
+        for (let i = poly.length - 1; i >= 0; i--) face.lineTo(poly[i][0] + ex, poly[i][1] - ey);
+        face.closePath();
+        ctx.fillStyle = f.face ? vgrad(f.face) : lineStyle; ctx.globalAlpha = f.faceAlpha || 0.75; ctx.fill(face); ctx.globalAlpha = 1;
+        ctx.save(); ctx.translate(ex, -ey); ctx.lineWidth = 1.2; ctx.strokeStyle = f.backEdge || "rgba(255,255,255,0.55)"; ctx.stroke(path); ctx.restore();
+      }
+      const curveTop = Math.min(...poly.map((p) => p[1]));
+      const agrad = (stops) => { const gr = ctx.createLinearGradient(0, curveTop, 0, base); for (const [at, c] of stops) gr.addColorStop(at, c); return gr; };
+      if (f.fill) {
+        ctx.fillStyle = agrad(f.fill); ctx.fill(area);
+        if (f.sheen) {
+          ctx.save(); ctx.clip(area);
+          const gl = ctx.createLinearGradient(0, curveTop, 0, base);
+          gl.addColorStop(0, "rgba(255,255,255," + f.sheen + ")"); gl.addColorStop(0.3, "rgba(255,255,255,0)");
+          ctx.fillStyle = gl; ctx.fillRect(left, top, plotW, plotBottom - top); ctx.restore();
+        }
+      }
+      ctx.lineJoin = "round"; ctx.lineCap = "round";
+      if (f.shadow) {                             // the line floats a little above the area
+        ctx.save(); ctx.shadowColor = f.shadow; ctx.shadowBlur = 12; ctx.shadowOffsetY = 7;
+        ctx.lineWidth = w; ctx.strokeStyle = lineStyle; ctx.stroke(path); ctx.restore();
+      }
+      if (f.glow) {
+        ctx.save(); ctx.shadowColor = f.glow; ctx.shadowBlur = f.glowBlur || 14; ctx.globalAlpha = 0.9;
+        ctx.lineWidth = w; ctx.strokeStyle = lineStyle; ctx.stroke(path); ctx.restore();
+      }
+      ctx.lineWidth = w; ctx.strokeStyle = lineStyle; ctx.stroke(path);
+      if (f.highlight) {
+        ctx.save(); ctx.translate(0, -w * 0.28); ctx.lineWidth = Math.max(0.8, w * 0.28); ctx.strokeStyle = "rgba(255,255,255," + f.highlight + ")"; ctx.stroke(path); ctx.restore();
+      }
+      // the present: a glowing dot and the reading in a pill
+      const last = pts[pts.length - 1], dxp = sx(last[0]), dyp = sy(last[1]);
+      this.endPoint = null;
+      if (f.dot && dxp >= left - 1 && dxp <= left + plotW + 1) {
+        this.endPoint = { x: dxp, y: dyp };
+        const halo = ctx.createRadialGradient(dxp, dyp, 0, dxp, dyp, 22);
+        halo.addColorStop(0, f.dot + "66"); halo.addColorStop(1, f.dot + "00");
+        ctx.fillStyle = halo; ctx.beginPath(); ctx.arc(dxp, dyp, 22, 0, 7); ctx.fill();
+        ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(dxp, dyp, 6.5, 0, 7); ctx.fill();
+        ctx.fillStyle = f.dot; ctx.beginPath(); ctx.arc(dxp, dyp, 4.2, 0, 7); ctx.fill();
+        if (f.pill) {
+          const label = last[1].toFixed(this.o.dec) + (this.o.unit ? " " + this.o.unit : "");
+          ctx.font = "600 12px system-ui, sans-serif";
+          const tw = ctx.measureText(label).width, pw = tw + 18, ph = 24;
+          let px = dxp - pw / 2, py = dyp - ph - 16;
+          if (py < top + 2) py = dyp + 16;
+          px = Math.max(left + 2, Math.min(px, left + plotW - pw - 2));
+          ctx.save(); ctx.shadowColor = "rgba(0,0,0,0.22)"; ctx.shadowBlur = 10; ctx.shadowOffsetY = 3;
+          const pg = ctx.createLinearGradient(px, 0, px + pw, 0);
+          for (const [at, c] of f.pill) pg.addColorStop(at, c);
+          ctx.fillStyle = pg; ctx.beginPath(); ctx.roundRect(px, py, pw, ph, ph / 2); ctx.fill(); ctx.restore();
+          ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.fillText(label, px + pw / 2, py + 16);
+          ctx.font = "11px system-ui, sans-serif";
+        }
+      }
+    }
+
     draw() {
       const canvas = this.canvas, ratio = window.devicePixelRatio || 1;
       const W = canvas.clientWidth, H = canvas.clientHeight;
@@ -313,7 +430,7 @@
 
       const navH = this.o.nav ? 42 : 0;
       const hasRight = this.series.some((s) => s.axis === "right" && s.points.length);
-      const left = 50, right = hasRight ? 42 : 12, top = 12, axisH = 22;
+      const left = 50, right = hasRight && !this.o.rightHidden ? 42 : 12, top = 12, axisH = 22;
       const navTop = H - navH - 2;
       const plotBottom = H - navH - (this.o.nav ? 10 : 2) - axisH;
       const plotW = W - left - right, plotH = plotBottom - top;
@@ -357,28 +474,31 @@
       if (!isFinite(lo)) for (const { s, pts } of prepared) for (const p of pts) { if (s.axis === "right") continue; lo = Math.min(lo, p[1]); hi = Math.max(hi, p[1]); }
       for (const v of this.o.includeY) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
       const barsOrArea = this.series.some((s) => s.kind === "bars" || s.area);
-      if (this.o.zeroBase || this.series.some((s) => s.kind === "bars")) lo = Math.min(lo, 0);
+      if (this.o.zeroBase || this.series.some((s) => s.kind === "bars" && s.axis !== "right")) lo = Math.min(lo, 0);
       if (!isFinite(lo)) { lo = 0; hi = 1; }
-      if (hi - lo < 1e-9) { if (!(this.o.zeroBase || this.series.some((x) => x.kind === "bars"))) lo -= 0.5; hi = lo + 1; }       // a flat line sits in the middle
+      if (hi - lo < 1e-9) { if (!(this.o.zeroBase || this.series.some((x) => x.kind === "bars" && x.axis !== "right"))) lo -= 0.5; hi = lo + 1; }       // a flat line sits in the middle
       const padY = (hi - lo) * 0.08;
-      if (!(this.o.zeroBase || this.series.some((s) => s.kind === "bars")) || lo < 0) lo -= padY;
+      if (!(this.o.zeroBase || this.series.some((s) => s.kind === "bars" && s.axis !== "right")) || lo < 0) lo -= padY;
       hi += padY;
       const sy = (v) => top + plotH - (v - lo) / (hi - lo) * plotH, sy0 = sy;
       if (!isFinite(rlo)) { rlo = 0; rhi = 1; }
       const rStep = niceStep(Math.max(rhi - rlo, 1), Math.max(3, Math.floor(plotH / 46)));
       rlo = Math.floor(rlo / rStep) * rStep; rhi = Math.max(Math.ceil(rhi / rStep) * rStep, rlo + rStep);
+      if (this.o.rightHidden) { rlo = 0; rhi = rhi * (this.o.rightHeadroom || 3); }      // quiet bars along the bottom
       const syR = this.o.rightInvert ? (v) => top + (v - rlo) / (rhi - rlo) * plotH : (v) => top + plotH - (v - rlo) / (rhi - rlo) * plotH;
 
       // ---- grid and labels
       const yStep = niceStep(hi - lo, Math.max(3, Math.floor(plotH / 46)));
       const decimals = Math.min(4, Math.max(0, Math.ceil(-Math.log10(yStep) - 1e-9)));
       ctx.lineWidth = 1; ctx.textAlign = "right"; ctx.fillStyle = muted; ctx.strokeStyle = line;
+      if (this.o.softGrid) ctx.setLineDash([2, 5]);
       for (let v = Math.ceil(lo / yStep) * yStep; v <= hi + 1e-9; v += yStep) {
         const y = Math.round(sy(v)) + 0.5;
         ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(left + plotW, y); ctx.stroke();
         ctx.fillText(v.toFixed(decimals), left - 6, y + 4);
       }
-      if (hasRight) {
+      ctx.setLineDash([]);
+      if (hasRight && !this.o.rightHidden) {
         const rs = this.series.find((x) => x.axis === "right");
         ctx.textAlign = "left"; ctx.fillStyle = rs.color || accent;
         for (let v = rlo; v <= rhi + 1e-9; v += rStep) ctx.fillText(Math.round(v * 10) / 10 + (this.o.rightUnit || ""), left + plotW + 6, syR(v) + 4);
@@ -407,7 +527,7 @@
         const { ticks, step } = timeTicks(v0, v1, maxTicks);
         for (const t of ticks) {
           const x = Math.round(sx(t)) + 0.5;
-          ctx.strokeStyle = line; ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, plotBottom); ctx.stroke();
+          if (!this.o.softGrid) { ctx.strokeStyle = line; ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, plotBottom); ctx.stroke(); }
           ctx.fillStyle = muted; ctx.fillText(tickLabel(t, step), Math.min(Math.max(x, left + 18), left + plotW - 18), plotBottom + 15);
         }
       }
@@ -438,8 +558,17 @@
       }
       for (const band of this.o.bands || []) {
         if (band.to < v0 || band.from > v1) continue;
+        const bx = sx(band.from), bw = sx(band.to) - sx(band.from);
+        if (band.fade) {                          // a column that grows out of the bottom, with a thin cap and an icon
+          const g = ctx.createLinearGradient(0, top, 0, plotBottom);
+          g.addColorStop(0, band.fade + "00"); g.addColorStop(0.55, band.fade + "1c"); g.addColorStop(1, band.fade + "40");
+          ctx.fillStyle = g; ctx.fillRect(bx, top, bw, plotH);
+          ctx.fillStyle = band.fade + "aa"; ctx.fillRect(bx, plotBottom - 3, bw, 3);
+          if (band.icon && bw > 22) { ctx.font = "13px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.globalAlpha = 0.85; ctx.fillText(band.icon, bx + bw / 2, plotBottom - 9); ctx.globalAlpha = 1; ctx.font = "11px system-ui, sans-serif"; }
+          continue;
+        }
         ctx.fillStyle = band.color || (accent + "10");
-        ctx.fillRect(sx(band.from), top, sx(band.to) - sx(band.from), plotH);
+        ctx.fillRect(bx, top, bw, plotH);
       }
       const base = sy((barsOrArea || this.o.zeroBase) && lo <= 0 && hi >= 0 ? 0 : lo);
       for (const { s, pts } of prepared) {
@@ -453,7 +582,8 @@
           const full = dt / (v1 - v0) * plotW;
           const gap = full > 10 ? Math.min(7, full * 0.2) : 0.8, bw = Math.max(1, full - gap), radius = Math.min(6, bw / 2);
           const g = ctx.createLinearGradient(0, top, 0, plotBottom);
-          g.addColorStop(0, color); g.addColorStop(1, color + "aa");
+          if (s.barFill) for (const [at, c] of s.barFill) g.addColorStop(at, c);
+          else { g.addColorStop(0, color); g.addColorStop(1, color + "aa"); }
           ctx.fillStyle = g;
           for (const p of pts) {
             const x = sx(p[0]) + gap / 2, y = sy(p[1]), h = base - y;
@@ -471,6 +601,7 @@
           }
           continue;
         }
+        if (s.fancy) { this.drawFancy(ctx, s, pts, { sx, sy, top, plotBottom, plotW, plotH, left, base, color, card, text }); continue; }
         const path = new Path2D();
         if (s.kind === "step" && s.round) {
           // a step line with rounded corners: the corners are cut by arcs no larger than half of the shorter neighbouring segment
@@ -495,24 +626,34 @@
             else { if (s.kind === "step") path.lineTo(x, sy(pts[i - 1][1])); path.lineTo(x, y); }
           });
         }
+        // colours that follow the height of the plot: [[0, colour], [1, colour]] from the top to the bottom
+        const vgrad = (stops) => { const g = ctx.createLinearGradient(0, top, 0, plotBottom); for (const [at, c] of stops) g.addColorStop(at, c); return g; };
+        const lineStyle = s.lineGradient ? vgrad(s.lineGradient) : color;
         if (s.area) {
           const fill = new Path2D(path);
           fill.lineTo(sx(pts[pts.length - 1][0]), base); fill.lineTo(sx(pts[0][0]), base); fill.closePath();
-          const g = ctx.createLinearGradient(0, top, 0, plotBottom);
-          g.addColorStop(0, color + "55"); g.addColorStop(1, color + "05");
+          let g;
+          if (s.fillGradient) g = vgrad(s.fillGradient);
+          else { g = ctx.createLinearGradient(0, top, 0, plotBottom); g.addColorStop(0, color + "55"); g.addColorStop(1, color + "05"); }
           ctx.fillStyle = g; ctx.fill(fill);
+          if (s.sheen) {                           // a pale glossy band along the top edge of the area
+            ctx.save(); ctx.clip(fill);
+            const gl = ctx.createLinearGradient(0, top, 0, plotBottom);
+            gl.addColorStop(0, "rgba(255,255,255," + s.sheen + ")"); gl.addColorStop(0.35, "rgba(255,255,255,0)");
+            ctx.fillStyle = gl; ctx.fillRect(left, top, plotW, plotH); ctx.restore();
+          }
         }
         if (s.depth) {
           // a raised ribbon: a shadow cast below and to the side, the line with a soft glow and a bright edge on top
           const d = s.depth, w = s.width || 3;
-          ctx.save(); ctx.translate(d * 0.7, d); ctx.lineWidth = w + 2; ctx.strokeStyle = "rgba(0,0,0,0.20)"; ctx.stroke(path); ctx.restore();
-          ctx.save(); ctx.translate(d * 0.35, d * 0.5); ctx.lineWidth = w + 1; ctx.strokeStyle = color + "88"; ctx.stroke(path); ctx.restore();
-          ctx.save(); ctx.shadowColor = color + "aa"; ctx.shadowBlur = 10; ctx.lineWidth = w; ctx.strokeStyle = color; ctx.stroke(path); ctx.restore();
+          ctx.save(); ctx.translate(d * 0.7, d); ctx.lineWidth = w + 2; ctx.strokeStyle = s.shadow || "rgba(0,0,0,0.20)"; ctx.stroke(path); ctx.restore();
+          ctx.save(); ctx.translate(d * 0.35, d * 0.5); ctx.lineWidth = w + 1; ctx.globalAlpha = 0.55; ctx.strokeStyle = lineStyle; ctx.stroke(path); ctx.restore();
+          ctx.save(); ctx.shadowColor = s.glow || color + "aa"; ctx.shadowBlur = s.glowBlur || 10; ctx.lineWidth = w; ctx.strokeStyle = lineStyle; ctx.stroke(path); ctx.restore();
           ctx.save(); ctx.translate(0, -w * 0.3); ctx.lineWidth = Math.max(1, w * 0.35); ctx.strokeStyle = "rgba(255,255,255,0.45)"; ctx.stroke(path); ctx.restore();
           continue;
         }
         ctx.lineWidth = s.width || 2; ctx.setLineDash(s.dashed ? [6, 5] : []);
-        ctx.stroke(path); ctx.setLineDash([]);
+        ctx.strokeStyle = lineStyle; ctx.stroke(path); ctx.setLineDash([]);
         if (pts.length <= 40 && !s.dashed && !s.noMarkers) {
           ctx.fillStyle = card;
           for (const p of pts) { ctx.beginPath(); ctx.arc(sx(p[0]), sy(p[1]), 3, 0, 7); ctx.fill(); ctx.stroke(); }
@@ -527,7 +668,7 @@
       if (this.o.now && this.o.now > v0 && this.o.now < v1) {
         ctx.strokeStyle = muted; ctx.lineWidth = 1; ctx.setLineDash([3, 4]);
         ctx.beginPath(); ctx.moveTo(sx(this.o.now), top); ctx.lineTo(sx(this.o.now), plotBottom); ctx.stroke(); ctx.setLineDash([]);
-        ctx.fillStyle = muted; ctx.textAlign = "left"; ctx.fillText("teraz", sx(this.o.now) + 4, top + 10);
+        ctx.fillStyle = muted; ctx.textAlign = "left"; ctx.fillText("teraz", sx(this.o.now) + 4, this.o.softGrid ? plotBottom - 6 : top + 10);
       }
       ctx.restore();
 
@@ -596,16 +737,17 @@
     drawNav(ctx, L, c) {
       const y0 = L.navTop, h = L.H - L.navTop - 2;
       ctx.save();
-      ctx.fillStyle = c.line + "66"; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(L.left, y0, L.plotW, h, 6) : ctx.rect(L.left, y0, L.plotW, h); ctx.fill();
+      const ns = this.o.navStyle || {};
+      ctx.fillStyle = ns.bg || c.line + "66"; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(L.left, y0, L.plotW, h, 6) : ctx.rect(L.left, y0, L.plotW, h); ctx.fill();
       ctx.beginPath(); ctx.rect(L.left, y0, L.plotW, h); ctx.clip();
-      const main = this.series.find((s) => s.points.length && !s.dashed);
+      const main = this.series.find((s) => s.fancy && s.points.length) || this.series.find((s) => s.points.length && !s.dashed);
       if (main) {
         let lo = Infinity, hi = -Infinity;
         for (const p of main.points) { lo = Math.min(lo, p[1]); hi = Math.max(hi, p[1]); }
         if (main.kind === "bars" || main.area) lo = Math.min(lo, 0);
         if (hi - lo < 1e-9) hi = lo + 1;
         const pts = this.visible(main.points, c.f0, c.f1, L.plotW);
-        ctx.strokeStyle = (main.color || c.accent); ctx.globalAlpha = 0.8; ctx.lineWidth = 1.2;
+        ctx.strokeStyle = ns.line || main.color || c.accent; ctx.globalAlpha = 0.8; ctx.lineWidth = 1.2;
         ctx.beginPath();
         pts.forEach((p, i) => {
           const x = L.nx(p[0]), y = y0 + h - 4 - (p[1] - lo) / (hi - lo) * (h - 8);
@@ -614,9 +756,9 @@
         ctx.stroke(); ctx.globalAlpha = 1;
       }
       const x0 = L.nx(this.view[0]), x1 = L.nx(this.view[1]);
-      ctx.fillStyle = c.accent + "26"; ctx.fillRect(x0, y0, Math.max(2, x1 - x0), h);
-      ctx.strokeStyle = c.accent; ctx.lineWidth = 1.5; ctx.strokeRect(x0 + 0.5, y0 + 0.5, Math.max(2, x1 - x0) - 1, h - 1);
-      ctx.fillStyle = c.accent;
+      ctx.fillStyle = ns.window || c.accent + "26"; ctx.fillRect(x0, y0, Math.max(2, x1 - x0), h);
+      ctx.strokeStyle = ns.edge || c.accent; ctx.lineWidth = 1.5; ctx.strokeRect(x0 + 0.5, y0 + 0.5, Math.max(2, x1 - x0) - 1, h - 1);
+      ctx.fillStyle = ns.edge || c.accent;
       for (const x of [x0, x1]) { ctx.fillRect(x - 2, y0 + h / 2 - 8, 4, 16); }
       ctx.restore();
     }

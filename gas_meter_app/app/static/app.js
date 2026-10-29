@@ -328,15 +328,23 @@ function build() {
     target.addEventListener("click", () => openHistory(entity));
   }
 
-  // the meter chart: live, zoomable, the boiler modes in the background
+  // the meter chart: live, zoomable, the boiler modes in the background, in one of four looks
   const ranges = el("div", { class: "tabs", id: "ovRanges" });
   for (const [label, seconds] of [["1 godz.", 3600], ["6 godz.", 6 * 3600], ["24 godz.", 86400], ["48 godz.", 2 * 86400], ["7 dni", 7 * 86400]]) {
     const bt = el("button", { class: "secondary", "data-seconds": seconds, text: label });
     bt.addEventListener("click", () => { overviewFollow = true; overviewSpan = seconds; drawChart(true); });
     ranges.append(bt);
   }
-  root.append(el("section", { class: "card wide" }, [
-    el("h2", { text: "Licznik gazu" }), ranges, el("canvas", { id: "chart", style: "height:360px" }),
+  const looks = el("div", { class: "tabs", id: "ovLooks" });
+  for (const [key, look] of Object.entries(OVERVIEW_LOOKS)) {
+    const bt = el("button", { class: "secondary", "data-look": key, text: look.label });
+    bt.addEventListener("click", () => { overviewLook = key; try { localStorage.setItem("gasMeterLook", key); } catch (e) { /* private mode */ } drawChart(); });
+    looks.append(bt);
+  }
+  root.append(el("section", { class: "card wide ovcard", id: "ovCard" }, [
+    el("div", { class: "ovhead" }, [el("h2", { text: "Licznik gazu" }), looks]),
+    ranges,
+    el("div", { class: "ovwrap" }, [el("canvas", { id: "chart", style: "height:360px" }), el("div", { class: "ovpulse", id: "ovPulse", hidden: "" })]),
   ]));
 
   // service
@@ -532,13 +540,45 @@ function update() {
 }
 
 // ----------------------------------------------------------------------- chart
+// Four looks of the overview chart, all in the colours of a sunset. The last chosen one is remembered in this browser.
+const SUNSET_LINE = [[0, "#ffcf5c"], [0.45, "#ff7a45"], [1, "#d6336c"]];
+const DUSK_LINE = [[0, "#ffd76e"], [0.45, "#ff8a50"], [1, "#ff4f8b"]];
+const SUNSET_PILL = [[0, "#ff9a3c"], [1, "#e8437a"]];
+const OVERVIEW_LOOKS = {
+  sunset: { label: "Zachód słońca", dark: false, bg: "linear-gradient(165deg,#fff8ef 0%,#ffeef0 55%,#f7ecfb 100%)",
+    fancy: { width: 3.2, line: SUNSET_LINE, fill: [[0, "rgba(255,122,69,0.50)"], [0.5, "rgba(255,94,98,0.26)"], [1, "rgba(214,51,108,0.10)"]], sheen: 0.45,
+             glow: "rgba(255,110,80,0.55)", glowBlur: 16, shadow: "rgba(214,51,108,0.25)", highlight: 0.55, dot: "#ff5e62", pill: SUNSET_PILL } },
+  dusk: { label: "Zmierzch", dark: true, bg: "linear-gradient(165deg,#2a1530 0%,#1d1630 50%,#141a33 100%)",
+    fancy: { width: 3.2, line: DUSK_LINE, fill: [[0, "rgba(255,138,80,0.50)"], [0.5, "rgba(255,79,139,0.24)"], [1, "rgba(120,60,200,0.10)"]], sheen: 0.15,
+             glow: "rgba(255,140,90,0.9)", glowBlur: 20, highlight: 0.5, dot: "#ffb35c", pill: SUNSET_PILL } },
+  sunset3d: { label: "Zachód 3D", dark: false, bg: "linear-gradient(165deg,#fff8ef 0%,#ffeef0 55%,#f7ecfb 100%)",
+    fancy: { width: 2.6, line: SUNSET_LINE, extrude: [9, 8], face: [[0, "#ffe08a"], [0.5, "#ffab7a"], [1, "#f27aa0"]], faceAlpha: 0.85,
+             back: [[0, "rgba(214,51,108,0.16)"], [1, "rgba(214,51,108,0.02)"]], fill: [[0, "rgba(255,122,69,0.55)"], [0.5, "rgba(255,94,98,0.30)"], [1, "rgba(214,51,108,0.12)"]],
+             sheen: 0.35, shadow: "rgba(150,30,80,0.30)", highlight: 0.7, dot: "#ff5e62", pill: SUNSET_PILL } },
+  duskbars: { label: "Zmierzch + godziny", dark: true, bars: true, bg: "linear-gradient(165deg,#2a1530 0%,#1d1630 50%,#141a33 100%)",
+    fancy: { width: 3.2, line: DUSK_LINE, fill: [[0, "rgba(255,138,80,0.42)"], [0.5, "rgba(255,79,139,0.18)"], [1, "rgba(120,60,200,0.08)"]], sheen: 0.12,
+             glow: "rgba(255,140,90,0.9)", glowBlur: 20, highlight: 0.5, dot: "#ffb35c", pill: SUNSET_PILL } },
+};
+const BOILER_ICONS = { dhw: "💧", heating: "🔥", other: "" };
+let overviewLook = (() => { try { return localStorage.getItem("gasMeterLook"); } catch (e) { return null; } })();
+if (!OVERVIEW_LOOKS[overviewLook]) overviewLook = "sunset";
 let overviewFollow = true;                       // the present stays in the middle of the chart until the user moves the view
 let overviewSpan = 6 * 3600;                     // width of the window while it follows
+
+// the pulsing ring sits on the newest reading, drawn by the browser so that the chart need not be redrawn for it
+function placePulse() {
+  const pulse = $("#ovPulse"), p = overviewChart && overviewChart.endPoint;
+  if (!pulse) return;
+  pulse.hidden = !p;
+  const canvas = $("#chart");
+  if (p) { pulse.style.left = canvas.offsetLeft + p.x + "px"; pulse.style.top = canvas.offsetTop + p.y + "px"; pulse.style.setProperty("--c", OVERVIEW_LOOKS[overviewLook].fancy.dot); }
+}
+
 async function drawChart(animate) {
   const canvas = $("#chart");
   if (!canvas) return;
   if (!overviewChart) {
-    overviewChart = new TimeChart(canvas, { nav: true, unit: "m³", dec: 2, emptyHint: "",
+    overviewChart = new TimeChart(canvas, { nav: true, unit: "m³", dec: 2, emptyHint: "", softGrid: true, rightHidden: true, rightHeadroom: 3.2,
       onView: (v0, v1) => {
         const now = Date.now() / 1000, span = v1 - v0;
         overviewFollow = Math.abs((v0 + v1) / 2 - now) < Math.max(120, span * 0.05);
@@ -547,27 +587,41 @@ async function drawChart(animate) {
           const seconds = Number(b.dataset.seconds);
           b.classList.toggle("active", overviewFollow && Math.abs(span - seconds) < seconds * 0.03);
         });
+        placePulse();
       } });
   }
+  const look = OVERVIEW_LOOKS[overviewLook], card = $("#ovCard");
+  card.style.background = look.bg;
+  card.classList.toggle("ovdark", look.dark);
+  document.querySelectorAll("#ovLooks button").forEach((b) => b.classList.toggle("active", b.dataset.look === overviewLook));
+  overviewChart.o.navStyle = look.dark
+    ? { bg: "rgba(255,255,255,0.06)", line: "#ff9a5c", window: "rgba(255,138,80,0.18)", edge: "#ff8a50" }
+    : { bg: "rgba(255,255,255,0.45)", line: "#ff7a45", window: "rgba(255,122,69,0.16)", edge: "#ff6a4d" };
   const chart = overviewChart, now = Date.now() / 1000;
-  let points = [], modes = [];
+  let points = [], modes = [], hourly = [];
   try {
     points = await api("series?kind=meter&hours=336&max=3000");
-    modes = await api("series?kind=modes&hours=336");          // what the boiler was doing, as coloured bands behind the line
+    modes = await api("series?kind=modes&hours=336");          // what the boiler was doing, as columns behind the line
+    if (look.bars) hourly = await api("series?kind=hourly&hours=336");
   } catch (e) { /* keep what is there */ }
   if (points.length) points = points.concat([[now, points[points.length - 1][1]]]);      // the reading holds until now, so the line runs to the present
+  if (points.length) hourly = hourly.filter((p) => p[0] >= points[0][0] - 3600);
   chart.o.emptyText = t("noData");
   chart.o.now = now;
-  chart.o.bands = modes.map(([from, to, mode]) => ({ from, to, color: (BOILER_COLORS[mode] || BOILER_COLORS.other) + "2e" }));
-  const accent = cssColor("--accent");
-  const series = [{ name: "", color: accent, points, kind: "step", round: 7, area: true, depth: 5, width: 3, noMarkers: true }];
+  chart.o.bands = modes.map(([from, to, mode]) => ({ from, to, fade: BOILER_COLORS[mode] || BOILER_COLORS.other, icon: BOILER_ICONS[mode] || "" }));
+  const series = [];
+  if (look.bars) series.push({ name: "", color: "#ffb36b", points: hourly, kind: "bars", axis: "right", barDt: 3600, noHover: true,
+                               barFill: [[0, "rgba(255,170,100,0.55)"], [1, "rgba(255,90,140,0.10)"]] });
+  series.push({ name: "", color: look.fancy.dot, points, kind: "step", fancy: look.fancy });
   const half = overviewSpan / 2;
   // room for the future on the right, so that the present can stay in the middle
   chart.setSeries(series, [Math.min(points.length ? points[0][0] : now, now - half), now + half], true);
   if (overviewFollow) chart.setView(now - half, now + half, !!animate);
   const used = [...new Set(modes.map((m) => m[2]))];
-  setLegend(canvas, [{ label: "Licznik (m³)", color: accent, kind: "line" },
-    ...["dhw", "heating", "other"].filter((m) => used.includes(m)).map((m) => ({ label: BOILER_NAMES[m], color: BOILER_COLORS[m], kind: "box" }))]);
+  setLegend(canvas, [{ label: "Licznik (m³)", color: "linear-gradient(90deg,#ffcf5c,#e8437a)", kind: "line" },
+    ...(look.bars ? [{ label: "m³ na godzinę", color: "linear-gradient(180deg,#ffaa64,#ff5a8c66)", kind: "box" }] : []),
+    ...["heating", "dhw", "other"].filter((m) => used.includes(m)).map((m) => ({ label: BOILER_NAMES[m], color: BOILER_COLORS[m], kind: "box" }))]);
+  placePulse();                                   // after the legend: it moves the canvas down
 }
 
 
@@ -584,8 +638,8 @@ const HIST = {
   btVolt:  { key: "hBtVolt",  kind: "bt",      unit: "V",    dec: 3, area: true, stat: "range", raw: true, test: true },
   btPin:   { key: "hBtPin",   kind: "bt_pin",  unit: "mV",   dec: 0, stat: "range", raw: true, test: true },
 };
-const BOILER_COLORS = { dhw: "#2f7fd0", heating: "#e8590c", other: "#868e96" };
-const BOILER_NAMES = { dhw: "Ciepła woda", heating: "Ogrzewanie", other: "Inne (wybieg pompy, antyzamarzanie)" };
+const BOILER_COLORS = { dhw: "#3d9bff", heating: "#ff7a45", other: "#a898b0" };
+const BOILER_NAMES = { dhw: "Ciepła woda", heating: "Ogrzewanie", other: "Inne" };
 const PRESETS = [["range1h", 3600], ["range6h", 6 * 3600], ["range24h", 86400], ["range7d", 7 * 86400], ["range14d", 14 * 86400], ["rangeAll", 0]];
 const history = { entity: "meter", chart: null, token: 0, detailToken: 0 };
 
