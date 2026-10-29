@@ -359,7 +359,7 @@
       const barsOrArea = this.series.some((s) => s.kind === "bars" || s.area);
       if (this.o.zeroBase || this.series.some((s) => s.kind === "bars")) lo = Math.min(lo, 0);
       if (!isFinite(lo)) { lo = 0; hi = 1; }
-      if (hi - lo < 1e-9) { hi = lo + 1; }
+      if (hi - lo < 1e-9) { if (!(this.o.zeroBase || this.series.some((x) => x.kind === "bars"))) lo -= 0.5; hi = lo + 1; }       // a flat line sits in the middle
       const padY = (hi - lo) * 0.08;
       if (!(this.o.zeroBase || this.series.some((s) => s.kind === "bars")) || lo < 0) lo -= padY;
       hi += padY;
@@ -472,11 +472,29 @@
           continue;
         }
         const path = new Path2D();
-        pts.forEach((p, i) => {
-          const x = sx(p[0]), y = sy(p[1]);
-          if (!i) path.moveTo(x, y);
-          else { if (s.kind === "step") path.lineTo(x, sy(pts[i - 1][1])); path.lineTo(x, y); }
-        });
+        if (s.kind === "step" && s.round) {
+          // a step line with rounded corners: the corners are cut by arcs no larger than half of the shorter neighbouring segment
+          const V = [];
+          pts.forEach((p, i) => {
+            const x = sx(p[0]), y = sy(p[1]);
+            if (i) V.push([x, sy(pts[i - 1][1])]);
+            V.push([x, y]);
+          });
+          const W = V.filter((v, i) => !i || Math.abs(v[0] - V[i - 1][0]) > 0.01 || Math.abs(v[1] - V[i - 1][1]) > 0.01);
+          path.moveTo(W[0][0], W[0][1]);
+          for (let k = 1; k < W.length - 1; k++) {
+            const A = W[k - 1], B = W[k], C = W[k + 1];
+            const r = Math.min(s.round, Math.hypot(B[0] - A[0], B[1] - A[1]) / 2, Math.hypot(C[0] - B[0], C[1] - B[1]) / 2);
+            if (r > 0.3) path.arcTo(B[0], B[1], C[0], C[1], r); else path.lineTo(B[0], B[1]);
+          }
+          if (W.length > 1) path.lineTo(W[W.length - 1][0], W[W.length - 1][1]);
+        } else {
+          pts.forEach((p, i) => {
+            const x = sx(p[0]), y = sy(p[1]);
+            if (!i) path.moveTo(x, y);
+            else { if (s.kind === "step") path.lineTo(x, sy(pts[i - 1][1])); path.lineTo(x, y); }
+          });
+        }
         if (s.area) {
           const fill = new Path2D(path);
           fill.lineTo(sx(pts[pts.length - 1][0]), base); fill.lineTo(sx(pts[0][0]), base); fill.closePath();

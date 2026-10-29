@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.32.1
+
+* Wykres licznika na Przeglądzie: „teraz” jest w środku, po prawej zostaje miejsce na przyszłość, a linia nie jest już ucięta przy prawej krawędzi. Okno przesuwa się z czasem, dopóki go nie ruszysz. Przyciski zakresów (1 godz. – 7 dni) ustawiają szerokość okna wokół „teraz”.
+* Rogi schodków są zaokrąglone, linia wygląda płynniej. Płaski odcinek jest pokazywany na środku wykresu, a nie przy dolnej krawędzi.
+
 ## 0.32.0
 
 * Przegląd: jeden wykres, „Licznik gazu”. Linia schodkowa jest narysowana jak wstęga z cieniem, poświatą i jasną krawędzią (bez kropek), pod nią gradient. Wykres jest na żywo: co 10 s przesuwa się razem z czasem i pokazuje ostatni odczyt aż do teraz, dopóki go nie przewiniesz. Można go powiększać i przewijać, a przyciski 1 godz., 6 godz., 24 godz., 48 godz. i 7 dni wracają do „teraz”. Tło dalej pokazuje, co robił piec (ciepła woda, ogrzewanie). Zakładki „Na godzinę” i „Bateria” z tego miejsca zniknęły (są w okienku historii po kliknięciu karty i w zakładce Bateria).

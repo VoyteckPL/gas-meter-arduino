@@ -87,7 +87,6 @@ let state = null;
 let built = false;
 const dirty = new Set();
 let overviewChart = null;
-let overviewFirst = true;
 
 function el(tag, attrs, children) {
   const node = document.createElement(tag);
@@ -333,7 +332,7 @@ function build() {
   const ranges = el("div", { class: "tabs", id: "ovRanges" });
   for (const [label, seconds] of [["1 godz.", 3600], ["6 godz.", 6 * 3600], ["24 godz.", 86400], ["48 godz.", 2 * 86400], ["7 dni", 7 * 86400]]) {
     const bt = el("button", { class: "secondary", "data-seconds": seconds, text: label });
-    bt.addEventListener("click", () => { overviewFollow = true; overviewChart.setView(Date.now() / 1000 - seconds, Date.now() / 1000, true); });
+    bt.addEventListener("click", () => { overviewFollow = true; overviewSpan = seconds; drawChart(true); });
     ranges.append(bt);
   }
   root.append(el("section", { class: "card wide" }, [
@@ -533,21 +532,22 @@ function update() {
 }
 
 // ----------------------------------------------------------------------- chart
-let overviewFollow = true;                       // the right edge of the chart follows the present until the user moves the view
-async function drawChart() {
+let overviewFollow = true;                       // the present stays in the middle of the chart until the user moves the view
+let overviewSpan = 6 * 3600;                     // width of the window while it follows
+async function drawChart(animate) {
   const canvas = $("#chart");
   if (!canvas) return;
   if (!overviewChart) {
     overviewChart = new TimeChart(canvas, { nav: true, unit: "m³", dec: 2, emptyHint: "",
       onView: (v0, v1) => {
         const now = Date.now() / 1000, span = v1 - v0;
-        overviewFollow = v1 >= now - Math.max(90, span * 0.01);
+        overviewFollow = Math.abs((v0 + v1) / 2 - now) < Math.max(120, span * 0.05);
+        if (overviewFollow) overviewSpan = span;
         document.querySelectorAll("#ovRanges button").forEach((b) => {
           const seconds = Number(b.dataset.seconds);
           b.classList.toggle("active", overviewFollow && Math.abs(span - seconds) < seconds * 0.03);
         });
       } });
-    overviewFirst = true;
   }
   const chart = overviewChart, now = Date.now() / 1000;
   let points = [], modes = [];
@@ -557,13 +557,14 @@ async function drawChart() {
   } catch (e) { /* keep what is there */ }
   if (points.length) points = points.concat([[now, points[points.length - 1][1]]]);      // the reading holds until now, so the line runs to the present
   chart.o.emptyText = t("noData");
+  chart.o.now = now;
   chart.o.bands = modes.map(([from, to, mode]) => ({ from, to, color: (BOILER_COLORS[mode] || BOILER_COLORS.other) + "2e" }));
   const accent = cssColor("--accent");
-  const series = [{ name: "", color: accent, points, kind: "step", area: true, depth: 5, width: 3, noMarkers: true }];
-  const span = chart.view[1] - chart.view[0];
-  chart.setSeries(series, [points.length ? points[0][0] : now - 86400, now], true);
-  if (overviewFirst) { overviewFirst = false; chart.setView(now - 6 * 3600, now, false); }
-  else if (overviewFollow && span > 0) chart.setView(now - span, now, false);     // live: the window slides with the time
+  const series = [{ name: "", color: accent, points, kind: "step", round: 7, area: true, depth: 5, width: 3, noMarkers: true }];
+  const half = overviewSpan / 2;
+  // room for the future on the right, so that the present can stay in the middle
+  chart.setSeries(series, [Math.min(points.length ? points[0][0] : now, now - half), now + half], true);
+  if (overviewFollow) chart.setView(now - half, now + half, !!animate);
   const used = [...new Set(modes.map((m) => m[2]))];
   setLegend(canvas, [{ label: "Licznik (m³)", color: accent, kind: "line" },
     ...["dhw", "heating", "other"].filter((m) => used.includes(m)).map((m) => ({ label: BOILER_NAMES[m], color: BOILER_COLORS[m], kind: "box" }))]);
