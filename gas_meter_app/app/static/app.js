@@ -142,7 +142,7 @@ function cleanupCard() {
     opt(meter, "Stan licznika (z niego liczone są też przepływ i zużycie na godzinę)"),
     opt(diag, "Sygnał WiFi i diagnostyka (obudzenia, sesje, czasy pracy)"),
     opt(battery, "Napięcie i poziom baterii (zwykle zostawić: te same ogniwa, przydaje się do prognozy)"),
-    opt(ha, "Popraw statystyki „Cubic meters” w Home Assistant"),
+    opt(ha, "Popraw statystyki „Cubic meters” i „Licznik gazu (z historią)” w Home Assistant"),
     el("div", { class: "kv", id: "clInfo", style: "margin:10px 0" }),
     el("div", { class: "field" }, [run]),
   ]);
@@ -160,9 +160,10 @@ async function loadCleanup() {
   row("Przed tą chwilą: licznik / WiFi / bateria", (d.counts.cubic_meters || 0) + " / " + (d.counts.RSSI || 0) + " / " + (d.counts.BatteryVoltage || 0) + " odczytów");
   if (d.ha) {
     if (d.ha.error) row("Home Assistant", d.ha.error);
-    else if (!d.ha.entity) row("Home Assistant", "nie znaleziono encji „Cubic meters”");
+    else if (!d.ha.sensors.length) row("Home Assistant", "nie znaleziono encji gazu apki");
     else {
-      row("Skoki w statystykach HA", d.ha.jumps.length ? d.ha.jumps.map((j) => fmtWhen(j.start) + ": +" + num(j.m3, 2) + " m³").join(", ") : "brak");
+      for (const x of d.ha.sensors)
+        row("Skoki w HA: " + x.name, x.jumps.length ? x.jumps.map((j) => fmtWhen(j.start) + ": +" + num(j.m3, 2) + " m³").join(", ") : "brak");
       if (d.ha.waiting) row("Uwaga", "ostatni skok trafi do statystyk HA kilka minut po pełnej godzinie; wtedy uruchom jeszcze raz (można wielokrotnie)");
     }
   }
@@ -179,7 +180,7 @@ async function runCleanup() {
     const d = await api("cleanup", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "run", cutoff, ha: $("#clHa").checked,
         groups: [["meter", "clMeter"], ["diag", "clDiag"], ["battery", "clBattery"]].filter(([, id]) => $("#" + id).checked).map(([g]) => g) }) });
-    const fixed = d.ha && d.ha.jumps ? d.ha.jumps.length : 0;
+    const fixed = d.ha && d.ha.sensors ? d.ha.sensors.reduce((n, x) => n + x.jumps.length, 0) : 0;
     const removed = Object.values(d.removed || {}).reduce((a, b) => a + b, 0);
     toast("Usunięto " + removed + " odczytów" + ($("#clHa").checked ? ", poprawiono skoków w HA: " + fixed : ""));
     loadCleanup(); refresh(); drawChart();

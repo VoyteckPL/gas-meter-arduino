@@ -1380,32 +1380,36 @@ def last_counter_set(store):
 
 
 async def ha_meter_jumps(fix):
-    """Hours in the statistics of the 'Cubic meters' sensor whose sum grew more than the meter can pass (setting the
-    counter). With fix=True each one is taken out of the sum (recorder/adjust_sum_statistics), so the Energy panel
-    does not show it as gas. Returns (entity_id, [{start, m3}], newest hour that has statistics)."""
+    """Hours in the statistics of the gas sensors of the app ('Cubic meters' and 'Licznik gazu (z historią)') whose sum
+    grew more than the meter can pass (setting the counter). With fix=True each one is taken out of the sum
+    (recorder/adjust_sum_statistics), so the Energy panel does not show it as gas.
+    Returns [{entity, name, jumps: [{start, m3}], newest}]."""
     registry = (await core_ws_call([{"type": "config/entity_registry/list"}]))[0] or []
-    entity_id = next((e.get("entity_id") for e in registry if e.get("unique_id") == "gas_meter_app_cubic_meters"), None)
-    if not entity_id:
-        return None, [], None
-    result = (await core_ws_call([{
-        "type": "recorder/statistics_during_period", "start_time": "2000-01-01T00:00:00+00:00",
-        "statistic_ids": [entity_id], "period": "hour", "types": ["sum"]}]))[0] or {}
-    rows = [r for r in result.get(entity_id) or [] if r.get("sum") is not None]
-    jumps, prev = [], None
-    for row in rows:
-        start = stat_time(row["start"])
-        if prev is not None:
-            delta = float(row["sum"]) - prev
-            if not meterclean.step_ok(delta, 3600):
-                jumps.append({"start": start, "m3": round(delta, 3)})
-        prev = float(row["sum"])
-    if fix:
-        for jump in jumps:
-            await core_ws_call([{"type": "recorder/adjust_sum_statistics", "statistic_id": entity_id,
-                                 "start_time": datetime.fromtimestamp(jump["start"], timezone.utc).isoformat(),
-                                 "adjustment": -jump["m3"], "adjustment_unit_of_measurement": "m³"}])
-    newest = stat_time(rows[-1]["start"]) if rows else None
-    return entity_id, jumps, newest
+    out = []
+    for unique, name in (("gas_meter_app_cubic_meters", "Cubic meters"), ("gas_meter_app_history_meter", "Licznik gazu (z historią)")):
+        entity_id = next((e.get("entity_id") for e in registry if e.get("unique_id") == unique), None)
+        if not entity_id:
+            continue
+        result = (await core_ws_call([{
+            "type": "recorder/statistics_during_period", "start_time": "2000-01-01T00:00:00+00:00",
+            "statistic_ids": [entity_id], "period": "hour", "types": ["sum"]}]))[0] or {}
+        rows = [r for r in result.get(entity_id) or [] if r.get("sum") is not None]
+        jumps, prev = [], None
+        for row in rows:
+            start = stat_time(row["start"])
+            if prev is not None:
+                delta = float(row["sum"]) - prev
+                if not meterclean.step_ok(delta, 3600):
+                    jumps.append({"start": start, "m3": round(delta, 3)})
+            prev = float(row["sum"])
+        if fix:
+            for jump in jumps:
+                await core_ws_call([{"type": "recorder/adjust_sum_statistics", "statistic_id": entity_id,
+                                     "start_time": datetime.fromtimestamp(jump["start"], timezone.utc).isoformat(),
+                                     "adjustment": -jump["m3"], "adjustment_unit_of_measurement": "m³"}])
+        out.append({"entity": entity_id, "name": name, "jumps": jumps,
+                    "newest": stat_time(rows[-1]["start"]) if rows else None})
+    return out
 
 
 async def api_cleanup(request):
@@ -1436,10 +1440,10 @@ async def api_cleanup(request):
         out["removed"] = counts
     if core_token() and (request.method == "GET" or body.get("ha", True)):
         try:
-            entity_id, jumps, newest = await ha_meter_jumps(body.get("action") == "run" and body.get("ha", True))
-            out["ha"] = {"entity": entity_id, "jumps": jumps, "newest": newest, "fixed": body.get("action") == "run"}
+            sensors = await ha_meter_jumps(body.get("action") == "run" and body.get("ha", True))
             # the hour of the newest jump may not be in the statistics yet (they are made a few minutes after each hour)
-            out["ha"]["waiting"] = bool(jump_at and (newest is None or newest + 3600 <= jump_at))
+            out["ha"] = {"sensors": sensors, "fixed": body.get("action") == "run",
+                         "waiting": bool(jump_at and any(x["newest"] is None or x["newest"] + 3600 <= jump_at for x in sensors))}
         except Exception as error:  # pragma: no cover
             out["ha"] = {"error": str(error)}
     return web.json_response(out)

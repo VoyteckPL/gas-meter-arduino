@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.30.14
+
+* Start od montażu poprawia skoki licznika w statystykach obu encji gazu apki: „Cubic meters” i „Licznik gazu (z historią)” (ta druga bywa źródłem w panelu Energia).
+
 ## 0.30.13
 
 * Przegląd: główny wykres to teraz interaktywny wykres stanu licznika z ostatnich 48 h z kolorowym tłem pieca (ciepła woda / ogrzewanie), z przewijaniem i powiększaniem. Zakładki: Licznik, Na godzinę (też z kolorami), Bateria.
