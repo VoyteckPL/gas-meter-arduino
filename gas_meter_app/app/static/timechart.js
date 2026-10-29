@@ -5,7 +5,7 @@
 //   * crosshair with a tooltip, nice time axis, area / line / step / bar series, dashed forecasts,
 //     threshold lines, a "now" marker, smooth animated view changes
 // Series: { name, color, points: [[unixSeconds, value], ...], kind: "line"|"step"|"bars", area, dashed, noHover,
-//           detail: { from, to, points } }  (detail is a finer copy of the data for the window it covers)
+//           barDt (width of a bar in seconds, for sparse series), detail: { from, to, points } }  (detail is a finer copy of the data for the window it covers)
 (function () {
   const DAY = 86400;
   const MONTHS = ["sty", "lut", "mar", "kwi", "maj", "cze", "lip", "sie", "wrz", "paź", "lis", "gru"];
@@ -440,7 +440,7 @@
         if (s.kind === "bars") {
           const dts = []; for (let i = 1; i < pts.length && dts.length < 20; i++) dts.push(pts[i][0] - pts[i - 1][0]);
           dts.sort((a, b) => a - b);
-          const dt = dts.length ? dts[dts.length >> 1] : 3600;
+          const dt = s.barDt || (dts.length ? dts[dts.length >> 1] : 3600);
           const full = dt / (v1 - v0) * plotW;
           const gap = full > 10 ? Math.min(7, full * 0.2) : 0.8, bw = Math.max(1, full - gap), radius = Math.min(6, bw / 2);
           const g = ctx.createLinearGradient(0, top, 0, plotBottom);

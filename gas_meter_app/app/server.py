@@ -41,6 +41,7 @@ BILLS_FILE = os.path.join(DATA_DIR, "bills.json")
 WEATHER_FILE = os.path.join(DATA_DIR, "weather.json")
 ENERGY_FILE = os.path.join(DATA_DIR, "energy.json")
 BOILER_FILE = os.path.join(DATA_DIR, "boiler.json")
+GASFIX_FILE = os.path.join(DATA_DIR, "gas_fixes.json")
 ENERGY_ID = "gas_meter_app:gas_history"
 WEATHER_API = os.environ.get("WEATHER_API", "https://archive-api.open-meteo.com/v1/archive")
 
@@ -50,6 +51,7 @@ import weather
 import energy
 import billing
 import boiler
+import gashistory
 
 log = logging.getLogger("gas_meter")
 
@@ -900,7 +902,7 @@ def stats_to_points(rows, kind, divisor):
     points, decreases, top = [], 0, None
     for row in rows or []:
         if kind == "meter":
-            value = row.get("state")
+            value = row.get("state") if row.get("state") is not None else row.get("sum")
             when = stat_time(row["end"]) if row.get("end") is not None else stat_time(row["start"]) + 3600
         else:
             value = row.get("mean")
@@ -940,7 +942,7 @@ async def api_ha_stats(request):
         listing = [{"id": i.get("statistic_id"), "name": i.get("name") or "", "unit": i.get("statistics_unit_of_measurement") or i.get("unit_of_measurement") or ""}
                    for i in ids or []]
         listing.sort(key=lambda i: i["id"])
-        meta = {k: {key: v[key] for key in v if key != "points"} for k, v in store.imported.items()}
+        meta = {k: {key: v[key] for key in v if key not in ("points", "sources", "joins")} for k, v in store.imported.items()}
         return web.json_response({"ids": listing, "imported": meta, "in_ha": bool(core_token())})
     try:
         body = await request.json()
@@ -957,6 +959,10 @@ async def api_ha_stats(request):
     if action == "clear":
         with store.lock:
             store.imported.pop(kind, None)
+        if kind == "meter":
+            app["gasfix"] = {"days": {}, "accepted": []}
+            app["gas_view"] = None
+            save_gasfix(app["gasfix"])
         store.save_imported()
         return web.json_response({"ok": True})
     if action not in ("preview", "import"):
@@ -972,10 +978,145 @@ async def api_ha_stats(request):
     if action == "import":
         if not points:
             return web.json_response({"error": "Ta encja nie ma statystyk godzinowych w tym zakresie"}, status=409)
-        with store.lock:
-            store.imported[kind] = dict(summary, id=stat_id, divisor=divisor, imported_at=time.time(), points=points)
-        store.save_imported()
+        if kind == "meter":
+            gas_rebuild(app, [{"id": stat_id, "divisor": divisor, "points": points}])
+        else:
+            with store.lock:
+                store.imported[kind] = dict(summary, id=stat_id, divisor=divisor, imported_at=time.time(), points=points)
+            store.save_imported()
     return web.json_response(summary)
+
+
+# ------------------------------- gas history from several statistics: merge, find jumps, correct -------------------------------
+def load_gasfix():
+    try:
+        with open(GASFIX_FILE, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError):
+        data = {}
+    return {"days": dict(data.get("days") or {}), "accepted": list(data.get("accepted") or [])}
+
+
+def save_gasfix(data):
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        with open(GASFIX_FILE + ".tmp", "w", encoding="utf-8") as handle:
+            json.dump(data, handle)
+        os.replace(GASFIX_FILE + ".tmp", GASFIX_FILE)
+    except OSError as error:  # pragma: no cover
+        log.warning("cannot save the corrections: %s", error)
+
+
+def gas_sources(store):
+    imp = store.imported.get("meter")
+    if not imp:
+        return []
+    return imp.get("sources") or [{"id": imp.get("id", "?"), "divisor": imp.get("divisor", 1), "points": imp.get("points", [])}]
+
+
+def gas_rebuild(app, sources=None):
+    """Merges the sources, applies the corrections and makes the result the imported meter history of the app."""
+    store = app["store"]
+    fixes = app["gasfix"]
+    sources = sources if sources is not None else gas_sources(store)
+    result = gashistory.build(sources, fixes["days"], fixes["accepted"])
+    app["gas_view"] = result
+    if result["points"]:
+        summary = summarize(result["points"], "meter", 0)
+        with store.lock:
+            store.imported["meter"] = dict(summary, id=" + ".join(x["id"] for x in sources), divisor=1, imported_at=time.time(),
+                                           sources=sources, joins=result["joins"], points=result["points"])
+    else:
+        with store.lock:
+            store.imported.pop("meter", None)
+    store.save_imported()
+    return result
+
+
+def gas_payload(app, result, sources):
+    fixes = app["gasfix"]
+    return {"in_ha": bool(core_token()), "joins": result["joins"], "days": result["days"], "anomalies": result["anomalies"],
+            "fixes": fixes["days"], "accepted": fixes["accepted"],
+            "sources": [dict({"id": x["id"], "divisor": x.get("divisor", 1)}, **summarize(x["points"], "meter", 0)) for x in sources],
+            "segments": result["segments"]}
+
+
+async def fetch_gas_source(stat_id, divisor):
+    result = (await core_ws_call([{
+        "type": "recorder/statistics_during_period", "start_time": "2000-01-01T00:00:00+00:00",
+        "statistic_ids": [stat_id], "period": "hour", "types": ["state", "mean", "min", "max", "sum"]}]))[0]
+    points, _ = stats_to_points((result or {}).get(stat_id), "meter", divisor)
+    return {"id": stat_id, "divisor": divisor, "points": points}
+
+
+async def api_gas_history(request):
+    app = request.app
+    store = app["store"]
+    if request.method == "GET":
+        sources = gas_sources(store)
+        if app.get("gas_view") is None and sources:
+            gas_rebuild(app, sources)
+        result = app.get("gas_view") or {"joins": [], "days": [], "anomalies": [], "segments": []}
+        return web.json_response(gas_payload(app, result, sources))
+    try:
+        body = await request.json()
+        action = body.get("action")
+        day = str(body.get("day", ""))
+        if action in ("fix", "unfix", "accept", "unaccept") and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+            raise ValueError("bad day")
+        wanted = []
+        if action in ("preview", "load"):
+            for item in body.get("sources") or []:
+                stat_id, divisor = str(item.get("id", "")), float(item.get("divisor") or 1)
+                if not re.fullmatch(r"[a-z0-9_]+[.:][a-z0-9_]+", stat_id) or divisor <= 0:
+                    raise ValueError("bad statistic id")
+                wanted.append((stat_id, divisor))
+            if not wanted or len(wanted) > 8:
+                raise ValueError("podaj od 1 do 8 encji")
+        value = float(body["m3"]) if action == "fix" else None
+        if value is not None and not 0 <= value <= 2000:
+            raise ValueError("zużycie poza zakresem")
+    except (ValueError, TypeError, AttributeError, KeyError) as error:
+        return web.json_response({"error": str(error)}, status=400)
+    fixes = app["gasfix"]
+    if action in ("preview", "load"):
+        try:
+            sources = [await fetch_gas_source(i, d) for i, d in wanted]
+        except Exception as error:
+            return web.json_response({"error": str(error)}, status=502)
+        empty = [x["id"] for x in sources if not x["points"]]
+        if empty:
+            return web.json_response({"error": "Brak statystyk godzinowych: " + ", ".join(empty)}, status=409)
+        if action == "preview":
+            return web.json_response(gas_payload(app, gashistory.build(sources, fixes["days"], fixes["accepted"]), sources))
+        result = gas_rebuild(app, sources)
+        return web.json_response(gas_payload(app, result, sources))
+    if action == "fix":
+        fixes["days"][day] = value
+        if day in fixes["accepted"]:
+            fixes["accepted"].remove(day)
+    elif action == "unfix":
+        fixes["days"].pop(day, None)
+    elif action == "accept":
+        if day not in fixes["accepted"]:
+            fixes["accepted"].append(day)
+        fixes["days"].pop(day, None)
+    elif action == "unaccept":
+        if day in fixes["accepted"]:
+            fixes["accepted"].remove(day)
+    elif action == "clear":
+        with store.lock:
+            store.imported.pop("meter", None)
+        app["gasfix"] = {"days": {}, "accepted": []}
+        app["gas_view"] = None
+        save_gasfix(app["gasfix"])
+        store.save_imported()
+        return web.json_response(gas_payload(app, {"joins": [], "days": [], "anomalies": [], "segments": []}, []))
+    else:
+        return web.json_response({"error": "unknown action"}, status=400)
+    save_gasfix(fixes)
+    sources = gas_sources(store)
+    return web.json_response(gas_payload(app, gas_rebuild(app, sources), sources))
 
 
 # ------------------------------- invoices pasted from the gas supplier's customer portal -------------------------------
@@ -1758,6 +1899,8 @@ def create_app(options):
     app["weather"] = load_weather()
     app["energy"] = load_energy()
     app["boiler"] = load_boiler()
+    app["gasfix"] = load_gasfix()
+    app["gas_view"] = None
     app["notify_targets"] = load_targets()
     app["store"] = Store(options.get("root_topic") or "Gaz/Gazomierz",
                          options.get("battery_test_topic", "Gaz/BatteryTest"))
@@ -1777,6 +1920,8 @@ def create_app(options):
     app.router.add_post("/api/weather", api_weather)
     app.router.add_get("/api/ha_stats", api_ha_stats)
     app.router.add_post("/api/ha_stats", api_ha_stats)
+    app.router.add_get("/api/gas_history", api_gas_history)
+    app.router.add_post("/api/gas_history", api_gas_history)
     app.router.add_get("/api/notify", api_notify)
     app.router.add_post("/api/notify", api_notify)
     app.router.add_get("/api/notify_targets", api_notify_targets)

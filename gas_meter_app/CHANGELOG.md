@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.24.0
+
+* Nowa karta „Historia gazu z Home Assistanta” w zakładce Serwis: wybierasz kilka encji ze statystykami gazu (np. starą od 2019 i nową), a apka składa z nich jedną historię. Najnowsza encja jest wzorcem, starsze są przesuwane tak, żeby odczyty się zszyły; gdy encje się pokrywają, wygrywa nowsza. Karta pokazuje wykres zużycia na dobę w kolorach encji, informację o każdym zszyciu (przerwa, przesunięcie) i listę podejrzanych dni (nagły skok, ponad 6 m³ w godzinę, brak zużycia w środku sezonu).
+* Podejrzany dzień możesz poprawić (ustawić zużycie, domyślnie typowe z sąsiednich dni), uznać za prawdziwy albo cofnąć poprawkę. Można też ustawić zużycie dowolnego dnia. Poprawki są zapisane w apce, odczyty liczone są od najnowszego, więc stan licznika dziś się nie zmienia.
+* Przycisk „Wyślij scaloną historię do panelu Energia” wysyła wynik jako jedną statystykę „Gazomierz (z historią)”. Wskaż ją w panelu Energia zamiast starych encji, żeby nie liczyć podwójnie. Po każdej poprawce wyślij ją jeszcze raz.
+* Stara karta historii służy już tylko do napięcia baterii.
+
 ## 0.23.1
 
 * Z apki usunięte wszystkie ustawienia, których firmware nie obsługuje: tryb serwisowy, restart i aktualizacja gazomierza, zmiana parametrów (odstęp wysyłki, debounce, kalibracja baterii i inne) oraz edycja sieci. Gazomierz odbiera z brokera tylko stan licznika, więc reszta tylko wisiała jako „czeka na gazomierz”. Zakładka Ustawienia ma teraz ustawianie stanu licznika, Sieć pokazuje tylko podgląd, a Serwis import historii z Home Assistanta i diagnostykę.
