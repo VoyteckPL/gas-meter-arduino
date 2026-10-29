@@ -42,7 +42,7 @@
 #include "esp_ota_ops.h"
 #include "esp_timer.h"
 
-#define FW_VERSION "0.3.9"
+#define FW_VERSION "0.4.0"
 // The version is also kept as a marker in the binary: the Gas Meter app reads it from the .bin file it serves for the update
 static const char FW_MARKER[] = "GASMETER_FW:" FW_VERSION;
 
@@ -850,8 +850,7 @@ static void restoreBase(MQTTClient &mqtt) {
     sessionMessage(t, payload);
   }));
 
-  mqtt.subscribe(counterTopic);
-  mqtt.subscribe(overrideTopic);
+  mqtt.subscribe(counterTopic);           // the override arrives through the config/# subscription of publishAll()
   // a retained message arrives right after the subscription, wait a bit longer when nothing is known
   unsigned long waitMs = cache.baseKnown ? 1000 : 2000;
   for (unsigned long t = millis(); millis() - t < waitMs;) {
@@ -859,7 +858,6 @@ static void restoreBase(MQTTClient &mqtt) {
     delay(10);
   }
   mqtt.unsubscribe(counterTopic);
-  mqtt.unsubscribe(overrideTopic);
   mqtt.onMessage((MQTTClientCallbackSimpleFunction)sessionMessage);   // the lambda above points to this function's locals
   g_gotOverride = false;                    // handled here
 
@@ -924,11 +922,13 @@ static bool publishAll(bool sendStatus) {
   g_otaPayload = "";
   g_gotOverride = false;
   mqtt.onMessage((MQTTClientCallbackSimpleFunction)sessionMessage);
-#if OTA_ENABLED
-  mqtt.subscribe(topic("config/ota"));
-#endif
+  // one subscription for both commands (config/ota, config/counter): every subscription waits for the broker's answer
+  if (!mqtt.subscribe(topic("config/#"))) {
+    LOG("MQTT subscription not answered at %lu ms\r\n", (unsigned long)millis());
+    mqtt.disconnect();
+    return false;
+  }
   if (!cache.mqttSynced) restoreBase(mqtt);
-  else mqtt.subscribe(topic("config/counter"));
   LOG("subscribed at %lu ms\r\n", (unsigned long)millis());
   absorbInterruptPulses();                 // include pulses counted during the session so far
 

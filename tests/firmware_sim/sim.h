@@ -178,6 +178,11 @@ class MQTTClient {
   }
   void onMessage(MQTTClientCallbackSimpleFunction cb) { cb_ = cb; }
   bool subscribe(const String &t, int = 0) {
+    if (t.s.size() > 1 && t.s.compare(t.s.size() - 2, 2, "/#") == 0) {
+      std::string prefix = t.s.substr(0, t.s.size() - 1);
+      for (auto &kv : g_retained) if (kv.first.compare(0, prefix.size(), prefix) == 0) queue_.push_back(kv);
+      return true;
+    }
     auto it = g_retained.find(t.s);
     if (it != g_retained.end()) queue_.push_back({t.s, it->second});
     return true;
