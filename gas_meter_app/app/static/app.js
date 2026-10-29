@@ -1092,9 +1092,11 @@ function renderOta() {
   const d = otaUi.data, box = $("#otaState");
   if (!box) return;
   if (!d) { box.textContent = "Nie mogę odczytać stanu aktualizacji."; return; }
-  const lines = ["Firmware w gazomierzu: " + (d.device_version || "—") + (d.device_status ? " · ostatni raport: " + d.device_status : "")];
+  const lines = [d.armed ? "Stan aktualizacji: UZBROJONA, czeka na impuls gazu. Gazomierz pobierze plik przy następnym połączeniu z WiFi."
+                         : "Stan aktualizacji: nieuzbrojona. Gazomierz pracuje normalnie i niczego nie pobiera (nie ma trybu OTA, który trzeba wyłączać).",
+                 "Firmware w gazomierzu: " + (d.device_version || "—") + (d.device_status ? " · ostatni raport gazomierza: " + d.device_status : "")];
   if (!d.key_set) lines.push("Brak opcji „ota_key” w ustawieniach apki: bez niej nie da się podpisać aktualizacji.");
-  if (d.armed) lines.push("Aktualizacja do " + d.file.version + " czeka na impuls gazu (uzbrojona " + new Date(d.armed_at * 1000).toLocaleString("pl-PL") + "). Gazomierz pobierze plik z " + d.url_host + ":" + d.port + ".");
+  if (d.armed) lines.push("Aktualizacja do " + d.file.version + " (uzbrojona " + new Date(d.armed_at * 1000).toLocaleString("pl-PL") + "). Gazomierz pobierze plik z " + d.url_host + ":" + d.port + ".");
   else if (d.done) lines.push("Zaktualizowano do " + d.file.version + " (" + new Date(d.done * 1000).toLocaleString("pl-PL") + ").");
   box.textContent = "";
   for (const l of lines) box.append(el("div", { text: l }));

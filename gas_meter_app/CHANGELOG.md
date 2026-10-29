@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.28.2
+
+* Karta aktualizacji firmware pokazuje wprost, czy aktualizacja jest uzbrojona (czeka na impuls), czy nie (gazomierz pracuje normalnie).
+
 ## 0.28.1
 
 * Historia gazu: na liście encji do scalania nie ma już statystyk, które apka sama tworzy (podział pieca, encja „Licznik gazu (z historią)”), żeby nie dało się ich wybrać przez pomyłkę.
