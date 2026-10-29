@@ -1314,7 +1314,8 @@ def ota_state(app):
     return {"has_file": os.path.exists(OTA_FILE) and bool(meta.get("version")), "file": {k: meta.get(k) for k in ("version", "size", "md5", "uploaded_at", "name")},
             "armed": bool(meta.get("armed")), "armed_at": meta.get("armed_at"), "url_host": meta.get("host"), "done": meta.get("done"),
             "key_set": bool((app["options"].get("ota_key") or "").strip()), "device_version": values.get("fw_version"), "device_status": values.get("ota_status"),
-            "port": OTA_PORT, "in_ha": bool(core_token())}
+            "port": OTA_PORT, "in_ha": bool(core_token()), "progress": dict(app["ota_progress"]),
+            "last_session": app["store"].updated.get("counter"), "now": time.time()}
 
 
 async def api_ota(request):
@@ -1342,6 +1343,7 @@ async def api_ota(request):
         payload = ota_sign(key, meta["version"], url, meta["md5"], meta["size"])
         if not bridge.publish("config/ota", payload, retain=True):
             return web.json_response({"error": "Brak połączenia z MQTT"}, status=503)
+        app["ota_progress"].update(sent=0, total=0, started=None, finished=None, remote=None, active=False)
         meta.update(armed=True, token=token, host=host, armed_at=time.time(), done=None)
         save_ota(meta)
     elif action == "cancel":
@@ -1389,8 +1391,25 @@ async def ota_file(request):
     token = meta.get("token")
     if not meta.get("armed") or not token or not hmac.compare_digest(request.match_info["token"], token) or not os.path.exists(OTA_FILE):
         raise web.HTTPNotFound()
-    log.info("firmware sent to %s", request.remote)
-    return web.FileResponse(OTA_FILE, headers={"Content-Type": "application/octet-stream"})
+    size = os.path.getsize(OTA_FILE)
+    progress = request.app["ota_progress"]
+    progress.update(sent=0, total=size, started=time.time(), finished=None, remote=request.remote, active=True)
+    log.info("firmware (%d bytes) is being sent to %s", size, request.remote)
+    response = web.StreamResponse(headers={"Content-Type": "application/octet-stream", "Content-Length": str(size)})
+    await response.prepare(request)
+    try:
+        with open(OTA_FILE, "rb") as handle:
+            while True:
+                chunk = handle.read(16384)
+                if not chunk:
+                    break
+                await response.write(chunk)
+                progress["sent"] += len(chunk)
+        await response.write_eof()
+        progress["finished"] = time.time()
+    finally:
+        progress["active"] = False
+    return response
 
 
 async def ota_loop(app):
@@ -2169,6 +2188,7 @@ async def on_startup(app):
     app["ota_task"] = asyncio.create_task(ota_loop(app))
     ota_site = web.Application()
     ota_site["ota_state"] = app["ota"]
+    ota_site["ota_progress"] = app["ota_progress"]
     ota_site.router.add_get("/fw/{token}.bin", ota_file)
     app["ota_runner"] = web.AppRunner(ota_site)
     await app["ota_runner"].setup()
@@ -2203,6 +2223,7 @@ def create_app(options):
     app["boiler"] = load_boiler()
     app["gasfix"] = load_gasfix()
     app["ota"] = load_ota()
+    app["ota_progress"] = {"sent": 0, "total": 0, "started": None, "finished": None, "remote": None, "active": False}
     app["gas_view"] = None
     app["notify_targets"] = load_targets()
     app["store"] = Store(options.get("root_topic") or "Gaz/Gazomierz",

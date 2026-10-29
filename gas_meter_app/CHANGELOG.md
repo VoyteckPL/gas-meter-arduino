@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.29.0
+
+* Aktualizacja firmware ma pasek postępu i kroki: plik wgrany, uzbrojona, gazomierz się zgłosił, pobieranie pliku z procentami (apka liczy bajty wysłane do gazomierza), instalacja i potwierdzenie nowej wersji albo problem z raportu gazomierza. Podczas aktualizacji karta odświeża się co 2 sekundy.
+
 ## 0.28.2
 
 * Karta aktualizacji firmware pokazuje wprost, czy aktualizacja jest uzbrojona (czeka na impuls), czy nie (gazomierz pracuje normalnie).

@@ -1074,6 +1074,7 @@ function otaCard() {
     el("h2", { text: "Aktualizacja firmware gazomierza (OTA)" }),
     el("p", { class: "hint", style: "margin-top:0", text: "Gazomierz śpi, więc aktualizacja startuje dopiero przy jego najbliższym połączeniu z WiFi, czyli przy impulsie gazu (włącz piec na chwilę albo przyłóż magnes do kontaktronu). Dzieje się to raz i nic nie zostaje włączone na stałe. Gazomierz wymaga firmware 0.3.0 lub nowszego, wgranego kablem, z OTA_KEY w secrets.h równym opcji „ota_key” tej apki." }),
     el("div", { class: "muted small", id: "otaState" }),
+    el("div", { id: "otaSteps", style: "margin:10px 0" }),
     el("div", { class: "field", style: "gap:8px;flex-wrap:wrap;margin:10px 0;align-items:center" }, [file, btn("Wgraj plik", "secondary", otaUpload)]),
     el("div", { class: "muted small", id: "otaFileInfo" }),
     el("div", { class: "field", style: "gap:8px;flex-wrap:wrap;margin-top:10px" }, [
@@ -1085,7 +1086,35 @@ async function loadOta() {
   try { otaUi.data = await api("ota"); } catch (e) { otaUi.data = null; }
   renderOta();
   clearTimeout(otaUi.timer);
-  if (otaUi.data && otaUi.data.armed) otaUi.timer = setTimeout(loadOta, 8000);
+  if (otaUi.data && (otaUi.data.armed || (otaUi.data.progress && otaUi.data.progress.active))) otaUi.timer = setTimeout(loadOta, 2000);
+}
+
+// steps of an update: file, armed, the meter reported after arming, download with a bar, restart and confirmation
+function renderOtaSteps(d) {
+  const box = $("#otaSteps");
+  box.textContent = "";
+  const p = d.progress || {}, running = d.armed || p.active || (p.finished && !d.done) || d.done;
+  if (!d.has_file || !running) return;
+  const fmtT = (t) => new Date(t * 1000).toLocaleTimeString("pl-PL");
+  const reported = d.last_session && d.armed_at && d.last_session > d.armed_at;
+  const downloaded = !!p.finished, downloading = !!p.active;
+  const confirmed = d.done || (downloaded && d.device_version === d.file.version);
+  const pct = p.total ? Math.min(100, Math.round(p.sent / p.total * 100)) : 0;
+  const failed = /error|rolled back|gave up|rejected/.test(d.device_status || "") && !confirmed;
+  const row = (state, text) => el("div", { style: "display:flex;gap:8px;align-items:flex-start;margin:4px 0" }, [
+    el("span", { style: "width:20px;flex:none;text-align:center;font-weight:700;color:" + (state === "ok" ? "var(--ok)" : state === "run" ? "var(--accent)" : state === "bad" ? "#d0342c" : "var(--muted)"), text: state === "ok" ? "✓" : state === "run" ? "●" : state === "bad" ? "✕" : "○" }),
+    el("span", { text })]);
+  box.append(row("ok", "Plik " + d.file.version + " wgrany do apki"));
+  box.append(row("ok", "Aktualizacja uzbrojona" + (d.armed_at ? " (" + fmtT(d.armed_at) + ")" : "")));
+  box.append(row(reported || downloaded || downloading || confirmed ? "ok" : "run", reported || downloaded || downloading || confirmed ? "Gazomierz się zgłosił" + (d.last_session ? " (" + fmtT(d.last_session) + ")" : "") : "Czekam na impuls gazu, gazomierz się zgłosi przy następnym połączeniu z WiFi"));
+  box.append(row(downloaded || confirmed ? "ok" : downloading ? "run" : "todo", downloading ? "Pobieranie pliku: " + pct + " % (" + num(p.sent / 1024, 0) + " z " + num(p.total / 1024, 0) + " kB)" : downloaded || confirmed ? "Plik pobrany (" + num(p.total / 1024, 0) + " kB)" : "Pobieranie pliku"));
+  if (downloading || (downloaded && !confirmed)) {
+    const bar = el("div", { style: "height:10px;border-radius:5px;background:var(--line);overflow:hidden;margin:2px 0 6px 28px" }, [
+      el("div", { style: "height:100%;width:" + (downloaded ? 100 : pct) + "%;background:var(--accent);transition:width .4s" })]);
+    box.append(bar);
+  }
+  box.append(row(confirmed ? "ok" : failed ? "bad" : downloaded ? "run" : "todo",
+    confirmed ? "Gazomierz działa na wersji " + d.file.version : failed ? "Problem: " + d.device_status : downloaded ? "Instalacja i restart, czekam na potwierdzenie nowej wersji (do kilkudziesięciu sekund)" : "Instalacja, restart i potwierdzenie nowej wersji"));
 }
 
 function renderOta() {
@@ -1100,6 +1129,7 @@ function renderOta() {
   else if (d.done) lines.push("Zaktualizowano do " + d.file.version + " (" + new Date(d.done * 1000).toLocaleString("pl-PL") + ").");
   box.textContent = "";
   for (const l of lines) box.append(el("div", { text: l }));
+  renderOtaSteps(d);
   $("#otaFileInfo").textContent = d.has_file ? "Wgrany plik: " + (d.file.name || "firmware") + ", wersja " + d.file.version + ", " + num(d.file.size / 1024, 0) + " kB, MD5 " + d.file.md5 + "." : "Nie wgrano pliku.";
   $("#otaArmBtn").disabled = !d.has_file || d.armed || !d.key_set;
   $("#otaCancelBtn").disabled = !d.armed;
@@ -1122,7 +1152,7 @@ async function otaAction(action) {
     otaUi.data = await api("ota", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) });
     renderOta(); toast(action === "arm" ? "Uzbrojone: czeka na impuls gazu" : action === "cancel" ? "Anulowano" : "Usunięto plik");
     clearTimeout(otaUi.timer);
-    if (otaUi.data.armed) otaUi.timer = setTimeout(loadOta, 8000);
+    if (otaUi.data.armed) otaUi.timer = setTimeout(loadOta, 2000);
   } catch (e) { toast(e.message, true); }
 }
 
