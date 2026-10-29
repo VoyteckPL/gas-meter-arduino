@@ -52,6 +52,7 @@ import energy
 import billing
 import boiler
 import gashistory
+import meterclean
 
 log = logging.getLogger("gas_meter")
 
@@ -194,7 +195,11 @@ class Store:
         if not imported:
             return live
         cut = live[0][0] if live else float("inf")
-        return [p for p in imported["points"] if p[0] < cut] + live
+        older = [p for p in imported["points"] if p[0] < cut]
+        if key == "meter" and older and live and not meterclean.step_ok(live[0][1] - older[-1][1], live[0][0] - older[-1][0]):
+            shift = live[0][1] - older[-1][1]        # the history uses another scale than the meter (a sum, an old entity): join it
+            older = [[t, round(v + shift, 3)] for t, v in older]
+        return older + live
 
     def save(self):
         try:
@@ -898,13 +903,22 @@ def stat_time(value):
     return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
 
 
-def stats_to_points(rows, kind, divisor):
+def stats_to_points(rows, kind, divisor, with_info=False):
     """Hourly statistics -> [[unix seconds, value]]. A meter uses the reading at the end of the hour,
-    a battery the hourly mean. Returns the points and the number of times the meter reading went down."""
+    a battery the hourly mean. Returns the points and the number of times the meter reading went down.
+    For a meter the statistic's "sum" is preferred when most rows have it: it keeps counting through resets of the
+    source, while "state" can jump back. With with_info a description of what was read is returned as well."""
+    rows = list(rows or [])
+    use_sum = kind == "meter" and sum(1 for r in rows if r.get("sum") is not None) >= 0.5 * max(1, len(rows))
     points, decreases, top = [], 0, None
-    for row in rows or []:
+    with_state = with_sum = 0
+    for row in rows:
         if kind == "meter":
-            value = row.get("state") if row.get("state") is not None else row.get("sum")
+            with_state += row.get("state") is not None
+            with_sum += row.get("sum") is not None
+            value = row.get("sum") if use_sum else row.get("state")
+            if value is None:
+                value = row.get("state") if use_sum else row.get("sum")
             when = stat_time(row["end"]) if row.get("end") is not None else stat_time(row["start"]) + 3600
         else:
             value = row.get("mean")
@@ -919,6 +933,10 @@ def stats_to_points(rows, kind, divisor):
             top = value
         points.append([round(when, 1), round(value, 3 if kind == "battery" else 2)])
     points.sort(key=lambda p: p[0])
+    if with_info:
+        longest = max(((points[i + 1][0] - points[i][0]) / 86400 for i in range(len(points) - 1)), default=0.0)
+        return points, decreases, {"rows": len(rows), "with_state": with_state, "with_sum": with_sum, "mode": "sum" if use_sum else "state",
+                                   "longest_gap_days": round(longest, 1), "gaps": sum(1 for i in range(len(points) - 1) if points[i + 1][0] - points[i][0] > 36 * 3600)}
     return points, decreases
 
 
@@ -996,7 +1014,8 @@ def load_gasfix():
             data = json.load(handle)
     except (OSError, ValueError):
         data = {}
-    return {"days": dict(data.get("days") or {}), "accepted": list(data.get("accepted") or []), "entity": data.get("entity")}
+    return {"days": dict(data.get("days") or {}), "accepted": list(data.get("accepted") or []), "entity": data.get("entity"),
+            "months": dict(data.get("months") or {})}
 
 
 def save_gasfix(data):
@@ -1021,7 +1040,7 @@ def gas_rebuild(app, sources=None):
     store = app["store"]
     fixes = app["gasfix"]
     sources = sources if sources is not None else gas_sources(store)
-    result = gashistory.build(sources, fixes["days"], fixes["accepted"])
+    result = gashistory.build(sources, fixes["days"], fixes["accepted"], fixes["months"])
     app["gas_view"] = result
     if result["points"]:
         summary = summarize(result["points"], "meter", 0)
@@ -1035,11 +1054,21 @@ def gas_rebuild(app, sources=None):
     return result
 
 
+def gas_months(app, result):
+    """Months of the history next to the usage stated on the invoices (an invoice counts for the month before its due date)."""
+    monthly, factor = bills_context(app)
+    bill = {e["month"]: (e["m3"] if e.get("m3") is not None else e["kwh"] / factor) for e in monthly}
+    out = []
+    for m in result.get("months", []):
+        out.append(dict(m, bill_m3=round(bill[m["month"]], 1) if m["month"] in bill else None))
+    return out
+
+
 def gas_payload(app, result, sources):
     fixes = app["gasfix"]
-    return {"in_ha": bool(core_token()), "joins": result["joins"], "days": result["days"], "anomalies": result["anomalies"],
+    return {"months": gas_months(app, result), "gaps": result.get("gaps", []), "month_fixes": fixes["months"], "in_ha": bool(core_token()), "joins": result["joins"], "days": result["days"], "anomalies": result["anomalies"],
             "fixes": fixes["days"], "accepted": fixes["accepted"], "entity": fixes.get("entity"),
-            "sources": [dict({"id": x["id"], "divisor": x.get("divisor", 1)}, **summarize(x["points"], "meter", 0)) for x in sources],
+            "sources": [dict({"id": x["id"], "divisor": x.get("divisor", 1), "info": x.get("info")}, **summarize(x["points"], "meter", 0)) for x in sources],
             "segments": result["segments"]}
 
 
@@ -1047,8 +1076,8 @@ async def fetch_gas_source(stat_id, divisor):
     result = (await core_ws_call([{
         "type": "recorder/statistics_during_period", "start_time": "2000-01-01T00:00:00+00:00",
         "statistic_ids": [stat_id], "period": "hour", "types": ["state", "mean", "min", "max", "sum"]}]))[0]
-    points, _ = stats_to_points((result or {}).get(stat_id), "meter", divisor)
-    return {"id": stat_id, "divisor": divisor, "points": points}
+    points, decreases, info = stats_to_points((result or {}).get(stat_id), "meter", divisor, True)
+    return {"id": stat_id, "divisor": divisor, "points": points, "info": dict(info, decreases=decreases)}
 
 
 async def gas_entity_import(app):
@@ -1095,7 +1124,7 @@ async def api_gas_history(request):
             gas_rebuild(app, sources)
         elif not sources and app.get("gas_preview"):
             sources = app["gas_preview"]                                    # only previewed so far: keep showing it
-            app["gas_view"] = gashistory.build(sources, app["gasfix"]["days"], app["gasfix"]["accepted"])
+            app["gas_view"] = gashistory.build(sources, app["gasfix"]["days"], app["gasfix"]["accepted"], app["gasfix"]["months"])
         result = app.get("gas_view") or {"joins": [], "days": [], "anomalies": [], "segments": []}
         return web.json_response(gas_payload(app, result, sources))
     try:
@@ -1115,7 +1144,10 @@ async def api_gas_history(request):
                 raise ValueError("podaj od 1 do 8 encji")
         kinds = [k for k in body.get("kinds") or [] if k in ("jump", "hour", "zero")]
         only = {d for d in body.get("days") or [] if re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(d))}
-        value = float(body["m3"]) if action == "fix" else None
+        month = str(body.get("month", ""))
+        if action in ("scale", "unscale") and not re.fullmatch(r"\d{4}-\d{2}", month):
+            raise ValueError("bad month")
+        value = float(body["m3"]) if action in ("fix", "scale") else None
         if value is not None and not 0 <= value <= 2000:
             raise ValueError("zużycie poza zakresem")
     except (ValueError, TypeError, AttributeError, KeyError) as error:
@@ -1131,7 +1163,7 @@ async def api_gas_history(request):
             return web.json_response({"error": "Brak statystyk godzinowych: " + ", ".join(empty)}, status=409)
         if action == "preview":
             app["gas_preview"] = sources
-            app["gas_view"] = gashistory.build(sources, fixes["days"], fixes["accepted"])
+            app["gas_view"] = gashistory.build(sources, fixes["days"], fixes["accepted"], fixes["months"])
             return web.json_response(gas_payload(app, app["gas_view"], sources))
         app["gas_preview"] = None
         result = gas_rebuild(app, sources)
@@ -1149,6 +1181,18 @@ async def api_gas_history(request):
     elif action == "unaccept":
         if day in fixes["accepted"]:
             fixes["accepted"].remove(day)
+    elif action == "scale":
+        fixes["months"][month] = value
+    elif action == "unscale":
+        fixes["months"].pop(month, None)
+    elif action == "unscale_all":
+        fixes["months"].clear()
+    elif action == "scale_all":
+        sources = gas_sources(store) or app.get("gas_preview") or []
+        view = gashistory.build(sources, fixes["days"], fixes["accepted"], fixes["months"]) if sources else {"months": []}
+        for m in gas_months(app, view):
+            if m["full"] and m["bill_m3"] and not m["scaled"] and abs(m["m3"] - m["bill_m3"]) > 0.03 * m["bill_m3"] + 0.5:
+                fixes["months"][m["month"]] = m["bill_m3"]
     elif action == "entity":
         try:
             await gas_entity_import(app)
@@ -1161,7 +1205,7 @@ async def api_gas_history(request):
         return web.json_response(gas_payload(app, app.get("gas_view") or {"joins": [], "days": [], "anomalies": [], "segments": []}, sources))
     elif action in ("fix_all", "accept_all", "unfix_all"):
         sources = gas_sources(store) or app.get("gas_preview") or []
-        view = gashistory.build(sources, fixes["days"], fixes["accepted"]) if sources else {"anomalies": []}
+        view = gashistory.build(sources, fixes["days"], fixes["accepted"], fixes["months"]) if sources else {"anomalies": []}
         pick = [a for a in view["anomalies"] if (not kinds or a["kind"] in kinds) and (not only or a["day"] in only)]
         if action == "fix_all":
             for a in pick:
@@ -1189,7 +1233,7 @@ async def api_gas_history(request):
     sources = gas_sources(store)
     if not sources and app.get("gas_preview"):                              # a correction made on a preview that is not loaded yet
         sources = app["gas_preview"]
-        app["gas_view"] = gashistory.build(sources, fixes["days"], fixes["accepted"])
+        app["gas_view"] = gashistory.build(sources, fixes["days"], fixes["accepted"], fixes["months"])
         return web.json_response(gas_payload(app, app["gas_view"], sources))
     return web.json_response(gas_payload(app, gas_rebuild(app, sources), sources))
 

@@ -66,3 +66,19 @@ def test_run_of_empty_days_is_found_and_filled_with_the_usual_level():
     fixed = g.build([{"id": "a", "points": out}], {x["day"]: x["typical"] for x in empty})
     assert not [x for x in fixed["anomalies"] if x["kind"] == "zero"]
     assert abs(sum(x["m3"] for x in fixed["days"]) - 90 * 6) < 12
+
+
+def test_gap_days_are_flagged_and_months_can_be_scaled_to_a_target():
+    a = series(0, 30, 6, 1000.0)
+    b = series(60, 30, 6, 1500.0)                                   # a 30 day hole between the two parts of one source
+    pts = a + b
+    res = g.build([{"id": "x", "points": pts}])
+    gap = [x for x in res["anomalies"] if x["kind"] == "gap"]
+    assert 25 <= len(gap) <= 31 and res["gaps"] and res["gaps"][0]["days"] > 29
+    full = [m for m in res["months"] if m["full"]]
+    assert full
+    target = full[0]["m3"] * 2
+    scaled = g.build([{"id": "x", "points": pts}], months={full[0]["month"]: target})
+    row = next(m for m in scaled["months"] if m["month"] == full[0]["month"])
+    assert abs(row["m3"] - target) < 0.01 and row["orig"] == full[0]["orig"] and row["scaled"]
+    assert scaled["points"][-1][1] == pts[-1][1]

@@ -6,6 +6,7 @@ the consumption per day is checked against its neighbours and single days can be
 consumption, the readings are rebuilt backwards from the newest one. Pure functions, no Home Assistant needed.
 """
 import bisect
+import calendar
 import statistics
 import time
 
@@ -54,6 +55,14 @@ def merge(sources):
     return result, segments, joins
 
 
+GAP_HOURS = 36               # no reading for longer than this: the gas of the gap is only spread evenly
+
+
+def gaps(points):
+    """[(from, to)] where consecutive readings are more than GAP_HOURS apart."""
+    return [(points[i][0], points[i + 1][0]) for i in range(len(points) - 1) if points[i + 1][0] - points[i][0] > GAP_HOURS * HOUR]
+
+
 def hourly(points):
     """(boundaries, readings) on whole hours, interpolated; empty for less than two hours of data."""
     if len(points) < 2:
@@ -69,14 +78,18 @@ def local_day(ts):
     return time.strftime("%Y-%m-%d", time.localtime(ts))
 
 
-def daily(grid, deltas):
-    """{day: [total, max hour, [indexes of the hours]]} where deltas[i] is the gas of the hour starting at grid[i]."""
+def daily(grid, deltas, holes=()):
+    """{day: [total, max hour, [indexes of the hours], hours inside a gap of the data]}; deltas[i] is the gas of the hour from grid[i]."""
     out = {}
+    starts = [g[0] for g in holes]
     for i, d in enumerate(deltas):
-        row = out.setdefault(local_day(grid[i]), [0.0, 0.0, []])
+        row = out.setdefault(local_day(grid[i]), [0.0, 0.0, [], 0])
         row[0] += d
         row[1] = max(row[1], d)
         row[2].append(i)
+        k = bisect.bisect_right(starts, grid[i]) - 1
+        if k >= 0 and grid[i] < holes[k][1] and grid[i] + HOUR > holes[k][0]:
+            row[3] += 1
     return out
 
 
@@ -101,9 +114,12 @@ def anomalies(days, accepted=()):
     keys = sorted(days)
     values = [days[k][0] for k in keys]
     kinds = {}
+    for i, key in enumerate(keys):                                     # days made up by interpolation over a gap of the data
+        if days[key][3] >= 12:
+            kinds[i] = "gap"
     for i, key in enumerate(keys):                                     # empty days first: a run of them must not hide the usual level
-        if values[i] < 0.02:
-            near = around(values, (), i, 30)
+        if i not in kinds and values[i] < 0.02:
+            near = around(values, set(kinds), i, 30)
             if len(near) >= 5 and statistics.median(near) > 3:
                 kinds[i] = "zero"
     for i, key in enumerate(keys):
@@ -127,8 +143,9 @@ def anomalies(days, accepted=()):
     return out
 
 
-def apply_fixes(deltas, days, fixes):
-    """Sets the total of the given days; the shape of the day is kept (a flat day when it was empty)."""
+def apply_fixes(deltas, days, fixes, months=None):
+    """Sets the total of the given days (the shape of the day is kept, a flat day when it was empty), then scales the
+    other days of the given months so that the month adds up to the target."""
     out = list(deltas)
     for day, target in fixes.items():
         row = days.get(day)
@@ -142,20 +159,47 @@ def apply_fixes(deltas, days, fixes):
         else:
             for i in idx:
                 out[i] = target / len(idx)
+    for month, target in (months or {}).items():
+        keys = [d for d in days if d.startswith(month)]
+        free = [i for d in keys if d not in fixes for i in days[d][2]]
+        held = sum(out[i] for d in keys if d in fixes for i in days[d][2])
+        if not free or target < 0:
+            continue
+        want = max(0.0, target - held)
+        cur = sum(out[i] for i in free)
+        for i in free:
+            out[i] = out[i] * want / cur if cur > 1e-9 else want / len(free)
     return out
 
 
-def build(sources, fixes=None, accepted=()):
+def month_report(days, fixed_days, new_days, months):
+    """Per calendar month: the gas from the source, the gas now, the number of days and whether the month is complete."""
+    out = {}
+    for key in sorted(days):
+        m = out.setdefault(key[:7], {"month": key[:7], "orig": 0.0, "m3": 0.0, "days": 0, "gap_days": 0, "scaled": key[:7] in months})
+        m["orig"] += days[key][0]
+        m["m3"] += new_days[key][0]
+        m["days"] += 1
+        m["gap_days"] += 1 if days[key][3] >= 12 else 0
+    for m in out.values():
+        year, mon = int(m["month"][:4]), int(m["month"][5:7])
+        m["full"] = m["days"] >= calendar.monthrange(year, mon)[1]
+        m["orig"], m["m3"] = round(m["orig"], 2), round(m["m3"], 2)
+    return list(out.values())
+
+
+def build(sources, fixes=None, accepted=(), months=None):
     """Merged and corrected history: {"points", "days", "anomalies", "segments", "joins"} (points hourly, the end as in the source)."""
     fixes = fixes or {}
     merged, segments, joins = merge(sources)
     grid, readings = hourly(merged)
     if len(grid) < 2:
-        return {"points": merged, "days": [], "anomalies": [], "segments": segments, "joins": joins}
+        return {"points": merged, "days": [], "anomalies": [], "segments": segments, "joins": joins, "gaps": [], "months": []}
     deltas = [max(0.0, readings[i + 1] - readings[i]) for i in range(len(grid) - 1)]
-    days = daily(grid, deltas)
+    holes = gaps(merged)
+    days = daily(grid, deltas, holes)
     flagged = anomalies(days, set(accepted) | set(fixes))
-    new = apply_fixes(deltas, days, fixes)
+    new = apply_fixes(deltas, days, fixes, months)
     anchored = [0.0] * len(grid)
     anchored[-1] = readings[-1]
     for i in range(len(grid) - 2, -1, -1):
@@ -163,11 +207,13 @@ def build(sources, fixes=None, accepted=()):
     points = [[grid[i], round(anchored[i], 3)] for i in range(len(grid))]
     if merged[-1][0] > grid[-1]:
         points.append([merged[-1][0], merged[-1][1]])
-    fixed = daily(grid, new)
+    fixed = daily(grid, new, holes)
     rows = []
     for key in sorted(days):
         ts = grid[days[key][2][0]]
         seg = next((s["id"] for s in segments if s["from"] <= ts + HOUR and ts <= s["to"] + HOUR), None) or \
             next((s["id"] for s in segments if s["from"] > ts), segments[-1]["id"])        # a gap belongs to the newer source
         rows.append({"day": key, "m3": round(fixed[key][0], 3), "orig": round(days[key][0], 3), "src": seg, "fixed": key in fixes and key in days})
-    return {"points": points, "days": rows, "anomalies": flagged, "segments": segments, "joins": joins}
+    return {"points": points, "days": rows, "anomalies": flagged, "segments": segments, "joins": joins,
+            "gaps": [{"from": g[0], "to": g[1], "days": round((g[1] - g[0]) / 86400, 1)} for g in holes],
+            "months": month_report(days, fixes, fixed, months or {})}

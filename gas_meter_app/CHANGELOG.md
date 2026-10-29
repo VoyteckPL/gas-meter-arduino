@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.27.0
+
+* Historia gazu: odczyty encji są teraz brane z pola „suma” statystyk (liczy dalej mimo zerowania licznika źródła), a z pola „stan” tylko gdy suma nie jest dostępna. Przy każdej encji na liście widać, z którego pola czytała apka, ile ma godzin, przerw w danych i odrzuconych spadków licznika.
+* Przerwy w danych (brak odczytów dłużej niż 36 godzin, także między dwiema encjami) są wypisane z datami i oznaczone jako „luka w danych”. Dni w przerwach trafiają na listę podejrzanych i można je uzupełnić typowym zużyciem razem z pustymi dniami.
+* Nowa sekcja „Wyrównanie do faktur”: miesiące z historii obok zużycia z faktur, przycisk „Wyrównaj” dla jednego miesiąca albo wszystkich, które różnią się o więcej niż 3 %. Dni miesiąca są skalowane do sumy z faktury z zachowaniem rozkładu zużycia, ręczne poprawki dni zostają. Wyrównanie można cofnąć. Działa też dla miesięcy bez danych (zużycie z faktury rozkłada się równo).
+* Historia o innej skali niż licznik (np. suma z encji zamiast stanu) jest przesuwana do pierwszego odczytu gazomierza, więc nie ma skoku na styku.
+
 ## 0.26.1
 
 * Po wgraniu historii do encji apka pyta Home Assistanta, czy statystyki encji są widoczne, i pokazuje ich liczbę, początek i sumę. Jeśli HA ich nie widzi, pokazuje błąd zamiast sukcesu. Karta wyjaśnia też, gdzie szukać historii: okno encji pokazuje tylko ostatnią dobę, a długą historię widać w panelu Energia, w karcie „Wykres statystyk” i w Narzędzia deweloperskie → Statystyki.

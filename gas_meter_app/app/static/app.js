@@ -1066,7 +1066,7 @@ async function boilerEnergy(action) {
 // ------------------------------------------------------------- gas history: merge, check, correct
 const gasState = { sources: [], data: null, chart: null, chartReady: false, picked: null };
 const GAS_COLORS = ["#2f7fd0", "#2e9e6b", "#8a5cd0", "#d08a2f", "#2fb5c4", "#a0a0b0"];
-const GAS_KIND = { jump: "nagły skok", hour: "ponad 6 m³ w godzinę", zero: "brak zużycia w sezonie" };
+const GAS_KIND = { jump: "nagły skok", hour: "ponad 6 m³ w godzinę", zero: "brak zużycia w sezonie", gap: "luka w danych (zużycie rozłożone równo)" };
 const dayTs = (day) => new Date(day + "T00:00:00").getTime() / 1000;
 
 function gasHistoryCard() {
@@ -1086,6 +1086,9 @@ function gasHistoryCard() {
     el("canvas", { id: "ghChart" }),
     el("p", { class: "hint", id: "ghHint" }),
     el("div", { id: "ghPick" }),
+    el("h3", { text: "Wyrównanie do faktur" }),
+    el("p", { class: "hint", style: "margin-top:0", text: "Porównanie zużycia miesiąca w historii z zużyciem z faktur (faktura liczy się do miesiąca przed terminem płatności, więc to przybliżenie). „Wyrównaj” skaluje dni miesiąca tak, żeby suma zgadzała się z fakturą, zachowując rozkład zużycia w miesiącu; dni poprawione ręcznie zostają. Dobre do miesięcy z lukami w danych." }),
+    el("div", { id: "ghMonths", style: "overflow-x:auto" }),
     el("h3", { text: "Podejrzane dni" }),
     el("div", { id: "ghAnom", style: "overflow-x:auto" }),
     el("h3", { text: "Własna poprawka" }),
@@ -1126,6 +1129,13 @@ function renderGasSources() {
     const rm = el("button", { class: "ghost", text: "usuń" });
     rm.addEventListener("click", () => { gasState.sources.splice(i, 1); renderGasSources(); });
     box.append(el("div", { class: "field", style: "gap:8px;align-items:center;margin:2px 0" }, [el("span", { text: x.id + (x.divisor !== 1 ? "  (dzielnik " + x.divisor + ")" : "") }), rm]));
+    const meta = gasState.data && gasState.data.sources.find((m) => m.id === x.id);
+    if (meta && meta.count) {
+      const inf = meta.info || {};
+      box.append(el("div", { class: "muted small", style: "margin:0 0 6px 4px", text: fmtDay(meta.from) + " – " + fmtDay(meta.to) + ", " + meta.count + " godzin" +
+        (inf.mode ? ", odczyt z pola „" + (inf.mode === "sum" ? "suma" : "stan") + "”" : "") + (inf.gaps ? ", przerw w danych: " + inf.gaps + " (najdłuższa " + num(inf.longest_gap_days, 1) + " dnia)" : ", bez przerw") +
+        (inf.decreases ? ", pominięto spadków licznika: " + inf.decreases : "") }));
+    }
   });
 }
 
@@ -1208,6 +1218,30 @@ async function loadGasHistory() {
   renderGas();
 }
 
+function renderGasMonths(d) {
+  const box = $("#ghMonths");
+  box.textContent = "";
+  const rows = (d.months || []).filter((m) => m.full && m.bill_m3 !== null && m.bill_m3 !== undefined);
+  if (!rows.length) { box.append(el("div", { class: "muted small", text: "Brak pełnych miesięcy z fakturą do porównania. Zaimportuj faktury w zakładce Zużycie." })); return; }
+  const off = rows.filter((m) => !m.scaled && Math.abs(m.m3 - m.bill_m3) > 0.03 * m.bill_m3 + 0.5), done = rows.filter((m) => m.scaled);
+  const btn = (text, cls, fn, dis) => { const b = el("button", { class: cls, text, "data-keep": "" }); b.disabled = !!dis; b.addEventListener("click", fn); return b; };
+  box.append(el("div", { class: "field", style: "gap:8px;flex-wrap:wrap;margin-bottom:8px" }, [
+    btn("Wyrównaj wszystkie miesiące do faktur (" + off.length + ")", "", async () => {
+      if (await confirmDialog({ title: "Wyrównać do faktur?", danger: true, confirmText: "Wyrównaj", message: "Zużycie dni w miesiącach, które różnią się od faktury o więcej niż 3 %, zostanie przeskalowane do faktury. Można cofnąć.",
+        details: [["Miesięcy", String(off.length)], ["Zmiana zużycia", num(off.reduce((sum, m) => sum + m.bill_m3 - m.m3, 0), 0) + " m³"]] })) gasPost({ action: "scale_all" });
+    }, !off.length),
+    btn("Cofnij wyrównanie (" + done.length + ")", "ghost", () => gasPost({ action: "unscale_all" }), !done.length)]));
+  const t = el("table", { class: "mini" }, [el("tr", {}, ["Miesiąc", "Z historii", "Z faktury", "Różnica", ""].map((h) => el("th", { text: h })))]);
+  for (const m of rows.slice().reverse().slice(0, 48)) {
+    const diff = m.m3 - m.bill_m3, pct = m.bill_m3 ? diff / m.bill_m3 * 100 : 0;
+    const act = el("button", { class: m.scaled ? "ghost" : "secondary", text: m.scaled ? "Cofnij" : "Wyrównaj", "data-keep": "" });
+    act.addEventListener("click", () => gasPost(m.scaled ? { action: "unscale", month: m.month } : { action: "scale", month: m.month, m3: m.bill_m3 }));
+    t.append(el("tr", {}, [m.month + (m.gap_days ? " (luka " + m.gap_days + " dni)" : ""), num(m.m3, 1) + " m³" + (m.scaled ? " (wyrównane, było " + num(m.orig, 1) + ")" : ""), num(m.bill_m3, 1) + " m³",
+      (diff > 0 ? "+" : "") + num(diff, 1) + " m³ (" + (pct > 0 ? "+" : "") + num(pct, 0) + " %)"].map((x) => el("td", { text: x })).concat([el("td", {}, [act])])));
+  }
+  box.append(t);
+}
+
 function renderGas() {
   const d = gasState.data, status = $("#ghStatus"), joins = $("#ghJoins"), canvas = $("#ghChart");
   if (!status) return;
@@ -1224,6 +1258,8 @@ function renderGas() {
     (en.ha_months ? " Home Assistant widzi statystyki: " + en.ha_months + " mies. od " + fmtDay(en.ha_first) + ", suma " + num(en.ha_sum, 0) + " m³. Historia jest w statystykach długoterminowych: zobaczysz ją w panelu Energia, w karcie „Wykres statystyk” (okres miesiąc lub rok) i w Narzędzia deweloperskie → Statystyki. Okno encji pokazuje tylko ostatnią dobę." : "")
     : "Historia jeszcze nie została wgrana. Encja sama się nie wypełnia: kliknij przycisk poniżej.";
   status.textContent = "Historia: " + first + " – " + last + ", " + d.days.length + " dni, razem " + num(total, 0) + " m³. Podejrzanych dni: " + d.anomalies.length + ", poprawionych: " + Object.keys(d.fixes).length + ".";
+  if (d.gaps && d.gaps.length) joins.append(el("div", { text: "• Przerwy w danych (zużycie rozłożone w nich równo): " + d.gaps.length + ", razem " + num(d.gaps.reduce((a, g) => a + g.days, 0), 0) + " dni; najdłuższe: " +
+    d.gaps.slice().sort((a, b) => b.days - a.days).slice(0, 4).map((g) => fmtDay(g.from) + " – " + fmtDay(g.to) + " (" + num(g.days, 0) + " dni)").join(", ") + "." }));
   const JOIN = { adjacent: "zszyte bez przerwy", gap: "przerwa w danych", overlap: "encje się pokrywają, wygrywa nowsza", covered: "w całości pokryta przez nowszą" };
   for (const j of d.joins) joins.append(el("div", { text: "• " + j.id + ": " + (JOIN[j.kind] || j.kind) + (j.kind === "gap" ? " (" + num(j.gap_hours / 24, 1) + " dnia, zużycie w przerwie liczone jako zero)" : "") +
     (j.kind !== "covered" ? ", przesunięcie odczytów " + num(j.offset, 2) + " m³" : "") + (j.spread > 1 ? ", rozbieżność w nakładaniu " + num(j.spread, 1) + " m³" : "") }));
@@ -1251,6 +1287,7 @@ function renderGas() {
   gasState.chartReady = true;
   gasPick(gasState.picked, true);
   $("#ghHint").textContent = "Kliknij słupek, żeby poprawić zużycie tego dnia. Słupki to zużycie na dobę, kolory to encje źródłowe. Czerwone są dni, które wyglądają na błąd danych (nagły skok, ponad 6 m³ w godzinę albo zero w środku sezonu).";
+  renderGasMonths(d);
   // suspicious days
   const anom = $("#ghAnom");
   if (!d.anomalies.length) anom.append(el("div", { class: "muted small", text: "Nic podejrzanego nie znaleziono." }));
@@ -1268,11 +1305,11 @@ function renderGas() {
       if (ok) gasPost({ action, kinds: kinds || [], days: days ? [...days] : [] });
     };
     const btn = (text, cls, fn, disabled) => { const b = el("button", { class: cls, text, "data-keep": "" }); b.disabled = !!disabled; b.addEventListener("click", fn); return b; };
-    const zero = of(["zero"]).length, jumps = of(["jump", "hour"]).length;
+    const zero = of(["zero", "gap"]).length, jumps = of(["jump", "hour"]).length;
     const selFix = btn("Popraw zaznaczone", "secondary", () => bulk("Poprawić zaznaczone dni", "fix_all", null, new Set(picked)), true);
     const selOk = btn("Uznaj zaznaczone", "ghost", () => bulk("Uznać zaznaczone dni za prawdziwe", "accept_all", null, new Set(picked)), true);
     anom.append(el("div", { class: "field", style: "gap:8px;flex-wrap:wrap;margin-bottom:8px" }, [
-      btn("Uzupełnij puste dni typowym zużyciem (" + zero + ")", "", () => bulk("Uzupełnić puste dni typowym zużyciem", "fix_all", ["zero"]), !zero),
+      btn("Uzupełnij puste dni typowym zużyciem (" + zero + ")", "", () => bulk("Uzupełnić puste dni typowym zużyciem", "fix_all", ["zero", "gap"]), !zero),
       btn("Popraw skoki na typowe (" + jumps + ")", "secondary", () => bulk("Poprawić skoki na typowe", "fix_all", ["jump", "hour"]), !jumps),
       btn("Popraw wszystkie (" + d.anomalies.length + ")", "secondary", () => bulk("Poprawić wszystkie podejrzane dni", "fix_all")),
       btn("Uznaj wszystkie za prawdziwe", "ghost", () => bulk("Uznać wszystkie podejrzane dni za prawdziwe", "accept_all")), selFix, selOk]));
