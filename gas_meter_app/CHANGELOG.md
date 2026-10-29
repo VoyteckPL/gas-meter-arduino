@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.26.0
+
+* Historia gazu: przycisk „Utwórz encję i wgraj historię” tworzy w Home Assistancie prawdziwą encję „Licznik gazu (z historią)” (jest w rejestrze encji, w urządzeniu Gas meter) i wgrywa do jej statystyk całą scaloną i poprawioną historię. Tę jedną encję wskaż w panelu Energia zamiast starych. Po poprawkach kliknij ponownie, historia encji zostanie zastąpiona. Statystyka zewnętrzna „Gazomierz (z historią)” zostaje jako druga opcja.
+* Kliknięcie słupka na wykresie historii otwiera poprawkę tego dnia pod wykresem: wpisujesz zużycie albo wybierasz „Typowe”, możesz też cofnąć poprawkę lub uznać dzień za prawdziwy.
+* Jeden palec przesuwany w bok po wykresie przewija wykres (pionowy ruch dalej przewija stronę). Podpowiedź na wykresie historii pokazuje jeden dzień zamiast najbliższych dni z każdego koloru.
+
 ## 0.25.0
 
 * Historia gazu: przycisk „Uzupełnij puste dni typowym zużyciem” ustawia wszystkie dni bez zużycia w środku sezonu (na przykład przerwę między dwiema encjami) na typowe zużycie z sąsiednich dni. Wiele pustych dni z rzędu nie zaniża już „typowego” poziomu.

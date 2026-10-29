@@ -212,7 +212,12 @@
         this.view = this.clamp(c - ratio * next, c - ratio * next + next);
         this.hoverX = null; this.changed();
       } else if (d && d.type === "tap") {
-        if (Math.hypot(p.x - d.startX, p.y - d.startY) > 10) d.moved = true;
+        const dx = p.x - d.startX, dy = p.y - d.startY;
+        if (Math.hypot(dx, dy) > 10) {
+          d.moved = true;
+          // a sideways drag of one finger scrolls the chart (vertical ones stay with the page)
+          if (Math.abs(dx) > Math.abs(dy)) { this.drag = { type: "pan", startX: d.startX, view: this.view.slice(), moved: true }; this.onMove(e); return; }
+        }
       } else if (d && d.type === "pan") {
         const dx = p.x - d.startX;
         if (Math.abs(dx) > 3) d.moved = true;
@@ -235,8 +240,12 @@
       const p = this.pos(e), d = this.drag;
       this.pointers.delete(e.pointerId);
       if (d && d.type === "pinch") { if (this.pointers.size < 2) this.drag = null; return; }
-      if (d && d.type === "tap" && e.type !== "pointercancel" && !d.moved && performance.now() - d.time < 600) this.hoverX = p.x;
-      else if (d && d.type === "tap") this.hoverX = null;
+      const L = this.layout;
+      if (d && d.type === "tap" && e.type !== "pointercancel" && !d.moved && performance.now() - d.time < 600) {
+        this.hoverX = p.x;
+        if (this.o.onPick && L) this.o.onPick(L.fromX(p.x, this.view));
+      } else if (d && d.type === "tap") this.hoverX = null;
+      else if (d && d.type === "pan" && !d.moved && e.type !== "pointercancel" && this.o.onPick && L) this.o.onPick(L.fromX(p.x, this.view));
       this.drag = null;
       this.draw();
     }

@@ -415,7 +415,9 @@ class Bridge:
                  ("battery_charge_by", "Naładuj baterię do", "app/battery_charge_by", None, "timestamp", None, None),
                  ("bill_next", "Prognoza najbliższej faktury", "app/bill_next", "PLN", "monetary", None, None),
                  ("bill_year", "Prognoza rachunków 12 miesięcy", "app/bill_year", "PLN", "monetary", None, None),
-                 ("month_m3", "Zużycie gazu w miesiącu (prognoza)", "app/month_m3", "m³", None, None, None)]
+                 ("month_m3", "Zużycie gazu w miesiącu (prognoza)", "app/month_m3", "m³", None, None, None),
+                 # same reading as the meter itself; the full merged history is imported into the statistics of this entity
+                 ("history_meter", "Licznik gazu (z historią)", "cubic_meters", "m³", "gas", "total_increasing", None)]
         for key, name, topic, unit, device_class, state_class, category in extra:
             config = {"name": name, "uniq_id": "gas_meter_app_" + key, "stat_t": "%s/%s" % (root, topic), "dev": device}
             if unit:
@@ -994,7 +996,7 @@ def load_gasfix():
             data = json.load(handle)
     except (OSError, ValueError):
         data = {}
-    return {"days": dict(data.get("days") or {}), "accepted": list(data.get("accepted") or [])}
+    return {"days": dict(data.get("days") or {}), "accepted": list(data.get("accepted") or []), "entity": data.get("entity")}
 
 
 def save_gasfix(data):
@@ -1036,7 +1038,7 @@ def gas_rebuild(app, sources=None):
 def gas_payload(app, result, sources):
     fixes = app["gasfix"]
     return {"in_ha": bool(core_token()), "joins": result["joins"], "days": result["days"], "anomalies": result["anomalies"],
-            "fixes": fixes["days"], "accepted": fixes["accepted"],
+            "fixes": fixes["days"], "accepted": fixes["accepted"], "entity": fixes.get("entity"),
             "sources": [dict({"id": x["id"], "divisor": x.get("divisor", 1)}, **summarize(x["points"], "meter", 0)) for x in sources],
             "segments": result["segments"]}
 
@@ -1047,6 +1049,35 @@ async def fetch_gas_source(stat_id, divisor):
         "statistic_ids": [stat_id], "period": "hour", "types": ["state", "mean", "min", "max", "sum"]}]))[0]
     points, _ = stats_to_points((result or {}).get(stat_id), "meter", divisor)
     return {"id": stat_id, "divisor": divisor, "points": points}
+
+
+async def gas_entity_import(app):
+    """Creates the sensor 'Licznik gazu (z historią)' (MQTT discovery) and puts the whole merged history into its statistics."""
+    bridge = app.get("bridge")
+    if bridge is None or not core_token():
+        raise ValueError("Apka nie działa w Home Assistant")
+    bridge.publish_discovery()
+    entity_id = None
+    for _ in range(12):
+        registry = (await core_ws_call([{"type": "config/entity_registry/list"}]))[0] or []
+        entity_id = next((e.get("entity_id") for e in registry if e.get("unique_id") == "gas_meter_app_history_meter"), None)
+        if entity_id:
+            break
+        await asyncio.sleep(2)
+    if not entity_id:
+        raise ValueError("Home Assistant nie utworzył jeszcze encji. Sprawdź, czy integracja MQTT działa i włączone jest „publish_discovery”.")
+    rows, _ = energy.build_rows([], 11.0, boiler_meter(app), time.time())
+    if not rows:
+        raise ValueError("Brak historii gazu do wysłania: wczytaj i scal encje albo poczekaj na odczyty.")
+    try:
+        await core_ws_call([{"type": "recorder/clear_statistics", "statistic_ids": [entity_id]}])
+    except RuntimeError:
+        pass                                                         # nothing to clear
+    await send_energy(rows, entity_id, None, "recorder")
+    info = {"id": entity_id, "rows": len(rows), "from": rows[0]["start"], "to": rows[-1]["start"], "total_m3": rows[-1]["sum"], "at": time.time()}
+    app["gasfix"]["entity"] = info
+    save_gasfix(app["gasfix"])
+    return info
 
 
 async def api_gas_history(request):
@@ -1112,6 +1143,16 @@ async def api_gas_history(request):
     elif action == "unaccept":
         if day in fixes["accepted"]:
             fixes["accepted"].remove(day)
+    elif action == "entity":
+        try:
+            await gas_entity_import(app)
+        except ValueError as error:
+            return web.json_response({"error": str(error)}, status=409)
+        except Exception as error:
+            log.warning("history entity failed: %s", error)
+            return web.json_response({"error": str(error)}, status=502)
+        sources = gas_sources(store)
+        return web.json_response(gas_payload(app, app.get("gas_view") or {"joins": [], "days": [], "anomalies": [], "segments": []}, sources))
     elif action in ("fix_all", "accept_all", "unfix_all"):
         sources = gas_sources(store) or app.get("gas_preview") or []
         view = gashistory.build(sources, fixes["days"], fixes["accepted"]) if sources else {"anomalies": []}
@@ -1551,9 +1592,9 @@ def iso_hour(ts):
     return datetime.utcfromtimestamp(ts).strftime("%Y-%m-%dT%H:00:00+00:00")
 
 
-async def send_energy(rows, statistic_id=ENERGY_ID, name="Gazomierz (z historią)"):
+async def send_energy(rows, statistic_id=ENERGY_ID, name="Gazomierz (z historią)", source="gas_meter_app"):
     """Sends hourly rows as the external statistic; a Home Assistant that does not know unit_class gets it without."""
-    metadata = {"has_mean": False, "has_sum": True, "name": name, "source": "gas_meter_app",
+    metadata = {"has_mean": False, "has_sum": True, "name": name, "source": source,
                 "statistic_id": statistic_id, "unit_of_measurement": "m³", "unit_class": "volume"}
     for start in range(0, len(rows), 3000):
         stats = [{"start": iso_hour(r["start"]), "sum": round(r["sum"], 4), "state": round(r["state"], 4)} for r in rows[start:start + 3000]]

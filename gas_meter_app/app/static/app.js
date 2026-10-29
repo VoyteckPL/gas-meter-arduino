@@ -1064,7 +1064,7 @@ async function boilerEnergy(action) {
 }
 
 // ------------------------------------------------------------- gas history: merge, check, correct
-const gasState = { sources: [], data: null, chart: null, chartReady: false };
+const gasState = { sources: [], data: null, chart: null, chartReady: false, picked: null };
 const GAS_COLORS = ["#2f7fd0", "#2e9e6b", "#8a5cd0", "#d08a2f", "#2fb5c4", "#a0a0b0"];
 const GAS_KIND = { jump: "nagły skok", hour: "ponad 6 m³ w godzinę", zero: "brak zużycia w sezonie" };
 const dayTs = (day) => new Date(day + "T00:00:00").getTime() / 1000;
@@ -1085,14 +1085,18 @@ function gasHistoryCard() {
     el("div", { class: "muted small", id: "ghJoins" }),
     el("canvas", { id: "ghChart" }),
     el("p", { class: "hint", id: "ghHint" }),
+    el("div", { id: "ghPick" }),
     el("h3", { text: "Podejrzane dni" }),
     el("div", { id: "ghAnom", style: "overflow-x:auto" }),
     el("h3", { text: "Własna poprawka" }),
     el("div", { class: "field", style: "gap:8px;flex-wrap:wrap" }, [el("input", { type: "date", id: "ghDay" }), num2("ghM3", "m³ w dobie"), btn("Ustaw zużycie dnia", "secondary", () => { const d = $("#ghDay").value, v = $("#ghM3").value; if (d && v !== "") gasPost({ action: "fix", day: d, m3: Number(v) }); })]),
     el("h3", { text: "Poprawione dni" }),
     el("div", { id: "ghFixed", style: "overflow-x:auto" }),
-    el("h3", { text: "Wynik w panelu Energia" }),
-    el("p", { class: "hint", style: "margin-top:0", text: "Scalona i poprawiona historia trafia do statystyki „Gazomierz (z historią)”, jedną ciągłą serią zamiast dwóch encji. W panelu Energia wskaż tylko ją jako źródło gazu i usuń stare dwie, inaczej zużycie policzy się podwójnie. To statystyka zewnętrzna, nie encja: widać ją w panelu Energia i w karcie „Wykres statystyk”. Po każdej poprawce wyślij ją jeszcze raz." }),
+    el("h3", { text: "Wynik w Home Assistancie" }),
+    el("p", { class: "hint", style: "margin-top:0", text: "Zalecane: apka tworzy w Home Assistancie encję „Licznik gazu (z historią)” (jest w rejestrze encji, w urządzeniu Gas meter) i wgrywa do jej statystyk całą scaloną historię. Tę jedną encję wskaż w panelu Energia jako źródło gazu i usuń stare, żeby zużycie nie liczyło się podwójnie. Po każdej poprawce kliknij ponownie, historia encji zostanie zastąpiona." }),
+    el("div", { class: "muted small", id: "ghEntity" }),
+    btn("Utwórz encję i wgraj historię", "", gasEntity),
+    el("p", { class: "hint", text: "Albo statystyka zewnętrzna „Gazomierz (z historią)” (bez encji, widoczna w panelu Energia i w karcie „Wykres statystyk”; zawiera też miesiące z faktur sprzed pierwszych odczytów)." }),
     btn("Wyślij scaloną historię do panelu Energia", "", gasSendEnergy)]);
 }
 
@@ -1148,6 +1152,44 @@ async function gasClear() {
   await gasPost({ action: "clear" });
 }
 
+async function gasEntity() {
+  if (!(await confirmDialog({ title: "Utworzyć encję i wgrać historię?", danger: true, confirmText: "Wgraj",
+    message: "Statystyki encji „Licznik gazu (z historią)” zostaną zastąpione scaloną i poprawioną historią. Dane starych encji w Home Assistancie się nie zmieniają." }))) return;
+  try {
+    gasState.data = await api("gas_history", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "entity" }) });
+    toast("Encja gotowa, historia wgrana");
+    renderGas();
+  } catch (e) { toast(e.message, true); }
+}
+
+// a click on a bar opens the correction of that day under the chart
+function gasPick(t, redraw) {
+  const box = $("#ghPick"), d = gasState.data;
+  if (!box || !d || !d.days.length) return;
+  if (!redraw) {
+    const date = new Date(t * 1000), day = date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0") + "-" + String(date.getDate()).padStart(2, "0");
+    gasState.picked = d.days.some((x) => x.day === day) ? day : null;
+  }
+  const day = gasState.picked;
+  box.textContent = "";
+  const row = day && d.days.find((x) => x.day === day);
+  if (!row) return;
+  const i = d.days.indexOf(row), bad = new Set(d.anomalies.map((a) => a.day));
+  const near = d.days.slice(Math.max(0, i - 21), i + 22).filter((x) => x.day !== day && !bad.has(x.day) && !x.fixed && x.orig > 0.02).map((x) => x.orig).sort((a, b) => a - b);
+  const typical = near.length ? near[near.length >> 1] : 0;
+  const input = el("input", { type: "number", step: "0.1", min: "0", value: String(Math.round(row.m3 * 100) / 100), style: "max-width:100px" });
+  const mk = (text, cls, fn) => { const b = el("button", { class: cls, text, "data-keep": "" }); b.addEventListener("click", fn); return b; };
+  const buttons = [mk("Ustaw", "", () => gasPost({ action: "fix", day, m3: Number(input.value) })),
+                   mk("Typowe (" + num(typical, 1) + " m³)", "secondary", () => gasPost({ action: "fix", day, m3: Math.round(typical * 10) / 10 }))];
+  if (row.fixed) buttons.push(mk("Cofnij poprawkę", "ghost", () => gasPost({ action: "unfix", day })));
+  if (bad.has(day)) buttons.push(mk("To prawda", "ghost", () => gasPost({ action: "accept", day })));
+  buttons.push(mk("Zamknij", "ghost", () => { gasState.picked = null; gasPick(null, true); }));
+  box.append(el("div", { class: "card", style: "padding:12px;margin:8px 0;border:1px solid var(--line)" }, [
+    el("div", { style: "font-weight:600", text: "Dzień " + row.day }),
+    el("div", { class: "muted small", text: "Z Home Assistanta: " + num(row.orig, 2) + " m³" + (row.fixed ? ", po poprawce: " + num(row.m3, 2) + " m³" : "") + ", typowo obok: " + num(typical, 1) + " m³" + (bad.has(day) ? " (podejrzany)" : "") }),
+    el("div", { class: "field", style: "gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center" }, [input, el("span", { class: "unit", text: "m³" })].concat(buttons))]));
+}
+
 async function gasSendEnergy() {
   if (!(await confirmDialog({ title: "Wysłać do panelu Energia?", confirmText: "Wyślij",
     message: "Statystyka „Gazomierz (z historią)” zostanie przeliczona z tej historii i nadpisana w Home Assistancie." }))) return;
@@ -1177,6 +1219,8 @@ function renderGas() {
   }
   canvas.style.display = "";
   const total = d.days.reduce((s, x) => s + x.m3, 0), first = d.days[0].day, last = d.days[d.days.length - 1].day;
+  const en = d.entity;
+  $("#ghEntity").textContent = en ? "Encja " + en.id + ": wgrano " + en.rows + " godzin (" + fmtDay(en.from) + " – " + fmtDay(en.to) + ", razem " + num(en.total_m3, 0) + " m³), " + new Date(en.at * 1000).toLocaleString("pl-PL") + "." : "Encja jeszcze nie została utworzona.";
   status.textContent = "Historia: " + first + " – " + last + ", " + d.days.length + " dni, razem " + num(total, 0) + " m³. Podejrzanych dni: " + d.anomalies.length + ", poprawionych: " + Object.keys(d.fixes).length + ".";
   const JOIN = { adjacent: "zszyte bez przerwy", gap: "przerwa w danych", overlap: "encje się pokrywają, wygrywa nowsza", covered: "w całości pokryta przez nowszą" };
   for (const j of d.joins) joins.append(el("div", { text: "• " + j.id + ": " + (JOIN[j.kind] || j.kind) + (j.kind === "gap" ? " (" + num(j.gap_hours / 24, 1) + " dnia, zużycie w przerwie liczone jako zero)" : "") +
@@ -1193,15 +1237,18 @@ function renderGas() {
   const named = (key) => key === "__fixed" ? ["Poprawione dni", cssColor("--accent")] : key === "__bad" ? ["Podejrzane dni", "#d0342c"] : [key, GAS_COLORS[Math.max(0, ids.indexOf(key)) % GAS_COLORS.length]];
   const series = [...groups].map(([key, points]) => {
     const [name, color] = named(key);
-    return { name, color, kind: "bars", barDt: 86400, points, title: (p) => fmtDay(p[0]),
-      tooltip: (p) => { const r = byTs.get(p[0]); return r ? (r.fixed ? ["Po poprawce: " + num(r.m3, 2) + " m³", "Było: " + num(r.orig, 2) + " m³"] : ["Zużycie: " + num(r.m3, 2) + " m³"]) : []; } };
+    return { name, color, kind: "bars", barDt: 86400, points, noHover: true };
   });
-  if (!gasState.chart) gasState.chart = new TimeChart(canvas, { dec: 1, unit: "m³", yTitle: "m³ na dobę", minSpan: 14 * 86400, monthlyTicks: "auto" });
+  // an invisible series with every day carries the tooltip, so that it shows one day and not the nearest day of each colour
+  series.push({ name: "", color: "transparent", kind: "line", width: 0, points: d.days.map((x) => [dayTs(x.day), x.m3]), title: (p) => fmtDay(p[0]),
+    tooltip: (p) => { const r = byTs.get(p[0]); return r ? (r.fixed ? ["Po poprawce: " + num(r.m3, 2) + " m³", "Było: " + num(r.orig, 2) + " m³"] : ["Zużycie: " + num(r.m3, 2) + " m³"]).concat(r.src ? [r.src] : []) : []; } });
+  if (!gasState.chart) gasState.chart = new TimeChart(canvas, { dec: 1, unit: "m³", yTitle: "m³ na dobę", minSpan: 14 * 86400, monthlyTicks: "auto", onPick: gasPick });
   setLegend(canvas, legendOf(series));
   const domain = [dayTs(first), dayTs(last) + 86400], fresh = !gasState.chartReady;
   gasState.chart.setSeries(series, domain, !fresh);
   gasState.chartReady = true;
-  $("#ghHint").textContent = "Słupki to zużycie na dobę, kolory to encje źródłowe. Czerwone są dni, które wyglądają na błąd danych (nagły skok, ponad 6 m³ w godzinę albo zero w środku sezonu).";
+  gasPick(gasState.picked, true);
+  $("#ghHint").textContent = "Kliknij słupek, żeby poprawić zużycie tego dnia. Słupki to zużycie na dobę, kolory to encje źródłowe. Czerwone są dni, które wyglądają na błąd danych (nagły skok, ponad 6 m³ w godzinę albo zero w środku sezonu).";
   // suspicious days
   const anom = $("#ghAnom");
   if (!d.anomalies.length) anom.append(el("div", { class: "muted small", text: "Nic podejrzanego nie znaleziono." }));
