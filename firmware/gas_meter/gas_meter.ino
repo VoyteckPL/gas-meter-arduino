@@ -42,7 +42,7 @@
 #include "esp_ota_ops.h"
 #include "esp_timer.h"
 
-#define FW_VERSION "0.4.2"
+#define FW_VERSION "0.4.3"
 // The version is also kept as a marker in the binary: the Gas Meter app reads it from the .bin file it serves for the update
 static const char FW_MARKER[] = "GASMETER_FW:" FW_VERSION;
 
