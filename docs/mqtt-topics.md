@@ -27,6 +27,7 @@ The meter sleeps almost all the time, so:
 | `short_pulses` | pulses that were already over when the chip had started (very short closures) |
 | `chatter_events` | times the flutter protection was triggered |
 | `restarts` | restarts that were not a normal wake-up (crash, brownout, power-on) |
+| `dhcp` | 1 when the last status session used DHCP instead of the static address (fallback after failures, firmware 0.4.2+) |
 | `ip`, `mac`, `ssid`, `bssid` | network information (status message) |
 
 Manual counter override (HA entity "Set counter"): publish the pulse count (retained) to

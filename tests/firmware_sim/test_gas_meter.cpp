@@ -36,7 +36,7 @@ static void world_reset() {
   g_mqtt_ok = true; g_wifi_ok = true; g_isr = nullptr; g_adc_mv = 2000; g_wifi_sessions = 0; g_ack_failures = 0;
   g_retained["Gaz/Gazomierz/counter"] = "1000";
   g_http_code = 200; g_http_size = 900000; g_http_gets = 0; g_update_begin_ok = true; g_update_end_ok = true; g_update_writes = 0;
-  g_boot_other = false; g_restarts_called = 0; g_after_restart_version = nullptr; g_static_ok = true; g_dhcp = false; g_timer_cb = nullptr; g_inject_t = -1;
+  g_boot_other = false; g_restarts_called = 0; g_after_restart_version = nullptr; g_static_ok = true; g_dhcp = false; g_timer_cb = nullptr; g_inject_t = -1; g_mqtt_back_t = -1;
   g_otaReq.valid = false; g_otaAwaitingConfirm = false; g_otaCurrent = FW_VERSION;
 }
 
@@ -362,7 +362,16 @@ int main(int argc, char **) {
     world_reset(); g_static_ok = false; int n = train(10, 10, 12, 1.0);
     Result r = simulate(S(400));
     check("static IP refused: DHCP fallback delivers every pulse", n, r);
-    expect("static IP refused: the meter switched to DHCP", g_dhcp && (cache.hangs & 0x40));
+    expect("static IP refused: the meter switched to DHCP", g_dhcp && cache.dhcpSessions > 0 && cache.dhcpSessions <= DHCP_SESSIONS);
+  }
+  { // the broker is down for 5 minutes with a pulse every 20 s: the meter keeps its static address and catches up quickly
+    world_reset(); g_mqtt_ok = false; g_mqtt_back_t = S(320); int n = train(10, 20, 25, 1.0);
+    Result r = simulate(S(600));
+    check("broker down 5 min: every pulse delivered", n, r);
+    int64_t firstAfter = -1;
+    for (auto &p : g_pubs) if (p.topic == "Gaz/Gazomierz/counter" && p.t >= S(320)) { firstAfter = p.t; break; }
+    expect("broker down 5 min: back within a minute and a pulse", firstAfter >= 0 && firstAfter <= S(320 + 80));
+    expect("broker down 5 min: static address kept", !g_dhcp && cache.dhcpSessions == 0);
   }
   { // the status (battery, WiFi signal) is sent every hour without any pulse
     world_reset(); simulate(S(3 * 3600 + 120));

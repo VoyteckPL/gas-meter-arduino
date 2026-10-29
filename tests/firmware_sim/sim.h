@@ -65,7 +65,9 @@ static int level_at(int64_t t) {
 static int64_t g_inject_t = -1;               // at this time the app sets a retained message (g_inject_topic = g_inject_payload)
 static std::string g_inject_topic, g_inject_payload;
 static std::map<std::string, std::string> g_retained;
+static int64_t g_mqtt_back_t = -1;           // at this time the broker comes back (g_mqtt_ok = true)
 static void advance_to(int64_t t) {
+  if (g_mqtt_back_t >= 0 && t >= g_mqtt_back_t) { g_mqtt_ok = true; g_mqtt_back_t = -1; }
   if (g_inject_t >= 0 && t >= g_inject_t) { g_retained[g_inject_topic] = g_inject_payload; g_inject_t = -1; }
   int prev = level_at(g_now_us);
   for (auto &e : g_wave) {

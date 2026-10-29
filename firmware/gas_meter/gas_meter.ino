@@ -42,7 +42,7 @@
 #include "esp_ota_ops.h"
 #include "esp_timer.h"
 
-#define FW_VERSION "0.4.1"
+#define FW_VERSION "0.4.2"
 // The version is also kept as a marker in the binary: the Gas Meter app reads it from the .bin file it serves for the update
 static const char FW_MARKER[] = "GASMETER_FW:" FW_VERSION;
 
@@ -131,7 +131,7 @@ IPAddress DNS_SERVER(192, 168, 1, 1);
 #endif
 
 // ------------------------------- RTC memory ---------------------------------
-#define CACHE_MAGIC 0x6A5C0DE2UL
+#define CACHE_MAGIC 0x6A5C0DE3UL     // changed with the layout: the first start of a new layout is a cold start (counter from flash)
 
 struct Cache {
   uint32_t magic;
@@ -145,7 +145,7 @@ struct Cache {
   uint8_t  resetReason;    // last restart that was not a normal wake-up from deep sleep
   uint8_t  otaWatch;       // 1 while a freshly installed firmware waits to be confirmed (mirror of the flash state)
   uint8_t  otaMsgPending;  // 1 when a result of an update still has to be reported
-  uint8_t  hangs;          // bit 7: a hang restart that was not looked at yet, bit 6: DHCP instead of the static IP, bits 0-5: hang restarts since power-on
+  uint8_t  hangs;          // bit 7: a hang restart that was not looked at yet, bits 0-5: hang restarts since power-on
   uint32_t pending;        // pulses counted but not yet published
   uint64_t counter;        // total pulses (relative to the base until baseKnown)
   uint64_t savedCounter;   // value stored in flash
@@ -161,6 +161,7 @@ struct Cache {
   uint32_t burstCount;     // wake-ups in the current flutter window
   uint64_t burstStartUs;   // start of the current flutter window
   float    batteryV;       // last valid battery voltage
+  uint8_t  dhcpSessions;   // sessions left on DHCP after the static address did not work (see wifiUp)
 };
 
 RTC_NOINIT_ATTR Cache cache;
@@ -430,7 +431,7 @@ static esp_timer_handle_t g_awakeTimer;
 static void awakeTimeout(void *) {
   uint8_t n = cache.hangs & 0x3F;
   if (n < 0x3F) n++;
-  cache.hangs = (uint8_t)((cache.hangs & 0x40) | 0x80 | n);
+  cache.hangs = (uint8_t)(0x80 | n);
   ESP.restart();
 }
 
@@ -766,6 +767,10 @@ static bool preferredBssid(uint8_t out[6]) {
 }
 #endif
 
+#define DHCP_SESSIONS 50
+#define DHCP_PROBE    255
+static bool g_usedDhcp = false;
+
 static bool wifiUp(unsigned long timeoutMs) {
   unsigned long start = millis();
 
@@ -775,9 +780,13 @@ static bool wifiUp(unsigned long timeoutMs) {
   // every answer of the broker (connect, subscribe, publish acknowledgements) can wait 100-300 ms or more
   WiFi.setSleep(false);
 #if USE_STATIC_IP
-  // the static address failed three sessions in a row (changed router, address taken): use DHCP until the next power-on
-  if (cache.failCount >= 3) cache.hangs |= 0x40;
-  if (cache.hangs & 0x40) WiFi.config(IPAddress(0, 0, 0, 0), IPAddress(0, 0, 0, 0), IPAddress(0, 0, 0, 0), IPAddress(0, 0, 0, 0));
+  // The static address may stop working (another router, the address taken). A failed session does not tell why: the
+  // broker can be down as well. So from the third failure in a row every other try uses DHCP. When DHCP gets through, the
+  // next session tries the static address once more (DHCP_PROBE): if that works the broker was only down and nothing
+  // changes; if it fails, DHCP is used for the next DHCP_SESSIONS sessions, then the static address is tried again.
+  if (cache.dhcpSessions == DHCP_PROBE) g_usedDhcp = cache.failCount > 0;
+  else g_usedDhcp = cache.dhcpSessions > 0 || (cache.failCount >= 3 && (cache.failCount & 1));
+  if (g_usedDhcp) WiFi.config(IPAddress(0, 0, 0, 0), IPAddress(0, 0, 0, 0), IPAddress(0, 0, 0, 0), IPAddress(0, 0, 0, 0));
   else WiFi.config(STATIC_IP, GATEWAY, SUBNET, DNS_SERVER);
 #endif
 
@@ -980,6 +989,7 @@ static bool publishAll(bool sendStatus) {
     mqtt.publish(topic("restarts"), String(buf), true, 0);
     snprintf(buf, sizeof(buf), "%u", (unsigned)(cache.hangs & 0x3F));
     mqtt.publish(topic("hangs"), String(buf), true, 0);
+    mqtt.publish(topic("dhcp"), String(g_usedDhcp ? "1" : "0"), true, 0);
     mqtt.publish(topic("ip"), WiFi.localIP().toString(), true, 0);
     mqtt.publish(topic("mac"), WiFi.macAddress(), true, 0);
     mqtt.publish(topic("ssid"), WiFi.SSID(), true, 0);
@@ -1141,9 +1151,9 @@ void setup() {
   bool statusWanted = statusDue || (now - cache.lastStatusS >= STATUS_PIGGYBACK_S);
   bool want      = coldStart || cache.pending > 0 || statusDue || !cache.mqttSynced || g_otaAwaitingConfirm;
   // a new pulse is always sent at once, also while a failed session is still being waited out: the counter that is
-  // published is the absolute value, so one successful session makes up for all the failed ones. Only a longer outage
-  // (5 sessions in a row) falls back to the slow retries, to save the battery.
-  bool newPulse  = (cache.pulsesTotal != pulsesAtWake) && cache.failCount < 5;
+  // published is the absolute value, so one successful session makes up for all the failed ones. During a longer outage
+  // (5 sessions in a row) a pulse tries at most once a minute, to save the battery, and the timer retries go on.
+  bool newPulse  = (cache.pulsesTotal != pulsesAtWake) && (cache.failCount < 5 || now - cache.lastTryS >= 60);
   bool canTry    = coldStart || newPulse || (now - cache.lastTryS >= interval);
 
   if (want && canTry && allowWifi) {
@@ -1161,6 +1171,14 @@ void setup() {
     now = nowSeconds();
     if (ok) {
       cache.pending = 0;          // pulses counted during the session are added below
+#if USE_STATIC_IP
+      if (cache.dhcpSessions == DHCP_PROBE) {
+        cache.dhcpSessions = g_usedDhcp ? DHCP_SESSIONS : 0;
+        if (g_usedDhcp) LOG("The static address does not work: DHCP for the next %d sessions\r\n", DHCP_SESSIONS);
+      } else if (g_usedDhcp) {
+        cache.dhcpSessions = cache.dhcpSessions ? cache.dhcpSessions - 1 : DHCP_PROBE;    // first DHCP success: check the static address once more
+      }
+#endif
       cache.failCount = 0;
       interval = MIN_SEND_INTERVAL_S;
       cache.sends++;
