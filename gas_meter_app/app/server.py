@@ -400,6 +400,13 @@ class Bridge:
             payload = message.payload.decode("utf-8", errors="replace")
         except Exception:  # pragma: no cover
             return
+        prefix = self.store.root + "/set/"
+        if message.topic.startswith(prefix) and message.topic[len(prefix):] not in SCHEMA:
+            # a retained command of a setting the firmware no longer reads (left by an older version): removed from the broker
+            if payload:
+                log.info("Removing an obsolete retained command %s", message.topic)
+                client.publish(message.topic, "", qos=1, retain=True)
+            return
         self.store.on_message(message.topic, payload)
 
     def publish(self, suffix, payload, retain=True):

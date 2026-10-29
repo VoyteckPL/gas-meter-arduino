@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.30.5
+
+* Nowa zakładka „Historia”: przeniesiono do niej karty historii gazu i historii baterii z Home Assistanta (zakładka „Serwis” ma teraz aktualizację firmware i diagnostykę).
+* Znaczek przy zakładce „Ustawienia” liczy tylko polecenie stanu licznika. Stare, zapamiętane na brokerze polecenia `set/...` z usuniętych ustawień apka sama kasuje (firmware ich nie czyta, więc wisiały na zawsze).
+* Poprawiony opis przy stanie licznika: gazomierz przyjmuje go przy najbliższym połączeniu z WiFi, bez restartu.
+
 ## 0.30.4
 
 * Apka nie publikuje ponownie polecenia aktualizacji, które gazomierz już obsłużył i sam usunął z brokera (wcześniej w dzienniku pojawiało się wtedy zbędne „opublikowano je ponownie”).

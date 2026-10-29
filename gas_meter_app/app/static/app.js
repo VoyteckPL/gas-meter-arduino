@@ -20,7 +20,7 @@ const TEXT = {
     debounce: "Debounce kontaktronu", pulses_per_m3: "Impulsów na m³", battery_cal: "Współczynnik kalibracji baterii",
     battery_warn_v: "Napięcie ostrzeżenia baterii", battery_cutoff_v: "Napięcie odcięcia baterii",
     counterTitle: "Ustaw stan licznika", counterLabel: "Stan licznika (m³)",
-    counterHint: "Zostanie zastosowany raz po restarcie lub włączeniu zasilania gazomierza. Odczyt jest przeliczany na impulsy według ustawienia impulsów na m³.",
+    counterHint: "Gazomierz przyjmie go przy najbliższym połączeniu z WiFi (najbliższy impuls albo status co godzinę), potem polecenie znika. Odczyt jest przeliczany na impulsy według ustawienia impulsów na m³.",
     network: "Sieć", static_ip: "Stałe IP", ip: "Adres IP", gateway: "Brama", subnet: "Maska podsieci",
     dns: "Serwer DNS", wifi_ssid: "Sieć WiFi (SSID)", wifi_password: "Hasło WiFi (tylko zapis)",
     networkHint: "Zmiany sieci są próbne: jeśli po restarcie gazomierz się nie połączy, wraca do poprzednich ustawień.",
@@ -67,10 +67,10 @@ const TEXT = {
     bConnect: "Czas łączenia z WiFi (min / śr. / maks)", bRssi: "Sygnał WiFi (min / śr. / maks)", bSamples: "Próbek baterii", bHistorySince: "Historia od",
     bTestNote: "Test rozładowania: prognoza wynika z trendu napięcia. Gdy test dojdzie do 3,0 V, panel nauczy się prawdziwej krzywej Twoich ogniw i użyje jej dla gazomierza.",
     bDays: "dni", bMonths: "mies.", bOn: "włączone", bUnknown: "nieznane",
-    tabPanel: "Przegląd", tabUsage: "Zużycie", meterSub: "wskazanie gazomierza", flowSub: "średnio z ostatnich 15 min", todaySub: "od północy", signalSub: "WiFi gazomierza", lastSub: "ostatni odczyt z gazomierza", tabSettings: "Ustawienia", tabNetwork: "Sieć", tabService: "Serwis", tabDemo: "Demo",
+    tabPanel: "Przegląd", tabUsage: "Zużycie", meterSub: "wskazanie gazomierza", flowSub: "średnio z ostatnich 15 min", todaySub: "od północy", signalSub: "WiFi gazomierza", lastSub: "ostatni odczyt z gazomierza", tabSettings: "Ustawienia", tabNetwork: "Sieć", tabService: "Serwis", tabHistory: "Historia", tabDemo: "Demo",
     settingsNote: "Gazomierz odbiera z apki tylko stan licznika, przy najbliższym połączeniu z WiFi (czyli przy impulsie gazu). Pozostałe parametry (WiFi, stałe IP, progi baterii, odstęp wysyłki) są wpisane w firmware: plik secrets.h i definicje na początku szkicu.",
     networkNote: "Tylko podgląd tego, co gazomierz zgłasza. Dane sieci zmienia się w firmware (secrets.h).",
-    serviceNote: "Import historii z Home Assistanta i diagnostyka gazomierza.", histHint: "Kliknij wartość, żeby zobaczyć jej historię.", close: "Zamknij", range1h: "1 godz.", range6h: "6 godz.",
+    serviceNote: "Aktualizacja firmware i diagnostyka gazomierza.", historyNote: "Historia gazu i baterii wczytana z Home Assistanta: scalanie, kontrola i poprawki.", histHint: "Kliknij wartość, żeby zobaczyć jej historię.", close: "Zamknij", range1h: "1 godz.", range6h: "6 godz.",
     range24h: "24 godz.", range7d: "7 dni", range14d: "14 dni", hMeter: "Stan licznika", hFlow: "Przepływ",
     hHourly: "Zużycie na godzinę", hBattery: "Napięcie baterii", hPercent: "Poziom baterii", hRssi: "Sygnał WiFi",
     hBtPin: "Napięcie na pinie (test)", hBtVolt: "Napięcie baterii (test)", sMin: "Min", sMax: "Maks", sAvg: "Średnia",
@@ -230,7 +230,7 @@ const CONFIRM_ACTIONS = {
   counter: (value) => {
     const perM3 = Number(cfg("pulses_per_m3")) || 100, current = Number(state.values.counter);
     return { title: "Ustawić stan licznika?", danger: true, confirmText: "Ustaw stan",
-      message: "Zły stan licznika zafałszuje wszystkie odczyty i statystyki. Nowy stan zostanie zastosowany raz, po restarcie lub włączeniu zasilania gazomierza.",
+      message: "Zły stan licznika zafałszuje wszystkie odczyty i statystyki. Nowy stan gazomierz przyjmie raz, przy najbliższym połączeniu z WiFi.",
       details: [["Teraz", Number.isFinite(current) ? num(current / perM3, 2) + " m³" : "—"], ["Nowy stan", num(Number(value) / perM3, 2) + " m³ (" + value + " impulsów)"]] };
   },
 };
@@ -270,6 +270,7 @@ function build() {
   root.textContent = "";
   const views = {
     battery: $("#batteryView"), settings: $("#settingsView"), network: $("#networkView"), service: $("#serviceView"),
+    history: $("#historyView"),
   };
   for (const node of Object.values(views)) node.textContent = "";
   const note = (key) => el("section", { class: "card wide" }, [el("p", { class: "muted small", style: "margin:0", "data-i18n": key })]);
@@ -376,9 +377,10 @@ function build() {
   views.network.append(network);
 
   views.service.append(otaCard());
-  views.service.append(gasHistoryCard());
+  views.history.append(note("historyNote"));
+  views.history.append(gasHistoryCard());
   // history imported from Home Assistant statistics
-  views.service.append(el("section", { class: "card", id: "hsCard" }, [
+  views.history.append(el("section", { class: "card", id: "hsCard" }, [
     el("h2", { "data-i18n": "hsTitle" }),
     el("p", { class: "hint", style: "margin-top:0", "data-i18n": "hsHint" }),
     el("div", { class: "row" }, [el("label", { for: "hsFilter", "data-i18n": "hsSearch" }), el("div", { class: "field" }, [el("input", { type: "text", id: "hsFilter", value: "gazomierz", autocomplete: "off" })])]),
@@ -531,8 +533,7 @@ function update() {
   // number of commands waiting for the meter, shown on the tab where they belong
   const counts = { settings: 0, network: 0, service: 0 };
   for (const name of Object.keys(state.pending || {})) {
-    const tab = "settings";
-    if (tab in counts) counts[tab]++;
+    if (name === "counter") counts.settings++;        // the only command the firmware reads
   }
   for (const [tab, count] of Object.entries(counts)) {
     const button = document.querySelector('#viewTabs button[data-view="' + tab + '"]');
@@ -2345,8 +2346,8 @@ window.addEventListener("resize", () => { if (built) { drawChart(); if (!$("#bat
 
 // ---------------------------------------------------------------- panel / demo tabs
 const VIEW_NODES = { panel: "#root", usage: "#usageView", battery: "#batteryView", settings: "#settingsView", network: "#networkView",
-                     service: "#serviceView", demo: "#demoView" };
-const VIEW_ORDER = ["panel", "usage", "battery", "settings", "network", "service", "demo"];
+                     service: "#serviceView", history: "#historyView", demo: "#demoView" };
+const VIEW_ORDER = ["panel", "usage", "battery", "settings", "network", "service", "history", "demo"];
 const reducedMotion = () => !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
 let viewSwap = null;
 
@@ -2377,7 +2378,8 @@ function showView(view, from) {
     }
     if (from) window.scrollTo(0, 0);
     if (view === "battery") loadBattery();
-    if (view === "service") { loadGasHistory(); loadOta(); }
+    if (view === "service") loadOta();
+    if (view === "history") loadGasHistory();
     if (view === "usage") loadUsage();
   };
   if (from && current && current !== next && !reducedMotion()) {
