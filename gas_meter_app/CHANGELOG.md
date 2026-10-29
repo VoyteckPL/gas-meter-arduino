@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.30.10
+
+* Przegląd: „Dzisiaj”, „Przepływ” i wykres zużycia na godzinę pomijają skok licznika po jego ustawieniu (wcześniej ustawienie stanu z tarczy pokazywało się jako tysiące m³ zużycia). Ten sam filtr co w statystykach: krok większy niż możliwy przepływ gazomierza G4 nie jest gazem.
+
 ## 0.30.9
 
 * Nowe encje diagnostyczne urządzenia „Gas meter” w HA (z historią i wykresami): ostatnia sesja WiFi, czas łączenia z WiFi, czas pracy z WiFi i bez, obudzenia, sesje WiFi, zawieszenia, DHCP. Wartości przychodzą ze statusem gazomierza.

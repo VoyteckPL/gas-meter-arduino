@@ -286,12 +286,21 @@ class Store:
         except (KeyError, ValueError):
             return None
 
+    def used_since(self, since, series=None):
+        """Gas used after `since` (m3): the sum of the plausible steps of the reading, so that setting the counter (a jump
+        of thousands of m3) is not counted as gas."""
+        series = self.series("cubic_meters") if series is None else series
+        total = 0.0
+        for (t1, v1), (t2, v2) in zip(series, series[1:]):
+            if t2 > since and meterclean.step_ok(v2 - v1, t2 - t1):
+                total += v2 - v1
+        return total
+
     def today_m3(self):
-        meter = self.number("cubic_meters")
-        start = self.day_start.get(datetime.now().strftime("%Y-%m-%d"))
-        if meter is None or start is None:
+        if self.number("cubic_meters") is None:
             return None
-        return max(0.0, meter - start)
+        midnight = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+        return round(self.used_since(midnight), 3)
 
     def flow_m3h(self):
         """Flow reported by the meter, otherwise the average of the last 15 minutes."""
@@ -314,7 +323,7 @@ class Store:
         span = now - base[0]
         if span < 60:
             return None
-        return max(0.0, (series[-1][1] - base[1]) / span * 3600.0)
+        return max(0.0, self.used_since(base[0], series) / span * 3600.0)
 
     def hourly(self, hours):
         """Consumption per hour (m3) for the last `hours` hours."""
@@ -324,7 +333,7 @@ class Store:
         buckets = {h: 0.0 for h in range(first_hour, first_hour + hours)}
         for (t1, v1), (t2, v2) in zip(series, series[1:]):
             hour = int(t2 // 3600)
-            if hour in buckets and v2 >= v1:
+            if hour in buckets and meterclean.step_ok(v2 - v1, t2 - t1):
                 buckets[hour] += v2 - v1
         return [[h * 3600, round(buckets[h], 3)] for h in sorted(buckets)]
 
@@ -339,7 +348,7 @@ class Store:
         deltas = {i: 0.0 for i in range(first, first + count)}
         for (t1, v1), (t2, v2) in zip(series, series[1:]):
             index = int(t2 // bucket)
-            if index in deltas and v2 >= v1:
+            if index in deltas and meterclean.step_ok(v2 - v1, t2 - t1):
                 deltas[index] += v2 - v1
         return [[(i + 0.5) * bucket, round(deltas[i] / bucket * 3600.0, 3)] for i in sorted(deltas)]
 
