@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.30.1
+
+* Karta aktualizacji pokazuje, czy polecenie aktualizacji jest na brokerze MQTT. Jeśli uzbrojone polecenie zniknie z brokera, apka sama publikuje je ponownie i zapisuje to w dzienniku.
+
 ## 0.30.0
 
 * Firmware 0.3.5: limit czuwania 150 s (zawieszony gazomierz sam się restartuje, a licznik zostaje w pamięci RTC; zawieszenie świeżo zainstalowanej wersji liczy się jak awaria i prowadzi do powrotu do poprzedniej), powrót na DHCP po 3 nieudanych sesjach ze stałym IP, status (bateria, sygnał WiFi, diagnostyka) co godzinę zamiast co 6 godzin. W diagnostyce jest nowa pozycja „Zawieszenia”.

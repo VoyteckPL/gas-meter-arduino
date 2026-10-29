@@ -1129,6 +1129,7 @@ function renderOta() {
   const chip = (text, color) => el("span", { text, style: "display:inline-block;padding:2px 10px;border-radius:999px;font-size:13px;font-weight:600;color:#fff;background:" + color });
   const state = d.armed ? chip("UZBROJONA: czeka na impuls gazu", "var(--accent)") : d.has_file ? chip("Gotowa do uzbrojenia", "var(--muted)") : chip("Brak pliku", "var(--muted)");
   head.append(el("div", { style: "display:flex;gap:10px;align-items:center;flex-wrap:wrap" }, [el("span", { text: "Firmware w gazomierzu: " }), el("b", { text: d.device_version || "—" }), state]));
+  if (d.armed) head.append(el("div", { class: "muted small", style: "margin-top:4px", text: "Polecenie na brokerze MQTT: " + (d.on_broker ? "tak (gazomierz odbierze je przy impulsie)" : "NIE, apka za chwilę opublikuje je ponownie") }));
   if (d.device_status) head.append(el("div", { class: "muted small", style: "margin-top:4px", text: "Ostatni raport gazomierza: " + d.device_status }));
   if (!d.key_set) head.append(el("div", { class: "muted small", style: "margin-top:4px;color:#d0342c", text: "Brak opcji „ota_key” w ustawieniach apki: bez niej nie da się podpisać aktualizacji." }));
   const pick = (text, cls) => { const b = el("button", { class: cls, text, "data-keep": "" }); b.addEventListener("click", () => $("#otaFile").click()); return b; };
