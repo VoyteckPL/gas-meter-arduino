@@ -122,6 +122,64 @@ async function api(path, options) {
   if (!response.ok) throw new Error(data.error || response.statusText);
   return data;
 }
+// ------------------------------------------------------------- fresh start after the installation
+const toLocalInput = (ts) => { const d = new Date(ts * 1000 - new Date().getTimezoneOffset() * 60000); return d.toISOString().slice(0, 16); };
+const fmtWhen = (ts) => new Date(ts * 1000).toLocaleString("pl-PL", { dateStyle: "short", timeStyle: "short" });
+
+function cleanupCard() {
+  const when = el("input", { type: "datetime-local", id: "clWhen" });
+  const battery = el("input", { type: "checkbox", id: "clBattery", style: "width:auto;margin-right:8px" });
+  const ha = el("input", { type: "checkbox", id: "clHa", style: "width:auto;margin-right:8px" });
+  ha.checked = true;
+  const run = el("button", { class: "danger", text: "Usuń dane sprzed montażu" });
+  run.addEventListener("click", runCleanup);
+  return el("section", { class: "card", id: "clCard" }, [
+    el("h2", { text: "Start od montażu" }),
+    el("p", { class: "hint", style: "margin-top:0", text: "Usuwa z apki odczyty licznika i diagnostykę sprzed podanej chwili (testy na biurku) i wyjmuje ze statystyk Home Assistanta skoki licznika po ustawieniu stanu, żeby panel Energia nie pokazał ich jako zużycia gazu. Domyślna chwila to ostatnie ustawienie stanu licznika." }),
+    el("div", { class: "row" }, [el("label", { for: "clWhen", text: "Montaż (od tej chwili zostają dane)" }), el("div", { class: "field" }, [when])]),
+    el("label", { style: "display:flex;align-items:center;margin:6px 0" }, [ha, el("span", { text: "Popraw statystyki „Cubic meters” w Home Assistant" })]),
+    el("label", { style: "display:flex;align-items:center;margin:6px 0" }, [battery, el("span", { text: "Usuń też historię baterii (zwykle nie: te same ogniwa, przydaje się do prognozy)" })]),
+    el("div", { class: "kv", id: "clInfo", style: "margin:10px 0" }),
+    el("div", { class: "field" }, [run]),
+  ]);
+}
+
+let cleanupData = null;
+async function loadCleanup() {
+  try { cleanupData = await api("cleanup"); } catch (e) { return; }
+  const d = cleanupData, info = $("#clInfo");
+  if (!info) return;
+  if (d.cutoff && !$("#clWhen").value) $("#clWhen").value = toLocalInput(d.cutoff);
+  info.textContent = "";
+  const row = (k, v) => info.append(el("span", { text: k }), el("span", { class: "v", text: v }));
+  row("Ostatnie ustawienie licznika", d.jump_at ? fmtWhen(d.jump_at) : "nie znaleziono");
+  row("Odczytów licznika przed tą chwilą", String(d.counts.cubic_meters || 0));
+  if (d.ha) {
+    if (d.ha.error) row("Home Assistant", d.ha.error);
+    else if (!d.ha.entity) row("Home Assistant", "nie znaleziono encji „Cubic meters”");
+    else {
+      row("Skoki w statystykach HA", d.ha.jumps.length ? d.ha.jumps.map((j) => fmtWhen(j.start) + ": +" + num(j.m3, 2) + " m³").join(", ") : "brak");
+      if (d.ha.waiting) row("Uwaga", "ostatni skok trafi do statystyk HA kilka minut po pełnej godzinie; wtedy uruchom jeszcze raz (można wielokrotnie)");
+    }
+  }
+}
+
+async function runCleanup() {
+  const value = $("#clWhen").value;
+  if (!value) { toast("Podaj chwilę montażu", true); return; }
+  const cutoff = new Date(value).getTime() / 1000;
+  const ok = await confirmDialog({ title: "Usunąć dane sprzed montażu?", danger: true, confirmText: "Usuń",
+    message: "Odczyty licznika i diagnostyka sprzed " + fmtWhen(cutoff) + " znikną z apki. Tego nie da się cofnąć." });
+  if (!ok) return;
+  try {
+    const d = await api("cleanup", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "run", cutoff, battery: $("#clBattery").checked, ha: $("#clHa").checked }) });
+    const fixed = d.ha && d.ha.jumps ? d.ha.jumps.length : 0;
+    toast("Usunięto " + (d.removed.cubic_meters || 0) + " odczytów licznika" + ($("#clHa").checked ? ", poprawiono skoków w HA: " + fixed : ""));
+    loadCleanup(); refresh(); drawChart();
+  } catch (e) { toast(t("error") + ": " + e.message, true); }
+}
+
 // ------------------------------------------------------------- history imported from Home Assistant
 const haState = { ids: [], imported: {} };
 const fmtDay = (ts) => new Date(ts * 1000).toLocaleDateString("pl-PL");
@@ -378,6 +436,7 @@ function build() {
 
   views.service.append(otaCard());
   views.history.append(note("historyNote"));
+  views.history.append(cleanupCard());
   views.history.append(gasHistoryCard());
   // history imported from Home Assistant statistics
   views.history.append(el("section", { class: "card", id: "hsCard" }, [
@@ -2384,7 +2443,7 @@ function showView(view, from) {
     if (from) window.scrollTo(0, 0);
     if (view === "battery") loadBattery();
     if (view === "service") loadOta();
-    if (view === "history") loadGasHistory();
+    if (view === "history") { loadGasHistory(); loadCleanup(); }
     if (view === "usage") loadUsage();
   };
   if (from && current && current !== next && !reducedMotion()) {

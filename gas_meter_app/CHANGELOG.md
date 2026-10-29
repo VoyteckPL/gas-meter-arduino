@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.30.11
+
+* Historia → „Start od montażu”: usuwa z apki odczyty licznika i diagnostykę sprzed montażu (domyślnie od ostatniego ustawienia stanu licznika) i wyjmuje ze statystyk encji „Cubic meters” w Home Assistant skoki po ustawieniu licznika (`recorder/adjust_sum_statistics`), żeby panel Energia nie pokazał ich jako zużycia. Historię baterii zostawia, chyba że zaznaczysz inaczej. Można uruchamiać wielokrotnie.
+
 ## 0.30.10
 
 * Przegląd: „Dzisiaj”, „Przepływ” i wykres zużycia na godzinę pomijają skok licznika po jego ustawieniu (wcześniej ustawienie stanu z tarczy pokazywało się jako tysiące m³ zużycia). Ten sam filtr co w statystykach: krok większy niż możliwy przepływ gazomierza G4 nie jest gazem.

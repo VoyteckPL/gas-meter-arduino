@@ -17,7 +17,7 @@ import hmac
 import secrets
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from urllib.parse import quote
 
 import paho.mqtt.client as mqtt
@@ -1357,6 +1357,86 @@ def ota_state(app):
             "last_session": app["store"].updated.get("counter"), "now": time.time(), "on_broker": bool(values.get("config/ota")), "forced": bool(meta.get("forced")), "log": list(meta.get("log", []))[-40:]}
 
 
+# ------------------------------- fresh start after the installation ------------------------------
+CLEAN_SERIES = ("cubic_meters", "flow_m3h", "RSSI", "Wakes", "WifiSessions", "wifi_connect_ms", "awake_wifi_s",
+                "awake_other_s", "session_ms")
+
+
+def last_counter_set(store):
+    """Time of the newest jump of the live reading that is not gas (the counter set from the app), or None."""
+    live = store.history.get("cubic_meters", [])
+    found = None
+    for (t1, v1), (t2, v2) in zip(live, live[1:]):
+        if not meterclean.step_ok(v2 - v1, t2 - t1):
+            found = t2
+    return found
+
+
+async def ha_meter_jumps(fix):
+    """Hours in the statistics of the 'Cubic meters' sensor whose sum grew more than the meter can pass (setting the
+    counter). With fix=True each one is taken out of the sum (recorder/adjust_sum_statistics), so the Energy panel
+    does not show it as gas. Returns (entity_id, [{start, m3}], newest hour that has statistics)."""
+    registry = (await core_ws_call([{"type": "config/entity_registry/list"}]))[0] or []
+    entity_id = next((e.get("entity_id") for e in registry if e.get("unique_id") == "gas_meter_app_cubic_meters"), None)
+    if not entity_id:
+        return None, [], None
+    result = (await core_ws_call([{
+        "type": "recorder/statistics_during_period", "start_time": "2000-01-01T00:00:00+00:00",
+        "statistic_ids": [entity_id], "period": "hour", "types": ["sum"]}]))[0] or {}
+    rows = [r for r in result.get(entity_id) or [] if r.get("sum") is not None]
+    jumps, prev = [], None
+    for row in rows:
+        start = stat_time(row["start"])
+        if prev is not None:
+            delta = float(row["sum"]) - prev
+            if not meterclean.step_ok(delta, 3600):
+                jumps.append({"start": start, "m3": round(delta, 3)})
+        prev = float(row["sum"])
+    if fix:
+        for jump in jumps:
+            await core_ws_call([{"type": "recorder/adjust_sum_statistics", "statistic_id": entity_id,
+                                 "start_time": datetime.fromtimestamp(jump["start"], timezone.utc).isoformat(),
+                                 "adjustment": -jump["m3"], "adjustment_unit_of_measurement": "m³"}])
+    newest = stat_time(rows[-1]["start"]) if rows else None
+    return entity_id, jumps, newest
+
+
+async def api_cleanup(request):
+    """GET: what a fresh start would remove. POST {action: "run", cutoff, battery, ha}: removes the history of the app
+    before `cutoff` (meter and diagnostics, the battery only with battery=true) and takes the jumps out of the
+    statistics of the sensor in Home Assistant."""
+    app = request.app
+    store = app["store"]
+    body = await request.json() if request.method == "POST" else {}
+    jump_at = last_counter_set(store)
+    try:
+        cutoff = float(body.get("cutoff") or jump_at or 0)
+    except (TypeError, ValueError):
+        return web.json_response({"error": "zły czas"}, status=400)
+    names = CLEAN_SERIES + (("BatteryVoltage", "BatteryPercent") if body.get("battery") else ())
+    with store.lock:
+        counts = {n: sum(1 for p in store.history.get(n, []) if p[0] < cutoff) for n in names}
+    out = {"jump_at": jump_at, "cutoff": cutoff, "counts": counts, "in_ha": bool(core_token())}
+    if body.get("action") == "run":
+        if not cutoff:
+            return web.json_response({"error": "brak czasu montażu"}, status=400)
+        with store.lock:
+            for n in names:
+                if n in store.history:
+                    store.history[n] = [p for p in store.history[n] if p[0] >= cutoff]
+        store.save()
+        out["removed"] = counts
+    if core_token() and (request.method == "GET" or body.get("ha", True)):
+        try:
+            entity_id, jumps, newest = await ha_meter_jumps(body.get("action") == "run" and body.get("ha", True))
+            out["ha"] = {"entity": entity_id, "jumps": jumps, "newest": newest, "fixed": body.get("action") == "run"}
+            # the hour of the newest jump may not be in the statistics yet (they are made a few minutes after each hour)
+            out["ha"]["waiting"] = bool(jump_at and (newest is None or newest + 3600 <= jump_at))
+        except Exception as error:  # pragma: no cover
+            out["ha"] = {"error": str(error)}
+    return web.json_response(out)
+
+
 async def api_ota(request):
     app = request.app
     meta = app["ota"]
@@ -2357,6 +2437,8 @@ def create_app(options):
     app.router.add_post("/api/notify", api_notify)
     app.router.add_get("/api/notify_targets", api_notify_targets)
     app.router.add_post("/api/notify_targets", api_notify_targets)
+    app.router.add_get("/api/cleanup", api_cleanup)
+    app.router.add_post("/api/cleanup", api_cleanup)
     app.router.add_post("/api/set", api_set)
     app.router.add_post("/api/cancel", api_cancel)
     app.router.add_static("/static/", STATIC_DIR)
