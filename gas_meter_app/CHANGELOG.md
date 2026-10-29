@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.29.3
+
+* Uporządkowana karta aktualizacji firmware: jeden przycisk „Wybierz plik firmware” wgrywa plik od razu po wyborze (bez osobnego „Wgraj plik”), w jednym wierszu są plik z wersją i akcje („Zaktualizuj przy najbliższym impulsie”, „Zmień plik”, „Usuń plik”), a po uzbrojeniu zostaje tylko „Anuluj aktualizację”. Stan gazomierza i uzbrojenia jest w nagłówku karty. Dziennik i instrukcja są zwijane, dziennik otwiera się sam, gdy aktualizacja jest uzbrojona. Kroki aktualizacji znikają po 10 minutach od jej zakończenia.
+
 ## 0.29.2
 
 * Dziennik aktualizacji podpowiada, jak odczytać raport gazomierza: „request accepted” (firmware 0.3.3 i nowszy) znaczy, że polecenie dotarło i zostało przyjęte.
