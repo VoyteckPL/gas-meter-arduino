@@ -79,6 +79,7 @@ class String {
   String() {}
   String(const char *c) : s(c) {}
   String(const std::string &x) : s(x) {}
+  String(int v) : s(std::to_string(v)) {}
   const char *c_str() const { return s.c_str(); }
   size_t length() const { return s.size(); }
   String operator+(const String &o) const { return String(s + o.s); }

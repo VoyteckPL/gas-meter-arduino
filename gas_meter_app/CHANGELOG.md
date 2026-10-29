@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.29.2
+
+* Dziennik aktualizacji podpowiada, jak odczytać raport gazomierza: „request accepted” (firmware 0.3.3 i nowszy) znaczy, że polecenie dotarło i zostało przyjęte.
+
 ## 0.29.1
 
 * Karta aktualizacji ma „Dziennik aktualizacji”: kolejne kroki z godziną (wgranie pliku, uzbrojenie, zgłoszenie się gazomierza, początek i koniec pobierania albo jego przerwanie, raport gazomierza, zmiana wersji, zakończenie). Jeśli gazomierz zgłosi się, a po 25 sekundach nie zacznie pobierać, dziennik wypisze możliwe przyczyny. Dziennik zapisuje się w apce i nie znika po restarcie.

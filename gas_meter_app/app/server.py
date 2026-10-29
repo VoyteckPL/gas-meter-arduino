@@ -1457,7 +1457,7 @@ async def ota_loop(app):
             if (meta.get("armed") and watch.get("seen_at") and not watch["warned"] and time.time() - watch["seen_at"] > 25
                     and (app["ota_progress"].get("started") or 0) < watch["seen_at"]):
                 watch["warned"] = True
-                ota_log(app, "Gazomierz zgłosił się, ale nie zaczął pobierać pliku. Możliwe przyczyny: firmware bez OTA_KEY, inny klucz niż w apce, wersja taka sama jak w pliku, za słaba bateria albo polecenie nie zdążyło dotrzeć w czasie sesji (spróbuj kolejnego impulsu). Sprawdź raport gazomierza.")
+                ota_log(app, "Gazomierz zgłosił się, ale nie zaczął pobierać pliku. Możliwe przyczyny: firmware bez OTA_KEY, inny klucz niż w apce, wersja taka sama jak w pliku, za słaba bateria albo polecenie nie zdążyło dotrzeć w czasie sesji (spróbuj kolejnego impulsu). Firmware 0.3.3 i nowszy zgłasza w raporcie „request accepted”, gdy polecenie dotarło i przeszło sprawdzenie; brak tego raportu oznacza, że gazomierz polecenia nie zobaczył. Sprawdź raport gazomierza.")
             if meta.get("armed") and values.get("fw_version") == meta.get("version"):
                 app["bridge"].publish("config/ota", "", retain=True)
                 meta.update(armed=False, token=None, done=time.time())

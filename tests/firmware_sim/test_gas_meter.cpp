@@ -275,6 +275,9 @@ int main(int argc, char **) {
   { world_reset(); g_retained["Gaz/Gazomierz/config/ota"] = good; g_http_code = 500; int n = train(10, 10, 6, 1.0);
     Result r = simulate(S(200));
     expect("a failing download is tried 3 times, then given up", g_http_gets == 3 && status().find("gave up") != std::string::npos);
+    bool accepted = false, reported = false;
+    for (auto &p : g_pubs) if (p.topic == "Gaz/Gazomierz/ota_status") { if (p.payload.rfind("request accepted: 0.3.1", 0) == 0) accepted = true; if (p.payload.find("HTTP 500") != std::string::npos) reported = true; }
+    expect("the app is told that the request was accepted and why a download failed", accepted && reported);
     check("the pulses are counted while the update keeps failing", n, r); }
   { world_reset(); g_retained["Gaz/Gazomierz/config/ota"] = good; g_update_end_ok = false; train(10, 10, 1, 1.0);
     simulate(S(40)); expect("an image with a wrong MD5 is not started", g_restarts_called == 0 && g_flash["ota_state"] == 0); }

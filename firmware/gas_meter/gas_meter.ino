@@ -41,7 +41,7 @@
 #include "esp_sleep.h"
 #include "esp_ota_ops.h"
 
-#define FW_VERSION "0.3.0"
+#define FW_VERSION "0.3.3"
 // The version is also kept as a marker in the binary: the Gas Meter app reads it from the .bin file it serves for the update
 static const char FW_MARKER[] = "GASMETER_FW:" FW_VERSION;
 
@@ -534,8 +534,12 @@ static const char *otaStatusText(int code) {
   }
 }
 
+static void otaPublishText(MQTTClient &mqtt, const String &text) {
+  mqtt.publish(topic("ota_status"), text, true, 0);
+}
+
 static void otaPublishStatus(MQTTClient &mqtt, int code) {
-  mqtt.publish(topic("ota_status"), String(otaStatusText(code)), true, 0);
+  otaPublishText(mqtt, String(otaStatusText(code)));
 }
 
 // Back to the previous firmware: the other app partition still holds it.
@@ -583,7 +587,9 @@ static void otaHandleRequest(MQTTClient &mqtt, const String &payload) {
   OtaVerdict v = otaDecide(r, OTA_KEY, g_otaCurrent, cache.batteryV, rejected, tries);
   LOG("OTA request %s, verdict %d\r\n", r.version, (int)v);
   switch (v) {
-    case OTA_OK:            r.valid = true; g_otaReq = r; return;
+    case OTA_OK:            r.valid = true; g_otaReq = r;
+                            otaPublishText(mqtt, String("request accepted: ") + r.version + ", downloading right after this session");
+                            return;
     case OTA_BAD_SIGNATURE: otaPublishStatus(mqtt, OTA_MSG_SIGNATURE); return;
     case OTA_BATTERY:       otaPublishStatus(mqtt, OTA_MSG_BATTERY); return;
     case OTA_TOO_MANY:      otaPublishStatus(mqtt, OTA_MSG_GAVE_UP); return;
@@ -609,7 +615,8 @@ static void otaAfterSession(MQTTClient &mqtt, bool confirmed) {
     mqtt.publish(topic("config/ota"), String(""), true, 0);          // done: the request is used up
   }
   if (msg != OTA_MSG_NONE) {
-    otaPublishStatus(mqtt, msg);
+    if (msg == OTA_MSG_DOWNLOAD) otaPublishText(mqtt, String("error: download failed (HTTP ") + String((int)((int64_t)otaNvGet("ota_code") - 1000)) + "), will try again");
+    else otaPublishStatus(mqtt, msg);
     otaNvPut("ota_msg", OTA_MSG_NONE);
     cache.otaMsgPending = 0;
   }
@@ -637,6 +644,7 @@ static void otaRun() {
   if (code != 200 || http.getSize() != (int)g_otaReq.size) {
     LOG("OTA: HTTP %d, size %d\r\n", code, (int)http.getSize());
     http.end();
+    otaNvPut("ota_code", (uint64_t)((int64_t)code + 1000));        // reported in the next session
     otaNvPut("ota_msg", OTA_MSG_DOWNLOAD);
     cache.otaMsgPending = 1;
     return;
