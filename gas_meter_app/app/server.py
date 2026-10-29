@@ -1464,8 +1464,9 @@ async def ota_loop(app):
                     and (app["ota_progress"].get("started") or 0) < watch["seen_at"]):
                 watch["warned"] = True
                 ota_log(app, "Gazomierz zgłosił się, ale nie zaczął pobierać pliku. Możliwe przyczyny: firmware bez OTA_KEY, inny klucz niż w apce, wersja taka sama jak w pliku, za słaba bateria albo polecenie nie zdążyło dotrzeć w czasie sesji (spróbuj kolejnego impulsu). Firmware 0.3.3 i nowszy zgłasza w raporcie „request accepted”, gdy polecenie dotarło i przeszło sprawdzenie; brak tego raportu oznacza, że gazomierz polecenia nie zobaczył. Sprawdź raport gazomierza.")
-            if meta.get("armed") and meta.get("payload") and not values.get("config/ota") and time.time() - (meta.get("armed_at") or 0) > 6 \
-                    and time.time() - watch.get("republished", 0) > 20:
+            acted = (app["store"].updated.get("ota_status") or 0) > (meta.get("armed_at") or 0)   # the meter has already answered this request
+            if meta.get("armed") and meta.get("payload") and not values.get("config/ota") and not acted \
+                    and time.time() - (meta.get("armed_at") or 0) > 6 and time.time() - watch.get("republished", 0) > 20:
                 watch["republished"] = time.time()
                 app["bridge"].publish("config/ota", meta["payload"], retain=True)           # the request must wait on the broker for the meter
                 ota_log(app, "Polecenia nie było na brokerze MQTT, opublikowano je ponownie.")

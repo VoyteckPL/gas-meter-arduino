@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.30.4
+
+* Apka nie publikuje ponownie polecenia aktualizacji, które gazomierz już obsłużył i sam usunął z brokera (wcześniej w dzienniku pojawiało się wtedy zbędne „opublikowano je ponownie”).
+
 ## 0.30.3
 
 * Ponowna instalacja tej samej wersji kończy się też wtedy, gdy gazomierz zgłosi się po instalacji, a polecenie zniknie z brokera. Firmware 0.3.8 wysyła potwierdzenie aktualizacji z QoS 1 (wcześniej mogło zginąć przy zamknięciu połączenia, przez co polecenie zostawało na brokerze) i pamięta zainstalowane polecenie, więc to samo polecenie nie zainstaluje się drugi raz.
