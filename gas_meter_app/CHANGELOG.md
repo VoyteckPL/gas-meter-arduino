@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.30.9
+
+* Nowe encje diagnostyczne urządzenia „Gas meter” w HA (z historią i wykresami): ostatnia sesja WiFi, czas łączenia z WiFi, czas pracy z WiFi i bez, obudzenia, sesje WiFi, zawieszenia, DHCP. Wartości przychodzą ze statusem gazomierza.
+
 ## 0.30.8
 
 * Model baterii korzysta ze zmierzonego czasu pracy gazomierza (firmware 0.4.4+: `awake_wifi_s`, `awake_other_s`), zamiast stałego kosztu sesji. Wliczają się w to dłuższe łączenie przy słabym WiFi, statusy i nieudane sesje.

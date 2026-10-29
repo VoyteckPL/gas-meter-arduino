@@ -427,6 +427,15 @@ class Bridge:
             ("battery_voltage", "Battery voltage", "BatteryVoltage", "V", "voltage", "measurement", None),
             ("battery", "Battery", "BatteryPercent", "%", "battery", "measurement", None),
             ("wifi_signal", "WiFi signal", "RSSI", "dBm", "signal_strength", "measurement", "diagnostic"),
+            # diagnostics sent with the status (every hour, or with a pulse 5 min after the last status): history and charts in HA
+            ("session_ms", "Ostatnia sesja WiFi", "session_ms", "ms", "duration", "measurement", "diagnostic"),
+            ("wifi_connect_ms", "Czas łączenia z WiFi", "wifi_connect_ms", "ms", "duration", "measurement", "diagnostic"),
+            ("awake_wifi_s", "Czas pracy z WiFi", "awake_wifi_s", "s", "duration", "total_increasing", "diagnostic"),
+            ("awake_other_s", "Czas pracy bez WiFi", "awake_other_s", "s", "duration", "total_increasing", "diagnostic"),
+            ("wakes", "Obudzenia", "Wakes", None, None, "total_increasing", "diagnostic"),
+            ("wifi_sessions", "Sesje WiFi", "WifiSessions", None, None, "total_increasing", "diagnostic"),
+            ("hangs", "Zawieszenia", "hangs", None, None, "total_increasing", "diagnostic"),
+            ("dhcp", "DHCP zamiast stałego IP", "dhcp", None, None, "measurement", "diagnostic"),
         ]
         # values computed by the app (battery estimate, bill forecast), published by publish_app_entities()
         extra = [("battery_estimate", "Bateria (szacunek)", "app/battery_soc", "%", "battery", "measurement", None),
@@ -451,11 +460,13 @@ class Bridge:
                 "name": name,
                 "uniq_id": "gas_meter_app_" + key,
                 "stat_t": "%s/%s" % (root, topic),
-                "unit_of_meas": unit,
-                "dev_cla": device_class,
                 "stat_cla": state_class,
                 "dev": device,
             }
+            if unit:
+                config["unit_of_meas"] = unit
+            if device_class:
+                config["dev_cla"] = device_class
             if category:
                 config["ent_cat"] = category
             self.client.publish("homeassistant/sensor/gas_meter_app/%s/config" % key,
