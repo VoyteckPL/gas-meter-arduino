@@ -838,8 +838,8 @@ static void publishDiscovery(MQTTClient &mqtt, const char *objectId, const char 
 static void restoreBase(MQTTClient &mqtt) {
   String counterTopic  = topic("counter");
   String overrideTopic = topic("config/counter");
-  bool gotCounter = false, gotOverride = false;
-  uint64_t counterValue = 0, overrideValue = 0;
+  bool gotCounter = false, gotOverride = g_gotOverride;         // the override may have arrived already with the config/# subscription
+  uint64_t counterValue = 0, overrideValue = g_overrideValue;
 
   mqtt.onMessage((MQTTClientCallbackSimpleFunction)([&](String &t, String &payload) -> void {
     if (t == counterTopic)  { counterValue = strtoull(payload.c_str(), NULL, 10);  gotCounter = true; }
