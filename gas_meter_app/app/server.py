@@ -863,7 +863,7 @@ async def run_notifications(app, force_report=False):
     store = app["store"]
     analysis = compute_battery(app, "meter", 30)
     with store.lock:
-        stamps = [ts for key, ts in store.updated.items() if not key.startswith(("cfg/", "bt/"))]
+        stamps = [ts for key, ts in store.updated.items() if not key.startswith(("cfg/", "bt/", "app/"))]       # "app/" is what the app publishes itself
     last_data = max(stamps) if stamps else None
     if analysis.get("volts") is None:
         analysis = None

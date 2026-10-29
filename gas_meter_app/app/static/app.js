@@ -478,7 +478,7 @@ function update() {
   bar.style.width = (Number.isFinite(percent) ? Math.max(0, Math.min(100, percent)) : 0) + "%";
   bar.style.background = percent < 15 ? "var(--bad)" : percent < 40 ? "var(--warn)" : "var(--ok)";
   $("#rssi").textContent = v.RSSI !== undefined ? v.RSSI + " dBm" : "—";
-  const newest = Math.max(0, ...Object.entries(state.updated).filter(([k]) => !k.startsWith("cfg/")).map(([, ts]) => ts));
+  const newest = Math.max(0, ...Object.entries(state.updated).filter(([k]) => !k.startsWith("cfg/") && !k.startsWith("app/")).map(([, ts]) => ts));
   $("#lastData").textContent = newest ? ago(now - newest) + " " + t("ago") : t("never");
   $("#sub").textContent = (v.cubic_meters !== undefined ? num(v.cubic_meters, 2) + " m³" : t("noData")) + (newest ? " · " + ago(now - newest) + " " + t("ago") : "");
 

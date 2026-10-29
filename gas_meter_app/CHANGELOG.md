@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.31.2
+
+* „Ostatnie dane” i alarm o milczącym gazomierzu liczą czas od ostatniej wiadomości z gazomierza, a nie od wartości, które apka sama publikuje co 10 minut (prognozy, szacunek baterii, procent WiFi). Wcześniej karta pokazywała „kilka minut temu” mimo ostatniego odczytu sprzed godzin, a alarm „gazomierz milczy” mógł się nigdy nie włączyć.
+
 ## 0.31.1
 
 * Nowa encja w HA „WiFi sygnał (%)”: apka przelicza RSSI gazomierza na procenty (−90 dBm i gorzej to 0 %, −30 dBm i lepiej to 100 %) i publikuje je od razu po każdym odczycie RSSI.
