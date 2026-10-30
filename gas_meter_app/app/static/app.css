@@ -391,7 +391,7 @@ button.costtoggle { padding: 4px 11px; font-size: 12.5px; font-weight: 650; opac
 button.costtoggle.active { opacity: 1; background: color-mix(in srgb, var(--ok) 22%, transparent); border-color: color-mix(in srgb, var(--ok) 55%, transparent); color: inherit; }
 
 /* the boiler's thermostats: a dial per thermostat, like in HA Views */
-.thgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 12px; }
+.thgrid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; max-width: 520px; margin: 0 auto; }   /* one under the other */
 .thtile { --tc: #4FB4E6; position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 14px 12px 12px; border-radius: 18px;
   background: linear-gradient(180deg, color-mix(in srgb, var(--tc) 9%, var(--card)), var(--card) 70%); border: 1px solid var(--line); }
 .thtile.working { box-shadow: 0 0 0 1px color-mix(in srgb, var(--tc) 35%, transparent), 0 8px 28px -10px color-mix(in srgb, var(--tc) 55%, transparent); }
@@ -423,11 +423,3 @@ button.costtoggle.active { opacity: 1; background: color-mix(in srgb, var(--ok) 
 .thmode svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .thmode.active { background: var(--tc); color: #fff; border-color: transparent; box-shadow: 0 4px 14px -4px color-mix(in srgb, var(--tc) 70%, transparent); }
 .thtile.off .thmode.active { background: #9DB4CC; }
-@media (max-width: 560px) {
-  .thgrid { grid-template-columns: 1fr 1fr; gap: 8px; }
-  .thtile { padding: 10px 6px; }
-  .thname { font-size: 15px; } .thnow { font-size: 28px; } .thset { font-size: 19px; }
-  .thic { width: 28px; height: 28px; } .thic svg { width: 15px; height: 15px; } .thact { font-size: 11.5px; }
-  .thsteps { width: calc(100% - 4px); top: 66%; } .thbtn { width: 32px; height: 32px; font-size: 18px; }
-  .thmodes { gap: 8px; } .thmode { width: 42px; height: 38px; }
-}

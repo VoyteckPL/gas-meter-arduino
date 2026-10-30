@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.42.1
+
+* Sterowanie piecem w osobnej zakładce „Piec” (zaraz po Przeglądzie), tarcze jedna pod drugą. Gdy apka nie znajdzie termostatów, zakładka mówi, co wpisać w opcjach.
+
 ## 0.42.0
 
 * Nowa karta „Sterowanie piecem” na Przeglądzie: tarcze ogrzewania i ciepłej wody jak w HA Views. Widać zmierzoną i ustawioną temperaturę, co robi piec (grzeje, bezczynny, wybieg pompy, wyłączony) i ciśnienie. Przyciski −/+ zmieniają temperaturę (wysyłana po chwili, gdy przestaniesz klikać), przyciski trybu włączają i wyłączają (wyłączenie z potwierdzeniem).

@@ -289,7 +289,7 @@ function build() {
   const root = $("#root");                 // Overview
   root.textContent = "";
   const views = {
-    battery: $("#batteryView"), network: $("#networkView"), service: $("#serviceView"),
+    battery: $("#batteryView"), network: $("#networkView"), service: $("#serviceView"), boiler: $("#boilerView"),
   };
   for (const node of Object.values(views)) node.textContent = "";
 
@@ -368,7 +368,7 @@ function build() {
   ]));
 
   // the boiler's thermostats (heating, hot water): set temperature and mode, like the dials in HA Views
-  root.append(el("section", { class: "card wide", id: "thCard", hidden: "" }, [
+  views.boiler.append(el("section", { class: "card wide", id: "thCard", hidden: "" }, [
     el("div", { class: "ovhead" }, [el("h2", { text: "Sterowanie piecem" })]),
     el("div", { class: "thgrid", id: "thGrid" }),
   ]));
@@ -658,10 +658,15 @@ function thDial(info, color) {
 }
 
 function renderThermo() {
-  const d = thermo.data, card = $("#thCard");
-  card.hidden = !d || !d.items || !d.items.length;
-  if (card.hidden) return;
-  const grid = $("#thGrid"); grid.textContent = "";
+  const d = thermo.data, card = $("#thCard"), grid = $("#thGrid");
+  card.hidden = !d;
+  if (!d) return;
+  grid.textContent = "";
+  if (!d.items || !d.items.length) {
+    grid.append(el("p", { class: "muted", text: d.in_ha === false ? "Sterowanie piecem działa tylko w Home Assistant."
+      : "Nie znaleziono termostatów pieca. Wpisz je w opcji dodatku „Termostaty pieca” (np. climate.ariston, water_heater.ariston) i zrestartuj dodatek." }));
+    return;
+  }
   for (const item of d.items) {
     const info = thInfo(item), act = TH_ACT[info.act] || [info.act, "#4FB4E6", "chip"], color = info.on ? act[1] : TH_ACT.off[1];
     const name = item.attributes.friendly_name && !/ariston|genus/i.test(item.attributes.friendly_name) ? item.attributes.friendly_name : info.water ? "Ciepła woda" : "Ogrzewanie";
@@ -2351,9 +2356,9 @@ async function refresh() {
 window.addEventListener("resize", () => { if (built) { if (!$("#batteryView").hidden) drawBattery(); if (!$("#usageView").hidden) drawUsage(); } });
 
 // ---------------------------------------------------------------- tabs
-const VIEW_NODES = { panel: "#root", usage: "#usageView", battery: "#batteryView", network: "#networkView",
+const VIEW_NODES = { panel: "#root", boiler: "#boilerView", usage: "#usageView", battery: "#batteryView", network: "#networkView",
                      service: "#serviceView" };
-const VIEW_ORDER = ["panel", "usage", "battery", "network", "service"];
+const VIEW_ORDER = ["panel", "boiler", "usage", "battery", "network", "service"];
 const reducedMotion = () => !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
 let viewSwap = null;
 
@@ -2386,6 +2391,7 @@ function showView(view, from) {
     if (view === "battery") loadBattery();
     if (view === "service") loadOta();
     if (view === "usage") loadUsage();
+    if (view === "boiler") loadThermo();
   };
   if (from && current && current !== next && !reducedMotion()) {
     current.classList.add(from === "right" ? "slide-out-left" : "slide-out-right");
@@ -2448,5 +2454,5 @@ refresh();
 document.addEventListener("visibilitychange", () => { if (!document.hidden) { refresh(); if (built && !$("#root").hidden) drawChart(); } });
 window.addEventListener("pageshow", () => { refresh(); if (built && !$("#root").hidden) drawChart(); });
 setInterval(refresh, 3000);
-setInterval(() => { if (built && !$("#root").hidden) { drawChart(); loadPec(); loadThermo(); } }, 10000);   // the boiler history is live like the chart
+setInterval(() => { if (built && !$("#root").hidden) { drawChart(); loadPec(); } if (built && !$("#boilerView").hidden) loadThermo(); }, 10000);   // the boiler history is live like the chart
 setInterval(() => { if (built) { const d = $("#histDialog"); if (d && !d.hidden) loadHistory(); if (!$("#batteryView").hidden) loadBattery(); } }, 60000);
