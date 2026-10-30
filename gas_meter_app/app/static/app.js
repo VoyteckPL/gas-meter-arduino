@@ -61,7 +61,7 @@ const TEXT = {
     bConnect: "Czas łączenia z WiFi (min / śr. / maks)", bRssi: "Sygnał WiFi (min / śr. / maks)", bSamples: "Próbek baterii", bHistorySince: "Historia od",
     bTestNote: "Test rozładowania: prognoza wynika z trendu napięcia. Gdy test dojdzie do 3,0 V, panel nauczy się prawdziwej krzywej Twoich ogniw i użyje jej dla gazomierza.",
     bDays: "dni", bMonths: "mies.", bOn: "włączone", bUnknown: "nieznane",
-    tabPanel: "Przegląd", tabUsage: "Zużycie", meterSub: "wskazanie gazomierza", flowSub: "średnio z ostatnich 15 min", todaySub: "od północy", signalSub: "WiFi gazomierza", lastSub: "ostatni odczyt z gazomierza", tabNetwork: "Sieć", tabService: "OTA",
+    tabPanel: "Przegląd", tabBoiler: "Piec", tabUsage: "Zużycie", meterSub: "wskazanie gazomierza", flowSub: "średnio z ostatnich 15 min", todaySub: "od północy", signalSub: "WiFi gazomierza", lastSub: "ostatni odczyt z gazomierza", tabNetwork: "Sieć", tabService: "OTA",
    
     networkNote: "Tylko podgląd tego, co gazomierz zgłasza. Dane sieci zmienia się w firmware (secrets.h).",
     serviceNote: "Aktualizacja firmware (OTA), stan licznika i diagnostyka gazomierza.", histHint: "Kliknij wartość, żeby zobaczyć jej historię.", close: "Zamknij", range1h: "1 godz.", range6h: "6 godz.",
@@ -73,7 +73,7 @@ const TEXT = {
 };
 
 const lang = "pl";
-function t(key) { return (TEXT[lang] && TEXT[lang][key]) || TEXT.en[key] || key; }
+function t(key) { return (TEXT[lang] && TEXT[lang][key]) || (TEXT.en && TEXT.en[key]) || key; }   // a missing word never breaks the page
 
 // -------------------------------------------------------------------- helpers
 const $ = (selector, root) => (root || document).querySelector(selector);
@@ -2469,6 +2469,7 @@ async function refresh() {
     }
     update();
   } catch (error) {
+    console.error("refresh failed", error);
     $("#connTxt").textContent = t("disconnected");
     $("#connDot").className = "dot err";
   }

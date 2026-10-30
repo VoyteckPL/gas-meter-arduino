@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.44.1
+
+* Poprawka: od 0.42.1 wykres licznika na Przeglądzie nie rysował się przy pierwszym otwarciu apki (brakujące tłumaczenie zakładki „Piec” przerywało budowanie strony). Brak tłumaczenia nie zatrzymuje już strony, a błąd odświeżania trafia do konsoli przeglądarki.
+
 ## 0.44.0
 
 * Zakładka Piec: stuknięcie w tarczę otwiera szczegóły termostatu (24 godz., 7 dni, 30 dni) z historii Home Assistanta:
