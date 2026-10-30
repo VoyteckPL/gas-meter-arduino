@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.40.1
+
+* Stan pieca przy wykresie zmienia się w ciągu kilku sekund (apka pyta HA co 3 s zamiast co 20 s), bez odświeżania strony. Historia pieca przeładowuje się sama przy zmianie trybu.
+
 ## 0.40.0
 
 * Koszt na wykresach, wyłączany przyciskiem „zł” (zapamiętywany w przeglądarce): na wykresie licznika pod każdym grzaniem i ciepłą wodą jego koszt oraz linijka „w widoku … m³ · … zł”; w oknie historii stanu licznika te same kwoty i wiersz „Koszt gazu”; w historii pieca kwoty i suma.

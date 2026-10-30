@@ -545,6 +545,7 @@ function update() {
     const b = state.boiler, holder = $("#boilerNow");
     holder.hidden = !b;
     $("#pecCard").hidden = !b;
+    if (b && b.since !== pec.since) { if (pec.since !== undefined) loadPec(); pec.since = b.since; }   // a new run: the history follows at once
     if (b) {
       const info = boilerKind(b.state, b.mode);
       const pill = boilerPill(info, [b.since ? "od " + hhmm(b.since) + " · " + ago(now - b.since) : ""], true);

@@ -1967,7 +1967,7 @@ async def boiler_loop(app):
                 save_boiler(app["boiler"])
         except Exception as error:  # pragma: no cover
             log.warning("boiler sync failed: %s", error)
-        await asyncio.sleep(20)
+        await asyncio.sleep(3)                   # one small request to Home Assistant: the state next to the chart follows the boiler within seconds
 
 
 async def api_boiler(request):
