@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.35.2
+
+* Koszty wstecz działają też, gdy HA nie zapisał jeszcze żadnej godziny kosztu: historia jest wpisywana do ostatniej pełnej godziny.
+
 ## 0.35.1
 
 * Koszty wstecz: encja kosztu jest brana z informacji panelu Energia (`energy/info`), a nie zgadywana po nazwie.

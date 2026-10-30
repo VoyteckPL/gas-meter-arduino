@@ -1613,9 +1613,8 @@ async def cost_backfill(app, dry):
         "type": "recorder/statistics_during_period", "start_time": "2000-01-01T00:00:00+00:00",
         "statistic_ids": [gas_id, cost_id], "period": "hour", "types": ["sum"]}]))[0] or {}
     cost_rows = [r for r in stats.get(cost_id) or [] if r.get("sum") is not None]
-    if not cost_rows:
-        raise ValueError("Statystyka kosztu nie ma jeszcze żadnej godziny")
-    first_cost = stat_time(cost_rows[0]["start"])
+    # no hour of cost yet: write the history up to the last full hour; Home Assistant continues the sum from it
+    first_cost = stat_time(cost_rows[0]["start"]) if cost_rows else time.time() // 3600 * 3600
     gas_rows = [(stat_time(r["start"]), float(r["sum"])) for r in stats.get(gas_id) or [] if r.get("sum") is not None]
     gas_rows = [g for g in gas_rows if g[0] < first_cost]
     # the price of each month from the invoices; a month without an invoice takes the nearest earlier one (or later)
@@ -1642,7 +1641,7 @@ async def cost_backfill(app, dry):
         cost = use * price_of(month)
         total += cost
         years[month[:4]] = years.get(month[:4], 0.0) + cost
-        rows.append({"start": t, "sum": total, "state": total})
+        rows.append({"start": t, "sum": total, "state": total if cost_rows else 0.0})
     out = {"cost_id": cost_id, "hours": len(rows), "total": round(total, 2), "unit": unit, "first_counted": first_cost,
            "years": {y: round(v, 2) for y, v in sorted(years.items())}}
     if dry or not rows:
@@ -1651,9 +1650,10 @@ async def cost_backfill(app, dry):
     commands = [{"type": "recorder/import_statistics", "metadata": metadata,
                  "stats": [{"start": iso_hour(r["start"]), "sum": round(r["sum"], 4), "state": round(r["state"], 4)} for r in rows[i:i + 3000]]}
                 for i in range(0, len(rows), 3000)]
-    commands.append({"type": "recorder/adjust_sum_statistics", "statistic_id": cost_id,
-                     "start_time": datetime.fromtimestamp(first_cost, timezone.utc).isoformat(),
-                     "adjustment": round(total, 4), "adjustment_unit_of_measurement": unit})
+    if cost_rows:
+        commands.append({"type": "recorder/adjust_sum_statistics", "statistic_id": cost_id,
+                         "start_time": datetime.fromtimestamp(first_cost, timezone.utc).isoformat(),
+                         "adjustment": round(total, 4), "adjustment_unit_of_measurement": unit})
     await core_ws_call(commands)
     out["done"] = True
     return out
