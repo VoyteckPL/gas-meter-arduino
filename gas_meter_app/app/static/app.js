@@ -992,6 +992,9 @@ function otaCard() {
     el("div", { id: "otaMain" }),
     file,
     el("div", { id: "otaSteps", style: "margin:12px 0" }),
+    el("div", { style: "margin:8px 0 4px" }, [
+      el("a", { class: "button secondary", href: "api/diag_export?hours=48", download: "gazomierz_diagnostyka.json", text: "Pobierz diagnostykę połączenia (48 godz., JSON)" }),
+      el("span", { class: "muted small", style: "margin-left:8px", text: "Nieudane sesje wg etapu, sesje, czasy, sygnał; do analizy jakości połączenia." })]),
     el("details", { id: "otaLogBox", style: "margin-top:10px" }, [
       el("summary", { text: "Dziennik aktualizacji", style: "cursor:pointer;font-weight:600" }),
       el("div", { id: "otaLog", class: "muted small", style: "max-height:220px;overflow:auto;font-family:ui-monospace,monospace;line-height:1.5;margin-top:6px" })]),

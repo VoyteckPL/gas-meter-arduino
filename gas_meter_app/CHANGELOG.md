@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.35.5
+
+* Zakładka OTA: przycisk „Pobierz diagnostykę połączenia”. Plik JSON z ostatnich 48 godzin: nieudane sesje wg etapu, sesje WiFi, czasy, sygnał, stan i przyrosty na godzinę z odsetkiem porażek. Apka zapisuje teraz historię także dla liczników nieudanych sesji (wcześniej tylko HA).
+
 ## 0.35.4
 
 * Nowe encje diagnostyczne (firmware 0.4.5): Nieudane sesje – WiFi, połączenie z brokerem, subskrypcja, brak potwierdzenia. Pokazują, na którym etapie zawodzą sesje licznika.

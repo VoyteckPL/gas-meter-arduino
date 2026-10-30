@@ -30,11 +30,14 @@ HISTORY_FILE = os.path.join(DATA_DIR, "history.json")
 INGRESS_GATEWAY = "172.30.32.2"
 MAX_POINTS = 20000
 HISTORY_TOPICS = ("cubic_meters", "BatteryVoltage", "BatteryPercent", "RSSI", "flow_m3h", "bt/pin_mv", "bt/voltage",
-                  "Wakes", "WifiSessions", "wifi_connect_ms", "awake_wifi_s", "awake_other_s", "session_ms")
+                  "Wakes", "WifiSessions", "wifi_connect_ms", "awake_wifi_s", "awake_other_s", "session_ms",
+                  "fail_wifi", "fail_mqtt", "fail_sub", "fail_ack", "restarts", "hangs", "dhcp")
 # slowly changing series are kept for about a year: minimum spacing (s) and number of points
 LONG_SERIES = {"cubic_meters": (0, 150000), "BatteryVoltage": (900, 40000), "BatteryPercent": (900, 40000), "RSSI": (900, 40000),
-               "Wakes": (1800, 20000), "WifiSessions": (1800, 20000), "wifi_connect_ms": (1800, 20000),
-               "awake_wifi_s": (1800, 20000), "awake_other_s": (1800, 20000), "session_ms": (1800, 20000)}
+               "Wakes": (60, 20000), "WifiSessions": (60, 20000), "wifi_connect_ms": (60, 20000),
+               "awake_wifi_s": (60, 20000), "awake_other_s": (60, 20000), "session_ms": (60, 20000),
+               "fail_wifi": (0, 20000), "fail_mqtt": (0, 20000), "fail_sub": (0, 20000), "fail_ack": (0, 20000),
+               "restarts": (0, 5000), "hangs": (0, 5000), "dhcp": (0, 5000)}
 CURVE_FILE = os.path.join(DATA_DIR, "curve.json")
 NOTIFY_FILE = os.path.join(DATA_DIR, "notify.json")
 TARGETS_FILE = os.path.join(DATA_DIR, "notify_targets.json")
@@ -578,6 +581,50 @@ def thin(points, limit=900):
     if kept[-1] is not points[-1]:
         kept.append(points[-1])
     return kept
+
+
+DIAG_SERIES = ("RSSI", "BatteryVoltage", "Wakes", "WifiSessions", "fail_wifi", "fail_mqtt", "fail_sub", "fail_ack",
+               "session_ms", "wifi_connect_ms", "awake_wifi_s", "awake_other_s", "restarts", "hangs", "dhcp", "cubic_meters")
+DIAG_VALUES = ("fw_version", "reset_reason", "uptime_s", "ssid", "bssid", "ip", "mac", "RSSI", "dhcp", "pending")
+
+
+async def api_diag_export(request):
+    """Everything needed to judge the connection quality of the meter in one file: the counters of failed sessions by stage,
+    the sessions, the time awake, the signal, with deltas per hour (a download, so that it can be sent for analysis)."""
+    store = request.app["store"]
+    try:
+        hours = max(1, min(int(request.query.get("hours", "24")), 24 * 30))
+    except ValueError:
+        return web.json_response({"error": "bad parameter"}, status=400)
+    now = time.time()
+    lo = now - hours * 3600
+    with store.lock:
+        series = {name: [p for p in store.history.get(name, []) if p[0] >= lo] for name in DIAG_SERIES}
+        values = {k: store.values.get(k) for k in DIAG_VALUES}
+    # per hour: the growth of every counter (failed sessions by stage, sessions, wake-ups, time awake)
+    counters = ("fail_wifi", "fail_mqtt", "fail_sub", "fail_ack", "WifiSessions", "Wakes", "awake_wifi_s", "awake_other_s")
+    per_hour = {}
+    for name in counters:
+        points = store.history.get(name, [])
+        last = None
+        for ts, value in points:
+            if last is not None and value >= last[1]:           # a smaller value is a restart of the counters
+                hour = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:00")
+                per_hour.setdefault(hour, {})[name] = round(per_hour.get(hour, {}).get(name, 0) + value - last[1], 2)
+            last = (ts, value)
+    hours_out = []
+    for hour in sorted(per_hour):
+        if datetime.strptime(hour, "%Y-%m-%d %H:00").timestamp() < lo - 3600:
+            continue
+        row = dict(per_hour[hour], hour=hour)
+        fails = sum(row.get(k, 0) for k in ("fail_wifi", "fail_mqtt", "fail_sub", "fail_ack"))
+        sessions = row.get("WifiSessions", 0)
+        row["fail_rate_pct"] = round(100.0 * fails / (fails + sessions), 1) if fails + sessions else None
+        hours_out.append(row)
+    body = {"exported": datetime.fromtimestamp(now).strftime("%Y-%m-%d %H:%M:%S"), "hours": hours, "now": values,
+            "per_hour": hours_out, "series": series}
+    return web.Response(text=json.dumps(body, ensure_ascii=False), content_type="application/json",
+                        headers={"Content-Disposition": "attachment; filename=gazomierz_diagnostyka.json"})
 
 
 async def api_series(request):
@@ -2054,6 +2101,7 @@ def create_app(options):
     app.router.add_get("/", index)
     app.router.add_get("/api/state", api_state)
     app.router.add_get("/api/series", api_series)
+    app.router.add_get("/api/diag_export", api_diag_export)
     app.router.add_get("/api/battery", api_battery)
     app.router.add_get("/api/orlen", api_orlen)
     app.router.add_get("/api/bills", api_bills)
