@@ -754,8 +754,11 @@
       ctx.font = "12px system-ui, sans-serif";
       const w = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 20, h = lines.length * 17 + 10;
       let bx = x + 14; if (bx + w > c.W - 4) bx = x - 14 - w;
+      ctx.globalAlpha = 0.96;
       bx = Math.max(4, bx);
-      const by = c.top + 6;
+      // the box goes to the half of the chart where the line is not: a reading high up gets it at the bottom and the other way round
+      const ay = (anchor && rows.length ? (rows[0].s.axis === "right" ? c.syR : c.sy)(anchor[1]) : c.top);
+      const by = ay < c.top + (c.plotBottom - c.top) / 2 ? Math.max(c.top + 6, c.plotBottom - h - 8) : c.top + 6;
       ctx.fillStyle = c.card; ctx.strokeStyle = c.line; ctx.lineWidth = 1;
       ctx.shadowColor = "rgba(0,0,0,.18)"; ctx.shadowBlur = 8; ctx.shadowOffsetY = 2;
       ctx.beginPath(); ctx.roundRect ? ctx.roundRect(bx, by, w, h, 8) : ctx.rect(bx, by, w, h); ctx.fill();
@@ -767,6 +770,7 @@
         ctx.fillText(l, bx + 10, by + 17 + i * 17 - (i === 0 ? 1 : 0));
       });
       ctx.font = "11px system-ui, sans-serif";
+      ctx.globalAlpha = 1;
     }
 
     drawNav(ctx, L, c) {

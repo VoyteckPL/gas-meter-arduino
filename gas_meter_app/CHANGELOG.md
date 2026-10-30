@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.46.2
+
+* Wykresy: dymek ze stanem trafia do tej połowy wykresu, w której nie ma linii (odczyt wysoko: dymek na dole, i odwrotnie), więc nie zasłania danych. Jest też lekko przezroczysty.
+
 ## 0.46.1
 
 * Wykresy przy dużym powiększeniu: linia sprzed widocznego fragmentu nie jest już ucinana u dołu (oś Y obejmuje poziom, z którym linia wchodzi w widok), etykiety osi z długimi liczbami (7301.485) mają tyle miejsca, ile potrzebują, a dymek na wykresie licznika pokazuje stan w miejscu palca, zamiast skakać do odczytu poza widokiem.
