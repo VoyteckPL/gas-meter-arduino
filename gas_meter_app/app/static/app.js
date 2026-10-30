@@ -488,12 +488,15 @@ async function drawChart(animate) {
     ? { bg: "rgba(255,255,255,0.06)", line: "#ff9a5c", window: "rgba(255,138,80,0.18)", edge: "#ff8a50" }
     : { bg: "rgba(255,255,255,0.45)", line: "#ff7a45", window: "rgba(255,122,69,0.16)", edge: "#ff6a4d" };
   const chart = overviewChart, now = Date.now() / 1000;
-  let points = [], modes = [], hourly = [];
+  let points = [], modes = [], hourly = [], failed = false;
   try {
     points = await api("series?kind=meter&hours=336&max=3000");
     modes = await api("series?kind=modes&hours=336");          // what the boiler was doing, as columns behind the line
     if (look.bars) hourly = await api("series?kind=hourly&hours=336");
-  } catch (e) { /* keep what is there */ }
+  } catch (e) { failed = true; }
+  // a request lost while the phone slept must not wipe the chart: keep the last picture and try again on the next tick
+  if (failed && drawChart.drawn) return;
+  if (!failed) drawChart.drawn = true;
   if (points.length) points = points.concat([[now, points[points.length - 1][1]]]);      // the reading holds until now, so the line runs to the present
   if (points.length) hourly = hourly.filter((p) => p[0] >= points[0][0] - 3600);
   chart.o.emptyText = t("noData");
@@ -2046,6 +2049,9 @@ $("#refreshBtn").addEventListener("click", () => {
 });
 
 refresh();
+// after the phone wakes the page, timers and requests may have been frozen: reload at once instead of waiting for the next tick
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { refresh(); if (built && !$("#root").hidden) drawChart(); } });
+window.addEventListener("pageshow", () => { refresh(); if (built && !$("#root").hidden) drawChart(); });
 setInterval(refresh, 3000);
 setInterval(() => { if (built && !$("#root").hidden) drawChart(); }, 10000);
 setInterval(() => { if (built) { const d = $("#histDialog"); if (d && !d.hidden) loadHistory(); if (!$("#batteryView").hidden) loadBattery(); } }, 60000);

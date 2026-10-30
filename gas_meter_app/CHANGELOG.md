@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.35.6
+
+* Wykres licznika nie znika już („Brak danych”) po dłuższej nieaktywności apki. Gdy telefon uśpił stronę i zapytanie o dane przepadło, wykres zostaje ostatni znany, a po powrocie do apki odświeża się od razu.
+
 ## 0.35.5
 
 * Zakładka OTA: przycisk „Pobierz diagnostykę połączenia”. Plik JSON z ostatnich 48 godzin: nieudane sesje wg etapu, sesje WiFi, czasy, sygnał, stan i przyrosty na godzinę z odsetkiem porażek. Apka zapisuje teraz historię także dla liczników nieudanych sesji (wcześniej tylko HA).
