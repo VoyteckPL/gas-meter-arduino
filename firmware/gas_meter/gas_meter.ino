@@ -42,7 +42,7 @@
 #include "esp_ota_ops.h"
 #include "esp_timer.h"
 
-#define FW_VERSION "0.4.5"
+#define FW_VERSION "0.4.6"
 // The version is also kept as a marker in the binary: the Gas Meter app reads it from the .bin file it serves for the update
 static const char FW_MARKER[] = "GASMETER_FW:" FW_VERSION;
 
@@ -107,6 +107,7 @@ IPAddress DNS_SERVER(192, 168, 1, 1);
 #define WIFI_TIMEOUT_MS        8000
 #define WIFI_TIMEOUT_FIRST_MS  20000
 #define MQTT_TIMEOUT_MS        2000
+#define MQTT_ACK_TIMEOUT_MS    4000         // waiting for the acknowledgement of the counter: a retransmitted packet answers after 2-3 s, a repeated session costs more
 #define AWAKE_LIMIT_S          150      // the chip never stays awake longer than this: a hang restarts it (the counter is kept in RTC memory)
 #define CPU_MHZ                80       // 80 MHz is enough with WIFI_PSK_HEX (no key derivation); 240 only connects faster without it
 
@@ -1042,6 +1043,7 @@ static bool publishAll(bool sendStatus) {
     snprintf(buf, sizeof(buf), "%.2f", cache.counter / (double)PULSES_PER_M3);
     mqtt.publish(topic("cubic_meters"), String(buf), true, 0);
     snprintf(buf, sizeof(buf), "%llu", (unsigned long long)cache.counter);
+    mqtt.setOptions(30, true, MQTT_ACK_TIMEOUT_MS);
     confirmed = mqtt.publish(topic("counter"), String(buf), true, 1);   // false: no acknowledgement, the session is repeated
   }
 
@@ -1063,7 +1065,7 @@ static bool publishAll(bool sendStatus) {
 // seconds to wait after the n-th failed session in a row: quick first retries (one lost session must not hold
 // the next pulses for a minute), then slower while the network is really down
 static uint32_t retryDelayS(uint8_t failures) {
-  static const uint16_t steps[] = {10, 30, 60, 120, 240};
+  static const uint16_t steps[] = {4, 30, 60, 120, 240};
   return failures >= 6 ? 900UL : steps[failures - 1];
 }
 
