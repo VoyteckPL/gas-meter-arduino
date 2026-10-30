@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.44.3
+
+* Historia pieca na Przeglądzie ma krótki tytuł „Piec”.
+
 ## 0.44.2
 
 * Szczegóły termostatu: okresy grzania, zapłony, gaz i koszt liczone ze stanu pieca (tak jak historia na Przeglądzie), a nie z „hvac_action” termostatu, które w Ariston nie pokrywa się z pracą palnika (stąd 0,00 m³ na nagrzanie). Temperatury dalej z termostatu. Gdy historia stanu pieca jest krótsza niż wybrany zakres, kafelek mówi, od kiedy są dane.

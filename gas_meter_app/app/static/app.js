@@ -388,7 +388,7 @@ function build() {
     pecViews.append(bt);
   }
   root.append(el("section", { class: "card wide", id: "pecCard", hidden: "" }, [
-    el("div", { class: "ovhead" }, [el("div", { class: "ovtitle" }, [el("h2", { text: "Piec: co chodziło" }), el("span", { class: "pectotal", id: "pecTotal" })]),
+    el("div", { class: "ovhead" }, [el("div", { class: "ovtitle" }, [el("h2", { text: "Piec" }), el("span", { class: "pectotal", id: "pecTotal" })]),
       el("div", { class: "ovright" }, [pecViews, pecTabs, costToggle()])]),
     el("div", { id: "pecList" }),
   ]));
