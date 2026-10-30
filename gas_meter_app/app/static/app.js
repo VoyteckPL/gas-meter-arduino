@@ -631,9 +631,11 @@ async function loadThermo() {
 
 function thInfo(item) {
   const a = item.attributes || {}, n = (v) => (v === null || v === undefined || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
-  const p = thermo.pending[item.entity_id] || {}, water = item.domain === "water_heater";
+  const p = thermo.pending[item.entity_id] || {};
+  // hot water: a water_heater, or a climate entity (Ariston has two) named so or set in the hot water range (from about 30°)
+  const water = item.domain === "water_heater" || /water|dhw|hot|cwu|zasob|boiler_temp/i.test(item.entity_id + " " + (a.friendly_name || "")) || (n(a.min_temp) ?? 0) >= 30;
   const min = n(a.min_temp) ?? (water ? 35 : 7), max = Math.max(min + 1, n(a.max_temp) ?? (water ? 65 : 30)), step = n(a.target_temp_step) || (water ? 1 : 0.5);
-  const on = water ? (p.on ?? item.state !== "off") : (p.mode ?? item.state) !== "off";
+  const on = item.domain === "water_heater" ? (p.on ?? item.state !== "off") : (p.mode ?? item.state) !== "off";
   const act = !on ? "off" : String(a.hvac_action || "").toLowerCase();
   return { a, water, on, mode: p.mode ?? item.state, modes: Array.isArray(a.hvac_modes) ? a.hvac_modes : [], min, max, step,
            current: n(a.current_temperature), target: p.temperature ?? n(a.temperature),
@@ -677,7 +679,8 @@ function renderThermo() {
       : "Nie znaleziono termostatów pieca. Wpisz je w opcji dodatku „Termostaty pieca” (np. climate.ariston, water_heater.ariston) i zrestartuj dodatek." }));
     return;
   }
-  for (const item of d.items) {
+  // the heating first, the hot water under it
+  for (const item of [...d.items].sort((x, y) => thInfo(x).water - thInfo(y).water)) {
     const info = thInfo(item), kind = info.water ? "water" : "heat", K = TH_KIND[kind];
     const act = TH_ACT[info.act] || [info.act, K.color, "chip"];
     const name = item.attributes.friendly_name && !/ariston|genus/i.test(item.attributes.friendly_name) ? item.attributes.friendly_name : K.name;
@@ -706,11 +709,12 @@ function renderThermo() {
     const seg = el("div", { class: "thseg", role: "group", "aria-label": "Tryb" });
     const segBtn = (label, icon, active, fn) => { const b = el("button", { class: active ? "active" : "", "aria-pressed": String(active) });
       b.innerHTML = '<svg viewBox="0 0 24 24">' + STAT_ICONS[icon] + "</svg>"; b.append(label); b.addEventListener("click", fn); return b; };
-    if (info.water) {
+    if (item.domain === "water_heater") {
       seg.append(segBtn("Włączona", "drop", info.on, () => !info.on && thSend(item, "turn_on", null, { on: true })),
                  segBtn("Wyłączona", "power", !info.on, () => info.on && thOff(item, name, () => thSend(item, "turn_off", null, { on: false }))));
     } else {
-      for (const m of info.modes.filter((x) => TH_MODES[x])) seg.append(segBtn(m === "off" ? "Wyłączone" : TH_MODES[m][0], TH_MODES[m][1], info.mode === m, () => {
+      for (const m of info.modes.filter((x) => TH_MODES[x])) seg.append(segBtn(m === "off" ? (info.water ? "Wyłączona" : "Wyłączone") : info.water && m === "heat" ? "Włączona" : TH_MODES[m][0],
+        info.water && m === "heat" ? "drop" : TH_MODES[m][1], info.mode === m, () => {
         if (info.mode === m) return;
         const go = () => thSend(item, "set_hvac_mode", m, { mode: m });
         if (m === "off") thOff(item, name, go); else go();

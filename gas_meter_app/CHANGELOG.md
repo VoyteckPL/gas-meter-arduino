@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.43.1
+
+* Zakładka Piec: ciepła woda rozpoznawana także wtedy, gdy jest encją climate (jak w Ariston): po nazwie albo po zakresie temperatur od ok. 30°. Ogrzewanie zawsze na górze, ciepła woda pod nim, w swoich kolorach i z przyciskami „Włączona / Wyłączona”.
+
 ## 0.43.0
 
 * Zakładka Piec w nowym wyglądzie. Ogrzewanie ma zawsze ciepłe kolory (pomarańcz → czerwień), ciepła woda zimne (turkus → błękit), niezależnie od tego, co piec robi.
