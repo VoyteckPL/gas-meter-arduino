@@ -1586,6 +1586,91 @@ def iso_hour(ts):
     return datetime.utcfromtimestamp(ts).strftime("%Y-%m-%dT%H:00:00+00:00")
 
 
+async def cost_backfill(app, dry):
+    """Costs for the hours before Home Assistant started to count them. The Energy panel computes the cost of gas only
+    from the moment a price is set, so the hours before stay at 0 zł. Here every hour of the gas statistics before that
+    moment gets its use × the price of its month from the invoices (amount ÷ m³, so with the fixed fees, like the price
+    entity of the Orlen integration), and these hours are written into the same cost statistic that Home Assistant made
+    for the gas meter. The hours that Home Assistant has already counted are moved up by the added total, so the
+    statistic stays one continuous sum. Running it again does nothing: there are no hours left before the first one."""
+    registry = (await core_ws_call([{"type": "config/entity_registry/list"}]))[0] or []
+    gas_id = next((e.get("entity_id") for e in registry if e.get("unique_id") == "gas_meter_app_cubic_meters"), None)
+    if not gas_id:
+        raise ValueError("Nie znaleziono encji Gazomierz")
+    cost_id = None
+    prefs = (await core_ws_call([{"type": "energy/get_prefs"}]))[0] or {}
+    for source in prefs.get("energy_sources", []):
+        if source.get("type") == "gas" and source.get("stat_energy_from") == gas_id:
+            cost_id = source.get("stat_cost") or gas_id + "_cost"
+    if not cost_id:
+        raise ValueError("Gazomierz nie jest źródłem gazu w panelu Energia albo nie ma ustawionej ceny")
+    listing = {i.get("statistic_id"): i for i in (await core_ws_call([{"type": "recorder/list_statistic_ids"}]))[0] or []}
+    if cost_id not in listing:
+        raise ValueError("Statystyka kosztu %s jeszcze nie istnieje. Home Assistant tworzy ją po pierwszej pełnej godzinie z ceną." % cost_id)
+    unit = listing[cost_id].get("statistics_unit_of_measurement") or listing[cost_id].get("unit_of_measurement") or "zł"
+    stats = (await core_ws_call([{
+        "type": "recorder/statistics_during_period", "start_time": "2000-01-01T00:00:00+00:00",
+        "statistic_ids": [gas_id, cost_id], "period": "hour", "types": ["sum"]}]))[0] or {}
+    cost_rows = [r for r in stats.get(cost_id) or [] if r.get("sum") is not None]
+    if not cost_rows:
+        raise ValueError("Statystyka kosztu nie ma jeszcze żadnej godziny")
+    first_cost = stat_time(cost_rows[0]["start"])
+    gas_rows = [(stat_time(r["start"]), float(r["sum"])) for r in stats.get(gas_id) or [] if r.get("sum") is not None]
+    gas_rows = [g for g in gas_rows if g[0] < first_cost]
+    # the price of each month from the invoices; a month without an invoice takes the nearest earlier one (or later)
+    monthly, factor = bills_context(app)
+    prices = {}
+    for e in monthly:
+        m3 = e["m3"] if e.get("m3") else (e["kwh"] / factor if e.get("kwh") else None)
+        if m3 and m3 > 1 and e.get("cost"):
+            prices[e["month"]] = e["cost"] / m3
+    if not prices:
+        raise ValueError("Brak faktur z kosztem w apce")
+    known = sorted(prices)
+
+    def price_of(month):
+        before = [m for m in known if m <= month]
+        return prices[before[-1]] if before else prices[known[0]]
+    rows, total, prev, years = [], 0.0, None, {}
+    for t, value in gas_rows:
+        use = 0.0
+        if prev is not None and meterclean.step_ok(value - prev[1], t - prev[0]):
+            use = value - prev[1]
+        prev = (t, value)
+        month = datetime.fromtimestamp(t).strftime("%Y-%m")
+        cost = use * price_of(month)
+        total += cost
+        years[month[:4]] = years.get(month[:4], 0.0) + cost
+        rows.append({"start": t, "sum": total, "state": total})
+    out = {"cost_id": cost_id, "hours": len(rows), "total": round(total, 2), "unit": unit, "first_counted": first_cost,
+           "years": {y: round(v, 2) for y, v in sorted(years.items())}}
+    if dry or not rows:
+        return out
+    metadata = {"has_mean": False, "has_sum": True, "name": None, "source": "recorder", "statistic_id": cost_id, "unit_of_measurement": unit}
+    commands = [{"type": "recorder/import_statistics", "metadata": metadata,
+                 "stats": [{"start": iso_hour(r["start"]), "sum": round(r["sum"], 4), "state": round(r["state"], 4)} for r in rows[i:i + 3000]]}
+                for i in range(0, len(rows), 3000)]
+    commands.append({"type": "recorder/adjust_sum_statistics", "statistic_id": cost_id,
+                     "start_time": datetime.fromtimestamp(first_cost, timezone.utc).isoformat(),
+                     "adjustment": round(total, 4), "adjustment_unit_of_measurement": unit})
+    await core_ws_call(commands)
+    out["done"] = True
+    return out
+
+
+async def api_cost_backfill(request):
+    if not core_token():
+        return web.json_response({"error": "Apka nie działa w Home Assistant"}, status=409)
+    body = await request.json() if request.method == "POST" else {}
+    try:
+        return web.json_response(await cost_backfill(request.app, body.get("action") != "run"))
+    except ValueError as error:
+        return web.json_response({"error": str(error)}, status=409)
+    except Exception as error:  # pragma: no cover
+        log.warning("cost backfill failed: %s", error)
+        return web.json_response({"error": str(error)}, status=502)
+
+
 async def drop_legacy_statistics(app):
     """Versions up to 0.30.18 kept the statistic "Gazomierz (z historią)" for the Energy panel. The history now lives in the
     statistics of the gas sensor itself, so the old one is removed (clearing a statistic that is not there does nothing)."""
@@ -1968,6 +2053,8 @@ def create_app(options):
     app.router.add_post("/api/notify", api_notify)
     app.router.add_get("/api/notify_targets", api_notify_targets)
     app.router.add_post("/api/notify_targets", api_notify_targets)
+    app.router.add_get("/api/cost_backfill", api_cost_backfill)
+    app.router.add_post("/api/cost_backfill", api_cost_backfill)
     app.router.add_post("/api/set", api_set)
     app.router.add_post("/api/cancel", api_cancel)
     app.router.add_static("/static/", STATIC_DIR)

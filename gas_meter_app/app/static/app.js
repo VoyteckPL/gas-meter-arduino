@@ -765,6 +765,21 @@ function buildUsage() {
   card([el("h2", { text: "Profil sezonowy (średnio na miesiąc)" }), el("div", { id: "uSeason" }),
         el("p", { class: "hint", text: "Średnia ze wszystkich lat z faktur. Impulsy na dobę to to, co gazomierz będzie liczył w danym miesiącu, więc od tego zależy zużycie baterii." })]);
   card([el("h2", { text: "Rocznie" }), el("div", { id: "uYears", style: "overflow-x:auto" })]);
+  const costOut = el("div", { class: "muted small", style: "margin-top:8px", id: "costOut" });
+  const costRun = async (action) => {
+    try {
+      const r = await api("cost_backfill", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) });
+      const years = Object.entries(r.years || {}).map(([y, v]) => y + ": " + num(v, 2) + " " + r.unit).join(" · ");
+      costOut.textContent = (r.done ? "Wpisano " : "Do wpisania: ") + r.hours + " godzin, razem " + num(r.total, 2) + " " + r.unit + ". " + years;
+      if (r.done) toast("Koszty gazu wpisane do panelu Energia");
+    } catch (e) { costOut.textContent = ""; toast(e.message, true); }
+  };
+  card([el("h2", { text: "Koszty w panelu Energia (wstecz)" }),
+        el("p", { class: "hint", style: "margin:0 0 8px", text: "Panel Energia liczy koszt gazu dopiero od chwili ustawienia ceny, więc wcześniejsze miesiące mają 0 zł. Tu każda godzina historii dostaje zużycie × cena z faktury z tego miesiąca (kwota ÷ m³, razem z opłatami stałymi) i trafia do tej samej statystyki kosztu, którą HA prowadzi dla Gazomierza. „Sprawdź” tylko liczy, nic nie zapisuje. Można uruchomić raz." }),
+        costOut,
+        el("div", { class: "field", style: "gap:8px;flex-wrap:wrap;margin-top:8px" }, [
+          eBtn("Sprawdź", "secondary", () => costRun("check")),
+          eBtn("Wpisz koszty wstecz", "", () => { if (confirm("Wpisać koszty historii do statystyki kosztu gazu w Home Assistancie?")) costRun("run"); })])]);
 
   const text = el("textarea", { id: "uText", rows: "7", placeholder: "Wklej tutaj tabelę ze strony „Faktury” w eBOK (zaznacz, skopiuj, wklej).", style: "width:100%;font:12px ui-monospace,monospace;padding:8px;border:1px solid var(--line);border-radius:10px;background:var(--input);color:var(--text);box-sizing:border-box" });
   const factor = el("input", { type: "number", id: "uFactor", min: "8", max: "14", step: "0.01" });

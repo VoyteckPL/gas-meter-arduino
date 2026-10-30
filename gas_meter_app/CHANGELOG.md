@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.35.0
+
+* Koszty gazu wstecz w panelu Energia (zakładka Zużycie → „Koszty w panelu Energia (wstecz)”). Każda godzina historii przed ustawieniem ceny dostaje zużycie × cena z faktury z tego miesiąca i trafia do tej samej statystyki kosztu, którą HA prowadzi dla Gazomierza; późniejsze godziny są przesunięte o dopisaną sumę, więc suma jest ciągła. „Sprawdź” tylko liczy.
+
 ## 0.34.0
 
 * Nowa encja w HA „Przepływ gazu” (m³/h, średnia z ostatnich 15 minut), odświeżana co minutę, więc po wyłączeniu pieca spada do 0.
