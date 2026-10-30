@@ -578,6 +578,12 @@ async def api_state(request):
     data["schema"] = SCHEMA
     data["language"] = request.app["options"].get("language", "auto")
     data["battery_app"] = request.app.get("battery_last")
+    cache = request.app.setdefault("price_cache", {"at": 0, "value": None})
+    if time.time() - cache["at"] > 300:
+        monthly, factor = bills_context(request.app)
+        price = billing.price_model(monthly)
+        cache.update(at=time.time(), value=round(price["per_kwh"] * factor, 4) if price else None)
+    data["price_m3"] = cache["value"]               # the gas only (no fixed fees): what one more m3 costs
     tr = request.app["boiler"]["transitions"]
     data["boiler"] = {"state": tr[-1][1], "mode": boiler.mode_of(tr[-1][1]), "since": tr[-1][0]} if tr else None
     return web.json_response(data)

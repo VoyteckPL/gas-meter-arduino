@@ -6,7 +6,7 @@ const TEXT = {
     title: "Gazomierz", loading: "Ładowanie...", connected: "MQTT połączony", disconnected: "MQTT offline",
     readings: "Odczyty", meter: "Stan licznika", flow: "Przepływ", today: "Dzisiaj", battery: "Bateria",
     signal: "Sygnał WiFi", lastData: "Ostatnie dane", never: "brak danych", ago: "temu",
-    lastUse: "Ostatni pobór", lastRead: "Ostatni odczyt",
+    lastUse: "Ostatni pobór", lastRead: "Ostatni odczyt", sCost: "Koszt gazu (bez opłat stałych)",
     consumption: "Zużycie", meterChart: "Licznik (48 h)", hourly: "Na godzinę (48 h)", batteryChart: "Bateria (7 dni)",
     noData: "Brak danych",
     chartBt: "Test baterii", btTitle: "Test rozładowania baterii", btVoltage: "Napięcie baterii",
@@ -137,6 +137,32 @@ function boilerPill(info, parts, live) {
   return pill;
 }
 const zl = (v) => num(v, 2).replace(".", ",") + " zł";
+// money on the gas charts and in the boiler history: on by default, switched off with the "zł" button (remembered here)
+let showCost = (() => { try { return localStorage.getItem("gasMeterCost") !== "off"; } catch (e) { return true; } })();
+function costToggle() {
+  const bt = el("button", { class: "secondary costtoggle", title: "Pokaż lub ukryj koszt w zł", text: "zł" });
+  bt.addEventListener("click", () => {
+    showCost = !showCost;
+    try { localStorage.setItem("gasMeterCost", showCost ? "on" : "off"); } catch (e) { /* private mode */ }
+    document.querySelectorAll(".costtoggle").forEach((b) => b.classList.toggle("active", showCost));
+    drawChart(); renderPec();
+    if ($("#histDialog") && !$("#histDialog").hidden) loadHistory();
+  });
+  bt.classList.toggle("active", showCost);
+  return bt;
+}
+// the reading of a step series at a moment (the last point at or before it)
+function valueAt(points, ts) {
+  let lo = 0, hi = points.length - 1, found = null;
+  while (lo <= hi) { const mid = (lo + hi) >> 1; if (points[mid][0] <= ts) { found = points[mid][1]; lo = mid + 1; } else hi = mid - 1; }
+  return found;
+}
+// the cost of each boiler run from the meter readings, as a short label for its band
+function bandCost(points, from, to) {
+  const price = state && state.price_m3, a = valueAt(points, from), b = valueAt(points, to);
+  if (!showCost || !price || a === null || b === null || b - a < 0.005) return "";
+  return zl((b - a) * price);
+}
 function duration(seconds) {
   if (seconds < 90) return Math.round(seconds) + " s";
   const m = Math.round(seconds / 60);
@@ -336,7 +362,7 @@ function build() {
   }
   root.append(el("section", { class: "card wide ovcard", id: "ovCard" }, [
     el("div", { class: "ovhead" }, [el("div", { class: "ovtitle" }, [el("h2", { text: "Licznik gazu" }), el("span", { id: "boilerNow", hidden: "" })]), looks]),
-    ranges,
+    el("div", { class: "ovtools" }, [ranges, el("div", { class: "ovright" }, [el("span", { class: "ovcost", id: "ovCost" }), costToggle()])]),
     el("div", { class: "ovwrap" }, [el("canvas", { id: "chart", style: "height:360px" }), el("div", { class: "ovpulse", id: "ovPulse", hidden: "" })]),
   ]));
 
@@ -348,7 +374,7 @@ function build() {
     pecTabs.append(bt);
   }
   root.append(el("section", { class: "card wide", id: "pecCard", hidden: "" }, [
-    el("div", { class: "ovhead" }, [el("h2", { text: "Piec: co chodziło" }), pecTabs]),
+    el("div", { class: "ovhead" }, [el("h2", { text: "Piec: co chodziło" }), el("div", { class: "ovright" }, [pecTabs, costToggle()])]),
     el("div", { class: "pecsum", id: "pecSum" }),
     el("div", { class: "pecbar", id: "pecBar" }),
     el("div", { id: "pecList" }),
@@ -596,6 +622,7 @@ function renderPec() {
   // totals per kind
   const sums = {};
   for (const r of runs) {
+    if (r.kind === "pump") { r.m3 = null; r.cost = null; }
     const t = sums[r.kind] = sums[r.kind] || { s: 0, m3: 0, cost: 0, n: 0 };
     t.s += r.end - r.start; t.m3 += r.m3 || 0; t.cost += r.cost || 0; t.n++;
   }
@@ -604,10 +631,15 @@ function renderPec() {
     const t = sums[kind];
     if (!t) continue;
     const info = { kind, label: BOILER_KINDS[kind].label || "Inne", icon: BOILER_KINDS[kind].icon };
-    sum.append(boilerPill(info, [duration(t.s) + " · " + t.n + "×", t.m3 >= 0.005 ? num(t.m3, 2) + " m³" : "", t.cost >= 0.005 ? el("em", { text: zl(t.cost) }) : ""]));
+    const item = el("div", { class: "pecitem pecsumitem boilerpill " + kind });
+    const ic = el("span", { class: "pi" }); ic.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true">' + STAT_ICONS[info.icon] + "</svg>";
+    item.append(ic, el("b", { text: info.label }),
+      el("span", { class: "pd", text: duration(t.s) + " · " + t.n + "×" + (t.m3 >= 0.005 ? " · " + num(t.m3, 2) + " m³" : "") }),
+      el("span", { class: "pc" }, showCost && t.cost >= 0.005 ? [el("em", { text: zl(t.cost) })] : []));
+    sum.append(item);
   }
   const total = runs.reduce((a, r) => a + (r.cost || 0), 0);
-  if (runs.length) sum.append(el("span", { class: "pectotal" }, [el("span", { text: "razem" }), el("b", { text: zl(total) })]));
+  if (runs.length && showCost) sum.append(el("span", { class: "pectotal" }, [el("span", { text: "razem" }), el("b", { text: zl(total) })]));
   else sum.append(el("span", { class: "muted small", text: "Piec nic nie robił w tym czasie." }));
 
   // the timeline: coloured runs on the time axis of the window
@@ -631,9 +663,15 @@ function renderPec() {
   for (const r of runs) {
     const name = dayName(r.start);
     if (name !== day) { day = name; list.append(el("div", { class: "pecday", text: name })); row = el("div", { class: "pecrow" }); list.append(row); }
-    const info = boilerKind(r.state, r.kind === "pump" ? "other" : r.kind);
-    row.append(boilerPill(info, [hhmm(r.start) + "–" + (r.live ? "teraz" : hhmm(r.end)) + " · " + duration(r.end - r.start),
-      r.m3 !== null && r.m3 >= 0.005 ? num(r.m3, 2) + " m³" : "", r.cost !== null && r.cost >= 0.005 ? el("em", { text: zl(r.cost) }) : ""], r.live));
+    // one run = one row of fixed columns, so that times, durations, m³ and money line up
+    const info = boilerKind(r.state, r.kind === "pump" ? "other" : r.kind), gas = r.kind !== "pump";   // the pump burns no gas
+    const item = el("div", { class: "pecitem boilerpill " + info.kind + (r.live ? " on" : ""), title: r.state });
+    const ic = el("span", { class: "pi" }); ic.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true">' + STAT_ICONS[info.icon] + "</svg>";
+    item.append(ic, el("b", { text: info.label }), el("span", { class: "pt", text: hhmm(r.start) + "–" + (r.live ? "teraz" : hhmm(r.end)) }),
+      el("span", { class: "pd", text: duration(r.end - r.start) }),
+      el("span", { class: "pm", text: gas && r.m3 !== null && r.m3 >= 0.005 ? num(r.m3, 2) + " m³" : "" }),
+      showCost ? el("span", { class: "pc" }, gas && r.cost !== null && r.cost >= 0.005 ? [el("em", { text: zl(r.cost) })] : []) : "");
+    row.append(item);
   }
 }
 
@@ -660,6 +698,15 @@ let overviewFollow = true;                       // the present stays in the mid
 let overviewSpan = 6 * 3600;                     // width of the window while it follows
 
 // the pulsing ring sits on the newest reading, drawn by the browser so that the chart need not be redrawn for it
+// gas (and money) used in the visible part of the overview chart, in one quiet line
+function ovWindow(v0, v1) {
+  const box = $("#ovCost"), pts = overviewChart && overviewChart.series[0] && overviewChart.series[overviewChart.series.length - 1].points;
+  if (!box || !pts || !pts.length) return;
+  const a = valueAt(pts, v0) ?? pts[0][1], b = valueAt(pts, v1);
+  const m3 = b !== null ? Math.max(0, b - a) : 0, price = state && state.price_m3;
+  box.textContent = "w widoku " + num(m3, 2) + " m³" + (showCost && price ? " · " + zl(m3 * price) : "");
+}
+
 function placePulse() {
   const pulse = $("#ovPulse"), p = overviewChart && overviewChart.endPoint;
   if (!pulse) return;
@@ -676,6 +723,7 @@ async function drawChart(animate) {
       onView: (v0, v1) => {
         const now = Date.now() / 1000, span = v1 - v0;
         overviewFollow = Math.abs((v0 + v1) / 2 - now) < Math.max(120, span * 0.05);
+        ovWindow(v0, Math.min(v1, now));
         if (overviewFollow) overviewSpan = span;
         document.querySelectorAll("#ovRanges button").forEach((b) => {
           const seconds = Number(b.dataset.seconds);
@@ -705,7 +753,8 @@ async function drawChart(animate) {
   if (points.length) hourly = hourly.filter((p) => p[0] >= points[0][0] - 3600);
   chart.o.emptyText = t("noData");
   chart.o.now = now;
-  chart.o.bands = modes.map(([from, to, mode]) => ({ from, to, fade: BOILER_COLORS[mode] || BOILER_COLORS.other, icon: BOILER_ICONS[mode] || "" }));
+  chart.o.bands = modes.map(([from, to, mode]) => ({ from, to, fade: BOILER_COLORS[mode] || BOILER_COLORS.other, icon: BOILER_ICONS[mode] || "",
+                                                       label: mode === "other" ? "" : bandCost(points, from, to) }));
   const series = [];
   if (look.bars) series.push({ name: "", color: "#ffb36b", points: hourly, kind: "bars", axis: "right", barDt: 3600, noHover: true,
                                barFill: [[0, "rgba(255,170,100,0.55)"], [1, "rgba(255,90,140,0.10)"]] });
@@ -714,6 +763,7 @@ async function drawChart(animate) {
   // room for the future on the right, so that the present can stay in the middle
   chart.setSeries(series, [Math.min(points.length ? points[0][0] : now, now - half), now + half], true);
   if (overviewFollow) chart.setView(now - half, now + half, !!animate);
+  ovWindow(chart.view[0], Math.min(chart.view[1], now));
   const used = [...new Set(modes.map((m) => m[2]))];
   setLegend(canvas, [{ label: "Licznik (m³)", color: "linear-gradient(90deg,#ffcf5c,#e8437a)", kind: "line" },
     ...(look.bars ? [{ label: "m³ na godzinę", color: "linear-gradient(180deg,#ffaa64,#ff5a8c66)", kind: "box" }] : []),
@@ -775,6 +825,7 @@ function openHistory(entity) {
         el("div", { class: "chart-tools" }, [
           presets,
           el("div", { class: "tabs" }, [
+            costToggle(),
             mini("−", t("zoomOut"), () => history.chart.zoom(2, undefined, true)),
             mini("+", t("zoomIn"), () => history.chart.zoom(0.5, undefined, true)),
             mini("⟲", t("zoomReset"), () => history.chart.reset()),
@@ -829,7 +880,8 @@ async function loadHistory() {
     try { modes = await api("series?kind=modes&hours=87600"); } catch (e) { modes = []; }
     if (token !== history.token) return;
   }
-  chart.o.bands = modes.map(([from, to, mode]) => ({ from, to, color: (BOILER_COLORS[mode] || BOILER_COLORS.other) + "2e" }));
+  chart.o.bands = modes.map(([from, to, mode]) => ({ from, to, color: (BOILER_COLORS[mode] || BOILER_COLORS.other) + "2e", ink: BOILER_COLORS[mode] || BOILER_COLORS.other,
+                                                       label: history.entity === "meter" && mode !== "other" ? bandCost(points, from, to) : "" }));
   const used = [...new Set(modes.map((m) => m[2]))];
   setLegend($("#histCanvas"), [{ label: t(spec.key) + (spec.unit ? " (" + spec.unit + ")" : ""), color: cssColor("--accent"), kind: spec.bars ? "box" : "line" },
     ...["dhw", "heating", "other"].filter((m) => used.includes(m)).map((m) => ({ label: BOILER_NAMES[m], color: BOILER_COLORS[m], kind: "box" }))]);
@@ -854,7 +906,10 @@ function histView(v0, v1) {
   if (!ys.length) return;
   const sum = ys.reduce((x, y) => x + y, 0), f = (v) => v.toFixed(spec.dec) + " " + spec.unit;
   const row = (key, value) => stats.append(el("span", { text: t(key) }), el("span", { class: "v", text: value }));
-  if (spec.stat === "change") row("sChange", f(ys[ys.length - 1] - ys[0]));
+  if (spec.stat === "change") {
+    row("sChange", f(ys[ys.length - 1] - ys[0]));
+    if (history.entity === "meter" && showCost && state.price_m3) row("sCost", zl((ys[ys.length - 1] - ys[0]) * state.price_m3));
+  }
   else if (spec.stat === "total") row("sTotal", f(sum));
   else { row("sMin", f(Math.min(...ys))); row("sMax", f(Math.max(...ys))); row("sAvg", f(sum / ys.length)); }
   row("sLast", f(ys[ys.length - 1])); row("sPoints", String(ys.length));

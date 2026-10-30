@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.40.0
+
+* Koszt na wykresach, wyłączany przyciskiem „zł” (zapamiętywany w przeglądarce): na wykresie licznika pod każdym grzaniem i ciepłą wodą jego koszt oraz linijka „w widoku … m³ · … zł”; w oknie historii stanu licznika te same kwoty i wiersz „Koszt gazu”; w historii pieca kwoty i suma.
+* Historia pieca ułożona: każde uruchomienie w równym wierszu z kolumnami (godziny, czas, m³, zł), lista idzie po kolei w dół. Podsumowania trybów w równej siatce.
+* Wybieg pompy bez m³ i zł (pompa nie spala gazu; to była końcówka poprzedniego grzania).
+
 ## 0.39.0
 
 * Nowa karta „Piec: co chodziło” na Przeglądzie (dziś, 24 godz., 7 dni): każde uruchomienie pieca jako plakietka z godzinami, czasem, zużytymi m³ i kosztem w zł. Na górze podsumowanie każdego trybu i łączna kwota, pod nim pasek czasu.

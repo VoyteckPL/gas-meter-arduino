@@ -564,11 +564,13 @@
           g.addColorStop(0, band.fade + "00"); g.addColorStop(0.55, band.fade + "1c"); g.addColorStop(1, band.fade + "40");
           ctx.fillStyle = g; ctx.fillRect(bx, top, bw, plotH);
           ctx.fillStyle = band.fade + "aa"; ctx.fillRect(bx, plotBottom - 3, bw, 3);
+          if (band.label && bw > 38) { ctx.font = "600 10px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = band.fade; ctx.globalAlpha = 0.95; ctx.fillText(band.label, bx + bw / 2, plotBottom - (band.icon ? 27 : 9)); ctx.globalAlpha = 1; ctx.font = "11px system-ui, sans-serif"; }
           if (band.icon && bw > 22) { ctx.font = "13px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.globalAlpha = 0.85; ctx.fillText(band.icon, bx + bw / 2, plotBottom - 9); ctx.globalAlpha = 1; ctx.font = "11px system-ui, sans-serif"; }
           continue;
         }
         ctx.fillStyle = band.color || (accent + "10");
         ctx.fillRect(bx, top, bw, plotH);
+        if (band.label && bw > 38) { ctx.font = "600 10px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = band.ink || "#888"; ctx.fillText(band.label, bx + bw / 2, plotBottom - 6); ctx.font = "11px system-ui, sans-serif"; }
       }
       const base = sy((barsOrArea || this.o.zeroBase) && lo <= 0 && hi >= 0 ? 0 : lo);
       for (const { s, pts } of prepared) {
