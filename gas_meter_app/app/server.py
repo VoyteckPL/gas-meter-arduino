@@ -325,6 +325,14 @@ class Store:
             return None
         return max(0.0, self.used_since(base[0], series) / span * 3600.0)
 
+    def last_use(self):
+        """When the reading last went up by a plausible step: the last time gas flowed (not the last report)."""
+        series = self.series("cubic_meters")
+        for (t1, v1), (t2, v2) in zip(reversed(series[:-1]), reversed(series[1:])):
+            if v2 > v1 and meterclean.step_ok(v2 - v1, t2 - t1):
+                return t2
+        return None
+
     def hourly(self, hours):
         """Consumption per hour (m3) for the last `hours` hours."""
         series = self.series("cubic_meters")
@@ -362,6 +370,7 @@ class Store:
                 "pending": dict(self.pending),
                 "today_m3": self.today_m3(),
                 "flow_m3h": self.flow_m3h(),
+                "last_use": self.last_use(),
                 "now": time.time(),
             }
 

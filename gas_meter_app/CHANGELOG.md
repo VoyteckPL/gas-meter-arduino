@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.36.0
+
+* Nowy pasek odczytów na Przeglądzie: wszystko w jednym rzędzie, w dwóch grupach (gaz | gazomierz), z większymi ikonami.
+* Nowy kafelek „Ostatni pobór”: kiedy gaz ostatnio płynął (ostatni przyrost licznika). „Ostatni odczyt” to osobno ostatnie dane z gazomierza.
+* Kolory mówią o stanie: przepływ pulsuje, gdy gaz płynie; bateria, sygnał WiFi i świeżość odczytu zmieniają kolor przy problemie.
+* Usunięta podpowiedź „Kliknij wartość…” (kafelki nadal otwierają historię).
+
 ## 0.35.6
 
 * Wykres licznika nie znika już („Brak danych”) po dłuższej nieaktywności apki. Gdy telefon uśpił stronę i zapytanie o dane przepadło, wykres zostaje ostatni znany, a po powrocie do apki odświeża się od razu.

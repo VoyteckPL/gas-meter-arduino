@@ -6,6 +6,7 @@ const TEXT = {
     title: "Gazomierz", loading: "Ładowanie...", connected: "MQTT połączony", disconnected: "MQTT offline",
     readings: "Odczyty", meter: "Stan licznika", flow: "Przepływ", today: "Dzisiaj", battery: "Bateria",
     signal: "Sygnał WiFi", lastData: "Ostatnie dane", never: "brak danych", ago: "temu",
+    lastUse: "Ostatni pobór", lastRead: "Ostatni odczyt",
     consumption: "Zużycie", meterChart: "Licznik (48 h)", hourly: "Na godzinę (48 h)", batteryChart: "Bateria (7 dni)",
     noData: "Brak danych",
     chartBt: "Test baterii", btTitle: "Test rozładowania baterii", btVoltage: "Napięcie baterii",
@@ -80,6 +81,17 @@ let state = null;
 let built = false;
 const dirty = new Set();
 let overviewChart = null;
+
+// line icons of the reading strip (24x24, drawn with the tile colour)
+const STAT_ICONS = {
+  flame: '<path d="M12 2.8c.9 3.4 5.6 5.4 5.6 10.9a5.6 5.6 0 0 1-11.2 0c0-2.6 1.3-4.3 2.7-5.3.2 1.9 1.1 3.1 2.4 3.4-.6-2.9-.4-6 .5-9z"/>',
+  flow: '<path d="M3 8h11a3 3 0 1 0-3-3"/><path d="M3 12h16a3 3 0 1 1-3 3"/><path d="M3 16h7"/>',
+  calendar: '<rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
+  history: '<path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1L3.5 8.5"/><path d="M3.5 3.5v5h5"/><path d="M12 7.5V12l3 2"/>',
+  battery: '<rect x="2.5" y="7" width="17" height="10" rx="2.6"/><path d="M22 10.5v3"/><path d="M6 10v4M9.5 10v4"/>',
+  wifi: '<path d="M2.5 8.8a14 14 0 0 1 19 0"/><path d="M5.6 12.2a9.5 9.5 0 0 1 12.8 0"/><path d="M8.8 15.5a5 5 0 0 1 6.4 0"/><circle cx="12" cy="19" r="1.1"/>',
+  radio: '<circle cx="12" cy="12" r="2"/><path d="M8.2 8.2a5.4 5.4 0 0 0 0 7.6M15.8 8.2a5.4 5.4 0 0 1 0 7.6M5.3 5.3a9.5 9.5 0 0 0 0 13.4M18.7 5.3a9.5 9.5 0 0 1 0 13.4"/>',
+};
 
 function el(tag, attrs, children) {
   const node = document.createElement(tag);
@@ -227,29 +239,37 @@ function build() {
     el("p", { class: "hint", "data-i18n": "btHint" }),
   ]));
 
-  // readings as tiles (like the GPK Szemud app): a click opens the history
-  const tile = (cls, color, icon, labelKey, valId, subNode) => el("div", { class: "card kpi " + cls, style: "--kc:var(" + color + ")", role: "button", tabindex: "0", title: t("histHint") }, [
-    el("div", { class: "lbl" }, [el("span", { "data-i18n": labelKey }), el("span", { class: "ic", text: icon })]),
-    el("div", { class: "val", id: valId }),
-    subNode || el("div", { class: "sub" }),
-  ]);
-  root.append(el("div", { class: "kpis" }, [
-    tile("big2", "--accent", "🔥", "meter", "meter", el("div", { class: "sub", "data-i18n": "meterSub" })),
-    tile("", "--accent", "💨", "flow", "flow", el("div", { class: "sub", "data-i18n": "flowSub" })),
-    tile("", "--accent", "📅", "today", "today", el("div", { class: "sub", "data-i18n": "todaySub" })),
-    tile("", "--ok", "🔋", "battery", "battery", el("div", { class: "bar" }, [el("div", { id: "batteryBar" })])),
-    tile("", "--muted", "📶", "signal", "rssi", el("div", { class: "sub", "data-i18n": "signalSub" })),
-    tile("", "--muted", "🕒", "lastData", "lastData", el("div", { class: "sub", "data-i18n": "lastSub" })),
+  // readings in one compact strip, in two groups: the gas and the meter itself. A click opens the history.
+  const stat = (cls, labelKey, icon, valId, subId) => {
+    const ic = el("span", { class: "ic", "aria-hidden": "true" });
+    ic.innerHTML = '<svg viewBox="0 0 24 24">' + STAT_ICONS[icon] + "</svg>";
+    return el("div", { class: "stat " + cls, id: "st-" + valId }, [ic, el("div", { class: "st" }, [
+      el("div", { class: "lbl", "data-i18n": labelKey }), el("div", { class: "val", id: valId }), el("div", { class: "sub", id: subId }),
+    ])]);
+  };
+  root.append(el("div", { class: "stats" }, [
+    el("div", { class: "sgroup gas", role: "group", "aria-label": "Gaz" }, [
+      stat("hero", "meter", "flame", "meter", "meterSub"),
+      stat("", "flow", "flow", "flow", "flowSub"),
+      stat("", "today", "calendar", "today", "todaySub"),
+      stat("", "lastUse", "history", "lastUse", "lastUseSub"),
+    ]),
+    el("div", { class: "sgroup dev", role: "group", "aria-label": "Gazomierz" }, [
+      stat("", "battery", "battery", "battery", "batterySub"),
+      stat("", "signal", "wifi", "rssi", "rssiSub"),
+      stat("", "lastRead", "radio", "lastData", "lastDataSub"),
+    ]),
   ]));
-  root.append(el("p", { class: "hint wide", style: "grid-column:1/-1;margin:0", "data-i18n": "histHint" }));
   // a click on a tile (or on a value of the battery test) opens its history
-  for (const [id, entity] of [["meter", "meter"], ["flow", "flow"], ["today", "hourly"], ["battery", "battery"], ["rssi", "rssi"],
+  for (const [id, entity] of [["meter", "meter"], ["flow", "flow"], ["today", "hourly"], ["lastUse", "meter"], ["battery", "battery"], ["rssi", "rssi"],
                               ["btVolt", "btVolt"], ["btPinMv", "btPin"]]) {
     const node = $("#" + id);
     if (!node) continue;
-    const target = node.closest(".kpi") || node;
+    const target = node.closest(".stat") || node;
+    if (target.classList.contains("stat")) { target.setAttribute("role", "button"); target.setAttribute("tabindex", "0"); }
     target.classList.add("clickable");
     target.addEventListener("click", () => openHistory(entity));
+    target.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openHistory(entity); } });
   }
 
   // the meter chart: live, zoomable, the boiler modes in the background, in one of three looks
@@ -365,20 +385,39 @@ function update() {
   notice.hidden = v.cubic_meters !== undefined;
   $("#noticeText").textContent = t("noMeterText").replace("{root}", state.root);
 
-  $("#meter").textContent = v.cubic_meters !== undefined ? num(v.cubic_meters, 2) + " m³" : "—";
-  const flow = state.flow_m3h;
-  $("#flow").textContent = flow === null || flow === undefined ? "—" : num(flow, 2) + " m³/h";
-  $("#today").textContent = state.today_m3 === null ? "—" : num(state.today_m3, 2) + " m³";
+  const setStat = (id, value, unit, sub) => {
+    $("#" + id).replaceChildren(value, ...(unit ? [el("small", { text: unit })] : []));
+    $("#" + id + "Sub").textContent = sub || "";
+  };
+  const tone = (id, color) => $("#st-" + id).style.setProperty("--kc", color);
+  const clock = (ts) => {
+    const d = new Date(ts * 1000), today = d.toDateString() === new Date().toDateString();
+    return "o " + (today ? "" : d.toLocaleDateString("pl-PL", { day: "2-digit", month: "2-digit" }) + " ") + d.toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" });
+  };
+  const has = (x) => x !== null && x !== undefined;
+  setStat("meter", v.cubic_meters !== undefined ? num(v.cubic_meters, 2) : "—", "m³", "wskazanie gazomierza");
+  const flow = state.flow_m3h, flowing = Number(flow) > 0.005;
+  setStat("flow", has(flow) ? num(flow, 2) : "—", "m³/h", flowing ? "gaz płynie · śr. 15 min" : "teraz nie płynie");
+  $("#st-flow").classList.toggle("live", flowing);
+  $("#st-flow").classList.toggle("idle", !flowing);
+  setStat("today", has(state.today_m3) ? num(state.today_m3, 2) : "—", "m³", "od północy");
+  const used = state.last_use;
+  if (!used) setStat("lastUse", "—", "", "brak w historii");
+  else if (flowing || now - used < 90) setStat("lastUse", "teraz", "", clock(used));
+  else setStat("lastUse", ago(now - used), t("ago"), clock(used));
   const app = state.battery_app, estimate = app && Number.isFinite(app.soc);
   const percent = estimate ? app.soc : Number(v.BatteryPercent);
-  $("#battery").textContent = Number.isFinite(percent)
-    ? percent.toFixed(0) + "% (" + num(v.BatteryVoltage, 2) + " V)" + (estimate && app.days ? " · ok. " + (app.days > 90 ? Math.round(app.days / 30.4) + " mies." : Math.round(app.days) + " dni") : "") : "—";
-  const bar = $("#batteryBar");
-  bar.style.width = (Number.isFinite(percent) ? Math.max(0, Math.min(100, percent)) : 0) + "%";
-  bar.style.background = percent < 15 ? "var(--bad)" : percent < 40 ? "var(--warn)" : "var(--ok)";
-  $("#rssi").textContent = v.RSSI !== undefined ? v.RSSI + " dBm" : "—";
+  const life = estimate && app.days ? " · ok. " + (app.days > 90 ? Math.round(app.days / 30.4) + " mies." : Math.round(app.days) + " dni") : "";
+  setStat("battery", Number.isFinite(percent) ? percent.toFixed(0) : "—", "%", (v.BatteryVoltage !== undefined ? num(v.BatteryVoltage, 2) + " V" : "") + life);
+  tone("battery", percent < 15 ? "var(--bad)" : percent < 40 ? "var(--warn)" : "var(--ok)");
+  const rssi = Number(v.RSSI), hasRssi = v.RSSI !== undefined && Number.isFinite(rssi);
+  const quality = !hasRssi ? "" : rssi >= -67 ? "dobry" : rssi >= -75 ? "średni" : "słaby";
+  setStat("rssi", hasRssi ? String(rssi) : "—", "dBm", quality ? quality + " · " + (v.ssid || "WiFi") : "");
+  tone("rssi", quality === "słaby" ? "var(--bad)" : quality === "średni" ? "var(--warn)" : "var(--info)");
   const newest = Math.max(0, ...Object.entries(state.updated).filter(([k]) => !k.startsWith("cfg/") && !k.startsWith("app/")).map(([, ts]) => ts));
-  $("#lastData").textContent = newest ? ago(now - newest) + " " + t("ago") : t("never");
+  if (newest) setStat("lastData", ago(now - newest), t("ago"), clock(newest));
+  else setStat("lastData", t("never"), "", "");
+  tone("lastData", !newest || now - newest > 6 * 3600 ? "var(--bad)" : now - newest > 2 * 3600 ? "var(--warn)" : "var(--info)");
   $("#sub").textContent = (v.cubic_meters !== undefined ? num(v.cubic_meters, 2) + " m³" : t("noData")) + (newest ? " · " + ago(now - newest) + " " + t("ago") : "");
 
   // battery discharge test
