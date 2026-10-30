@@ -457,7 +457,8 @@ class Bridge:
                  ("bill_next", "Prognoza najbliższej faktury", "app/bill_next", "PLN", "monetary", None, None),
                  ("bill_year", "Prognoza rachunków 12 miesięcy", "app/bill_year", "PLN", "monetary", None, None),
                  ("month_m3", "Zużycie gazu w miesiącu (prognoza)", "app/month_m3", "m³", None, None, None),
-                 ("wifi_percent", "WiFi sygnał (%)", "app/wifi_percent", "%", None, "measurement", None)]
+                 ("wifi_percent", "WiFi sygnał (%)", "app/wifi_percent", "%", None, "measurement", None),
+                 ("flow", "Przepływ gazu", "app/flow_m3h", "m³/h", "volume_flow_rate", "measurement", None)]
         # sensors of older versions of the app: an empty retained discovery message removes them from Home Assistant
         for key in ("history_meter",):
             self.client.publish("homeassistant/sensor/gas_meter_app/%s/config" % key, "", qos=1, retain=True)
@@ -918,7 +919,7 @@ async def api_notify(request):
     })
 
 
-# ------------------------------- history imported from Home Assistant -------------------------------
+# ------------------------------- Home Assistant WebSocket API -------------------------------
 async def core_ws_call(commands):
     """Runs commands on the Home Assistant WebSocket API (through the Supervisor proxy). Returns the results."""
     token = core_token()
@@ -948,103 +949,6 @@ def stat_time(value):
     if isinstance(value, (int, float)):
         return value / 1000.0 if value > 1e11 else float(value)
     return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
-
-
-def stats_to_points(rows, kind, divisor, with_info=False):
-    """Hourly statistics -> [[unix seconds, value]]. A meter uses the reading at the end of the hour,
-    a battery the hourly mean. Returns the points and the number of times the meter reading went down.
-    For a meter the statistic's "sum" is preferred when most rows have it: it keeps counting through resets of the
-    source, while "state" can jump back. With with_info a description of what was read is returned as well."""
-    rows = list(rows or [])
-    use_sum = kind == "meter" and sum(1 for r in rows if r.get("sum") is not None) >= 0.5 * max(1, len(rows))
-    points, decreases, top = [], 0, None
-    with_state = with_sum = 0
-    for row in rows:
-        if kind == "meter":
-            with_state += row.get("state") is not None
-            with_sum += row.get("sum") is not None
-            value = row.get("sum") if use_sum else row.get("state")
-            if value is None:
-                value = row.get("state") if use_sum else row.get("sum")
-            when = stat_time(row["end"]) if row.get("end") is not None else stat_time(row["start"]) + 3600
-        else:
-            value = row.get("mean")
-            when = stat_time(row["start"]) + 1800
-        if value is None:
-            continue
-        value = float(value) / divisor
-        if kind == "meter":
-            if top is not None and value < top - 1e-9:
-                decreases += 1
-                continue                         # a reset of the source would ruin the consumption
-            top = value
-        points.append([round(when, 1), round(value, 3 if kind == "battery" else 2)])
-    points.sort(key=lambda p: p[0])
-    if with_info:
-        longest = max(((points[i + 1][0] - points[i][0]) / 86400 for i in range(len(points) - 1)), default=0.0)
-        return points, decreases, {"rows": len(rows), "with_state": with_state, "with_sum": with_sum, "mode": "sum" if use_sum else "state",
-                                   "longest_gap_days": round(longest, 1), "gaps": sum(1 for i in range(len(points) - 1) if points[i + 1][0] - points[i][0] > 36 * 3600)}
-    return points, decreases
-
-
-def summarize(points, kind, decreases=0):
-    if not points:
-        return {"count": 0}
-    values = [p[1] for p in points]
-    out = {"count": len(points), "from": points[0][0], "to": points[-1][0], "first": values[0], "last": values[-1],
-           "min": min(values), "max": max(values), "decreases": decreases}
-    if kind == "battery":
-        out["avg"] = sum(values) / len(values)
-    return out
-
-
-async def api_ha_stats(request):
-    app = request.app
-    store = app["store"]
-    if request.method == "GET":
-        try:
-            ids = (await core_ws_call([{"type": "recorder/list_statistic_ids"}]))[0] if core_token() else []
-        except Exception as error:
-            return web.json_response({"error": str(error), "ids": [], "in_ha": bool(core_token())}, status=502)
-        listing = [{"id": i.get("statistic_id"), "name": i.get("name") or "", "unit": i.get("statistics_unit_of_measurement") or i.get("unit_of_measurement") or ""}
-                   for i in ids or []]
-        listing.sort(key=lambda i: i["id"])
-        meta = {k: {key: v[key] for key in v if key not in ("points", "sources", "joins")} for k, v in store.imported.items()}
-        return web.json_response({"ids": listing, "imported": meta, "in_ha": bool(core_token())})
-    try:
-        body = await request.json()
-        action = body.get("action")
-        kind = body.get("kind", "battery")
-        stat_id = str(body.get("statistic_id", ""))
-        divisor = float(body.get("divisor") or 1)
-        if kind != "battery" or divisor <= 0:
-            raise ValueError("bad parameter")
-        if action in ("preview", "import") and not re.fullmatch(r"[a-z0-9_]+\.[a-z0-9_]+", stat_id):
-            raise ValueError("bad statistic id")
-    except (ValueError, TypeError, AttributeError) as error:
-        return web.json_response({"error": str(error)}, status=400)
-    if action == "clear":
-        with store.lock:
-            store.imported.pop(kind, None)
-        store.save_imported()
-        return web.json_response({"ok": True})
-    if action not in ("preview", "import"):
-        return web.json_response({"error": "unknown action"}, status=400)
-    try:
-        result = (await core_ws_call([{
-            "type": "recorder/statistics_during_period", "start_time": "2000-01-01T00:00:00+00:00",
-            "statistic_ids": [stat_id], "period": "hour", "types": ["state", "mean", "min", "max", "sum"]}]))[0]
-    except Exception as error:
-        return web.json_response({"error": str(error)}, status=502)
-    points, decreases = stats_to_points((result or {}).get(stat_id), kind, divisor)
-    summary = summarize(points, kind, decreases)
-    if action == "import":
-        if not points:
-            return web.json_response({"error": "Ta encja nie ma statystyk godzinowych w tym zakresie"}, status=409)
-        with store.lock:
-            store.imported[kind] = dict(summary, id=stat_id, divisor=divisor, imported_at=time.time(), points=points)
-        store.save_imported()
-    return web.json_response(summary)
 
 
 # ------------------------------- firmware update over the air -------------------------------
@@ -1744,6 +1648,28 @@ async def publish_app_entities(app):
         bridge.publish("app/month_m3", "%.1f" % forecast["next"]["m3"])
 
 
+def publish_flow(app):
+    """The gas flow (m³/h, the average of the last 15 minutes) for the entity in Home Assistant."""
+    bridge = app.get("bridge")
+    if bridge is None:
+        return
+    with app["store"].lock:
+        flow = app["store"].flow_m3h()
+    if flow is not None:
+        bridge.publish("app/flow_m3h", "%.3f" % flow)
+
+
+async def flow_loop(app):
+    """Every minute, so that the flow also falls back to 0 when the gas stops (no new reading arrives then)."""
+    await asyncio.sleep(20)
+    while True:
+        try:
+            publish_flow(app)
+        except Exception as error:  # pragma: no cover
+            log.warning("flow update failed: %s", error)
+        await asyncio.sleep(60)
+
+
 async def app_entities_loop(app):
     await asyncio.sleep(60)
     while True:
@@ -1980,6 +1906,7 @@ async def on_startup(app):
     app["entities_task"] = asyncio.create_task(app_entities_loop(app))
     app["boiler_task"] = asyncio.create_task(boiler_loop(app))
     app["legacy_task"] = asyncio.create_task(drop_legacy_statistics(app))
+    app["flow_task"] = asyncio.create_task(flow_loop(app))
     app["ota_task"] = asyncio.create_task(ota_loop(app))
     ota_site = web.Application()
     ota_site["ota_state"] = app["ota"]
@@ -2001,6 +1928,7 @@ async def on_cleanup(app):
     app["entities_task"].cancel()
     app["boiler_task"].cancel()
     app["ota_task"].cancel()
+    app["flow_task"].cancel()
     await app["ota_runner"].cleanup()
     app["store"].save()
     app["bridge"].client.loop_stop()
@@ -2033,8 +1961,6 @@ def create_app(options):
     app.router.add_get("/api/forecast", api_forecast)
     app.router.add_get("/api/weather", api_weather)
     app.router.add_post("/api/weather", api_weather)
-    app.router.add_get("/api/ha_stats", api_ha_stats)
-    app.router.add_post("/api/ha_stats", api_ha_stats)
     app.router.add_get("/api/ota", api_ota)
     app.router.add_post("/api/ota", api_ota)
     app.router.add_post("/api/ota_upload", api_ota_upload)

@@ -45,13 +45,6 @@ const TEXT = {
     visibleRange: "Widoczny zakres", goBattery: "Przejdź do zakładki Bateria",
     emptyBattery: "Gazomierz nie przysłał jeszcze danych baterii. Pojawią się po wgraniu szkicu gazomierza (firmware/gas_meter). Test rozładowania zobaczysz w zakładce Bateria.",
     emptyGeneric: "W tym okresie nie ma jeszcze danych.",
-    hsTitle: "Historia baterii z Home Assistant", hsHint: "Wczytuje statystyki napięcia baterii wybranej encji z Home Assistant (np. ze starego czujnika). Zaimportowane dane są tylko starsze niż pierwszy odczyt z nowego gazomierza i nie zmieniają niczego w Home Assistant.",
-    hsEntity: "Encja ze statystykami", hsSearch: "Szukaj", hsKind: "Co to jest", hsKindMeter: "Stan licznika (m³)", hsKindBattery: "Napięcie baterii (V)",
-    hsDivisor: "Dzielnik", hsDivisorHint: "1, jeśli encja podaje m³ albo V. Jeśli podaje impulsy, wpisz ich liczbę na m³ (np. 100).",
-    hsPreview: "Podgląd", hsImport: "Importuj", hsClear: "Usuń zaimportowane", hsRefresh: "Odśwież listę",
-    hsNone: "Nic nie zaimportowano.", hsImported: "Zaimportowano", hsRange: "Zakres", hsCount: "Punktów", hsFirst: "Pierwsza wartość", hsLast: "Ostatnia wartość",
-    hsMin: "Minimum", hsMax: "Maksimum", hsAvg: "Średnia", hsDecreases: "Pominięte spadki licznika", hsNoList: "Nie udało się pobrać listy encji",
-    hsBatteryNote: "Uwaga: stary szkic mierzył napięcie baterii błędnie, więc wartości mogą być zawyżone. Sprawdź zakres w podglądzie.",
     tabBattery: "Bateria", bTitle: "Bateria teraz", bSource: "Źródło", bMeter: "Gazomierz", bTest: "Test rozładowania",
     bVolts: "Napięcie", bSoc: "Naładowanie (szacunek)", bCurveGeneric: "Ogólna krzywa Li-ion", bCurveLearned: "Krzywa nauczona z Twojego testu rozładowania",
     bPredTitle: "Prognoza żywotności", bModel: "Model zużycia", bTrend: "Trend napięcia", bToWarn: "Do napięcia zatrzymania WiFi", bToCut: "Do napięcia odcięcia",
@@ -67,10 +60,10 @@ const TEXT = {
     bConnect: "Czas łączenia z WiFi (min / śr. / maks)", bRssi: "Sygnał WiFi (min / śr. / maks)", bSamples: "Próbek baterii", bHistorySince: "Historia od",
     bTestNote: "Test rozładowania: prognoza wynika z trendu napięcia. Gdy test dojdzie do 3,0 V, panel nauczy się prawdziwej krzywej Twoich ogniw i użyje jej dla gazomierza.",
     bDays: "dni", bMonths: "mies.", bOn: "włączone", bUnknown: "nieznane",
-    tabPanel: "Przegląd", tabUsage: "Zużycie", meterSub: "wskazanie gazomierza", flowSub: "średnio z ostatnich 15 min", todaySub: "od północy", signalSub: "WiFi gazomierza", lastSub: "ostatni odczyt z gazomierza", tabSettings: "Ustawienia", tabNetwork: "Sieć", tabService: "Serwis", tabDemo: "Demo",
-    settingsNote: "Gazomierz odbiera z apki tylko stan licznika, przy najbliższym połączeniu z WiFi (czyli przy impulsie gazu). Pozostałe parametry (WiFi, stałe IP, progi baterii, odstęp wysyłki) są wpisane w firmware: plik secrets.h i definicje na początku szkicu.",
+    tabPanel: "Przegląd", tabUsage: "Zużycie", meterSub: "wskazanie gazomierza", flowSub: "średnio z ostatnich 15 min", todaySub: "od północy", signalSub: "WiFi gazomierza", lastSub: "ostatni odczyt z gazomierza", tabNetwork: "Sieć", tabService: "OTA",
+   
     networkNote: "Tylko podgląd tego, co gazomierz zgłasza. Dane sieci zmienia się w firmware (secrets.h).",
-    serviceNote: "Aktualizacja firmware i diagnostyka gazomierza.", histHint: "Kliknij wartość, żeby zobaczyć jej historię.", close: "Zamknij", range1h: "1 godz.", range6h: "6 godz.",
+    serviceNote: "Aktualizacja firmware (OTA), stan licznika i diagnostyka gazomierza.", histHint: "Kliknij wartość, żeby zobaczyć jej historię.", close: "Zamknij", range1h: "1 godz.", range6h: "6 godz.",
     range24h: "24 godz.", range7d: "7 dni", range14d: "14 dni", hMeter: "Stan licznika", hFlow: "Przepływ",
     hHourly: "Zużycie na godzinę", hBattery: "Napięcie baterii", hPercent: "Poziom baterii", hRssi: "Sygnał WiFi",
     hBtPin: "Napięcie na pinie (test)", hBtVolt: "Napięcie baterii (test)", sMin: "Min", sMax: "Maks", sAvg: "Średnia",
@@ -122,76 +115,7 @@ async function api(path, options) {
   if (!response.ok) throw new Error(data.error || response.statusText);
   return data;
 }
-// ------------------------------------------------------------- history imported from Home Assistant
-const haState = { ids: [], imported: {} };
 const fmtDay = (ts) => new Date(ts * 1000).toLocaleDateString("pl-PL");
-
-async function loadHaStats() {
-  try {
-    const d = await api("ha_stats");
-    haState.ids = d.ids || []; haState.imported = d.imported || {};
-    $("#hsNote").textContent = "";
-  } catch (error) {
-    haState.ids = []; $("#hsNote").textContent = t("hsNoList") + ": " + error.message;
-  }
-  fillHaList(); renderHaStatus();
-}
-function fillHaList() {
-  const q = $("#hsFilter").value.trim().toLowerCase(), select = $("#hsId"), keep = select.value;
-  select.textContent = "";
-  for (const i of haState.ids) {
-    if (q && !(i.id.toLowerCase().includes(q) || i.name.toLowerCase().includes(q))) continue;
-    select.append(el("option", { value: i.id, text: (i.name ? i.name + " · " : "") + i.id + (i.unit ? " · " + i.unit : "") }));
-  }
-  if (keep && [...select.options].some((o) => o.value === keep)) select.value = keep;
-  pickHaKind();
-}
-// the unit tells what the entity is
-function pickHaKind() {
-  const item = haState.ids.find((i) => i.id === $("#hsId").value);
-  if (!item) return;
-  if (/^v$/i.test(item.unit)) $("#hsKind").value = "battery";
-  $("#hsNote").textContent = $("#hsKind").value === "battery" ? t("hsBatteryNote") : "";
-}
-function renderHaStatus() {
-  const box = $("#hsStatus"); box.textContent = "";
-  const rows = Object.entries(haState.imported);
-  if (!rows.length) { box.textContent = t("hsNone"); return; }
-  for (const [kind, m] of rows) {
-    box.append(el("div", {}, [t("hsImported") + ": " + (kind === "meter" ? t("hsKindMeter") : t("hsKindBattery")) + " — " + m.id + ", " +
-      fmtDay(m.from) + " – " + fmtDay(m.to) + ", " + m.count + " " + t("hsCount").toLowerCase()]));
-  }
-}
-function showHaSummary(summary, kind) {
-  const box = $("#hsResult"); box.textContent = "";
-  if (!summary.count) { box.append(el("span", { text: t("noData") }), el("span", { class: "v", text: "0" })); return; }
-  const unit = kind === "battery" ? " V" : " m³", row = (key, value) => box.append(el("span", { text: t(key) }), el("span", { class: "v", text: value }));
-  row("hsRange", fmtDay(summary.from) + " – " + fmtDay(summary.to));
-  row("hsCount", String(summary.count));
-  row("hsFirst", num(summary.first, 2) + unit); row("hsLast", num(summary.last, 2) + unit);
-  if (kind === "battery") { row("hsMin", num(summary.min, 2) + unit); row("hsAvg", num(summary.avg, 2) + unit); row("hsMax", num(summary.max, 2) + unit); }
-  if (summary.decreases) row("hsDecreases", String(summary.decreases));
-}
-async function haAction(action) {
-  const kind = $("#hsKind").value, statisticId = $("#hsId").value, divisor = Number($("#hsDiv").value) || 1;
-  if (action !== "clear" && !statisticId) return;
-  if (action === "import" || action === "clear") {
-    const ok = await confirmDialog(action === "import"
-      ? { title: "Zaimportować historię?", danger: true, confirmText: "Importuj",
-          message: "Dane z wybranej encji zastąpią wcześniej zaimportowaną historię tego rodzaju i dołączą się do wykresów i statystyk. W Home Assistant nic się nie zmienia.",
-          details: [["Encja", statisticId], ["Co to jest", kind === "meter" ? t("hsKindMeter") : t("hsKindBattery")], ["Dzielnik", String(divisor)]] }
-      : { title: "Usunąć zaimportowaną historię?", danger: true, confirmText: "Usuń",
-          message: "Zaimportowana historia tego rodzaju zniknie z wykresów i statystyk w apce. Dane w Home Assistant zostają.",
-          details: [["Rodzaj", kind === "meter" ? t("hsKindMeter") : t("hsKindBattery")]] });
-    if (!ok) return;
-  }
-  try {
-    const result = await api("ha_stats", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, statistic_id: statisticId, kind, divisor }) });
-    if (action !== "clear") showHaSummary(result, kind); else $("#hsResult").textContent = "";
-    if (action !== "preview") { toast(action === "import" ? "Zaimportowano" : "Usunięto"); await loadHaStats(); drawChart(); if (battery.chart) loadBattery(); refresh(); }
-  } catch (error) { toast(t("error") + ": " + error.message, true); }
-}
 
 // ------------------------------------------------------------- confirmation of sensitive actions
 // The browser's confirm() is silently blocked in some frames (Home Assistant), so the app has its own dialog.
@@ -269,7 +193,7 @@ function build() {
   const root = $("#root");                 // Overview
   root.textContent = "";
   const views = {
-    battery: $("#batteryView"), settings: $("#settingsView"), network: $("#networkView"), service: $("#serviceView"),
+    battery: $("#batteryView"), network: $("#networkView"), service: $("#serviceView"),
   };
   for (const node of Object.values(views)) node.textContent = "";
   const note = (key) => el("section", { class: "card wide" }, [el("p", { class: "muted small", style: "margin:0", "data-i18n": key })]);
@@ -349,8 +273,7 @@ function build() {
 
   // service
   views.service.append(note("serviceNote"));
-
-  views.settings.append(note("settingsNote"));
+  views.service.append(otaCard());
 
   // counter
   const counterInput = el("input", { type: "number", id: "in-counter", min: 0, step: "0.01" });
@@ -361,7 +284,7 @@ function build() {
     if (counterInput.value.trim() === "" || !Number.isFinite(reading) || reading < 0) { toast("Wpisz poprawny stan licznika (m³), może być 0.", true); return; }
     send("counter", Math.round(reading * perM3));
   });
-  views.settings.append(el("section", { class: "card" }, [
+  views.service.append(el("section", { class: "card" }, [
     el("h2", { "data-i18n": "counterTitle" }),
     el("div", { class: "row", id: "row-counter" }, [
       el("label", { for: "in-counter", "data-i18n": "counterLabel" }),
@@ -382,33 +305,6 @@ function build() {
   views.network.append(note("networkNote"));
   views.network.append(network);
 
-  views.service.append(otaCard());
-  // history imported from Home Assistant statistics
-  views.battery.append(el("section", { class: "card", id: "hsCard" }, [
-    el("h2", { "data-i18n": "hsTitle" }),
-    el("p", { class: "hint", style: "margin-top:0", "data-i18n": "hsHint" }),
-    el("div", { class: "row" }, [el("label", { for: "hsFilter", "data-i18n": "hsSearch" }), el("div", { class: "field" }, [el("input", { type: "text", id: "hsFilter", value: "gazomierz", autocomplete: "off" })])]),
-    el("div", { class: "row" }, [el("label", { for: "hsId", "data-i18n": "hsEntity" }), el("div", { class: "field" }, [el("select", { id: "hsId" })])]),
-    el("div", { class: "row" }, [el("label", { for: "hsKind", "data-i18n": "hsKind" }), el("div", { class: "field" }, [
-      el("select", { id: "hsKind" }, [el("option", { value: "battery", "data-i18n": "hsKindBattery" })])])]),
-    el("div", { class: "row" }, [el("label", { for: "hsDiv", "data-i18n": "hsDivisor" }), el("div", { class: "field" }, [el("input", { type: "number", id: "hsDiv", value: "1", min: "0.0001", step: "any" })]),
-                                 el("div", { class: "hint", style: "margin:0", "data-i18n": "hsDivisorHint" })]),
-    el("div", { class: "field", style: "gap:8px;flex-wrap:wrap" }, [
-      el("button", { class: "secondary", id: "hsPreviewBtn", "data-i18n": "hsPreview" }),
-      el("button", { id: "hsImportBtn", "data-i18n": "hsImport" }),
-      el("button", { class: "ghost", id: "hsClearBtn", "data-i18n": "hsClear" }),
-      el("button", { class: "ghost", id: "hsRefreshBtn", "data-i18n": "hsRefresh" }),
-    ]),
-    el("div", { class: "kv", id: "hsResult" }),
-    el("p", { class: "hint", id: "hsNote" }),
-    el("div", { class: "muted small", style: "margin-top:12px", id: "hsStatus" }),
-  ]));
-  $("#hsFilter").addEventListener("input", fillHaList);
-  $("#hsId").addEventListener("change", pickHaKind);
-  $("#hsPreviewBtn").addEventListener("click", () => haAction("preview"));
-  $("#hsImportBtn").addEventListener("click", () => haAction("import"));
-  $("#hsClearBtn").addEventListener("click", () => haAction("clear"));
-  $("#hsRefreshBtn").addEventListener("click", loadHaStats);
 
   // diagnostics
   views.service.append(el("section", { class: "card" }, [
@@ -428,8 +324,6 @@ function applyLanguage() {
   document.querySelectorAll("#viewTabs button").forEach((b) => {
     b.textContent = t("tab" + b.dataset.view.charAt(0).toUpperCase() + b.dataset.view.slice(1));
   });
-  const demo = $("#demoView iframe");
-  if (demo && demo.contentWindow && demo.contentWindow.setLang) demo.contentWindow.setLang(lang);
   document.querySelectorAll("[data-i18n]").forEach((node) => { node.textContent = t(node.dataset.i18n); });
   document.querySelectorAll(".row button:not([data-i18n]):not([data-keep])").forEach((button) => { button.textContent = t("save"); });
 }
@@ -529,9 +423,9 @@ function update() {
   }
 
   // number of commands waiting for the meter, shown on the tab where they belong
-  const counts = { settings: 0, network: 0, service: 0 };
+  const counts = { network: 0, service: 0 };
   for (const name of Object.keys(state.pending || {})) {
-    if (name === "counter") counts.settings++;        // the only command the firmware reads
+    if (name === "counter") counts.service++;        // the only command the firmware reads
   }
   for (const [tab, count] of Object.entries(counts)) {
     const button = document.querySelector('#viewTabs button[data-view="' + tab + '"]');
@@ -1671,9 +1565,11 @@ function buildBattery() {
     el("div", { class: "muted small", "data-i18n": "bModel" }),
     el("div", { class: "pred", id: "bModelCut" }),
     el("div", { class: "muted small", id: "bModelDates" }),
-    el("div", { class: "muted small", style: "margin-top:12px", "data-i18n": "bTrend" }),
-    el("div", { class: "pred", id: "bTrendCut" }),
-    el("div", { class: "muted small", id: "bTrendDates" }),
+    el("div", { id: "bTrendBox", hidden: "" }, [          // only once the trend is reliable: a few days of data say little on a flat Li-ion curve
+      el("div", { class: "muted small", style: "margin-top:12px", "data-i18n": "bTrend" }),
+      el("div", { class: "pred", id: "bTrendCut" }),
+      el("div", { class: "muted small", id: "bTrendDates" }),
+    ]),
     el("div", { class: "muted small", style: "margin-top:12px", text: "Model z sezonami (zużycie gazu z faktur)" }),
     el("div", { class: "pred", id: "bSeasonCut" }),
     el("div", { class: "muted small", id: "bSeasonDates" }),
@@ -1701,7 +1597,6 @@ function buildBattery() {
     ]),
     el("div", { class: "muted small", id: "bReadout" }),
     canvas,
-    el("div", { class: "legend", id: "bLegend" }),
     el("p", { class: "hint", "data-i18n": "chartHint" }),
   ], true);
 
@@ -1859,7 +1754,8 @@ function renderBattery() {
   $("#bCurve").textContent = d.curve === "learned" ? t("bCurveLearned") : t("bCurveGeneric");
 
   // predictions
-  const model = d.model, trend = d.trend;
+  const model = d.model, trend = d.trend && d.trend.confidence !== "low" ? d.trend : null;
+  $("#bTrendBox").hidden = !trend;
   const dates = (p) => p ? t("bToWarn") + ": " + fmtLife(p.days_to_warn) + " (" + fmtDate(p.days_to_warn) + ")\n" +
                            t("bToCut") + ": " + fmtLife(p.days_to_cutoff) + " (" + fmtDate(p.days_to_cutoff) + ")" : "";
   $("#bModelCut").textContent = model ? fmtLife(model.days_to_cutoff) : "—";
@@ -1950,7 +1846,8 @@ function drawBattery() {
     battery.chart = new TimeChart(canvas, { unit: "V", dec: 3, monthlyTicks: "auto", onView: batteryView, onSettled: batteryDetail });
   }
   const chart = battery.chart;
-  const hist = d.history || [], fm = d.forecast_model || [], ft = d.forecast_trend || [];
+  const hist = d.history || [], fm = d.forecast_model || [];
+  const ft = d.trend && d.trend.confidence !== "low" ? d.forecast_trend || [] : [];
   const warnV = (d.model_params && d.model_params.warn_v) || 3.1, cutV = (d.model_params && d.model_params.cutoff_v) || 3.0;
   const fs = d.forecast_season, fsPoints = fs && fs.points && fs.points.length > 1 ? fs.points : [];
   const series = [{ name: t("bVolts"), color: cssColor("--accent"), points: hist, area: true }];
@@ -1971,12 +1868,6 @@ function drawBattery() {
   chart.setSeries(series, [hist.length ? hist[0][0] : d.now - 86400, end], !fresh);
   if (fresh) { battery.chartKey = d.source; applyBatteryPreset(false); }
 
-  const legend = $("#bLegend"); legend.textContent = "";
-  const addLegend = (c, text) => legend.append(el("span", {}, [el("i", { class: "swatch", style: "background:" + c }), text]));
-  addLegend(cssColor("--accent"), t("bVolts"));
-  if (fsPoints.length) addLegend("#9a5bd0", "prognoza z sezonami");
-  if (fm.length) addLegend(cssColor("--ok"), t("bForecastModel"));
-  if (ft.length) addLegend(cssColor("--warn"), t("bForecastTrend"));
   batteryView(chart.view[0], chart.view[1]);
 }
 
@@ -2027,9 +1918,7 @@ async function refresh() {
     state = await api("state");
     if (!built) {
       build(); drawChart();
-      let saved = "panel";
-      try { saved = localStorage.getItem("gasMeterView") || "panel"; } catch (e) { /* ignore */ }
-      showView(saved);
+      showView("panel");                         // the app always opens on the overview
     }
     update();
   } catch (error) {
@@ -2040,10 +1929,10 @@ async function refresh() {
 
 window.addEventListener("resize", () => { if (built) { if (!$("#batteryView").hidden) drawBattery(); if (!$("#usageView").hidden) drawUsage(); } });
 
-// ---------------------------------------------------------------- panel / demo tabs
-const VIEW_NODES = { panel: "#root", usage: "#usageView", battery: "#batteryView", settings: "#settingsView", network: "#networkView",
-                     service: "#serviceView", demo: "#demoView" };
-const VIEW_ORDER = ["panel", "usage", "battery", "settings", "network", "service", "demo"];
+// ---------------------------------------------------------------- tabs
+const VIEW_NODES = { panel: "#root", usage: "#usageView", battery: "#batteryView", network: "#networkView",
+                     service: "#serviceView" };
+const VIEW_ORDER = ["panel", "usage", "battery", "network", "service"];
 const reducedMotion = () => !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
 let viewSwap = null;
 
@@ -2073,7 +1962,7 @@ function showView(view, from) {
       next.addEventListener("animationend", () => next.classList.remove("slide-from-left", "slide-from-right"), { once: true });
     }
     if (from) window.scrollTo(0, 0);
-    if (view === "battery") { loadBattery(); loadHaStats(); }
+    if (view === "battery") loadBattery();
     if (view === "service") loadOta();
     if (view === "usage") loadUsage();
   };
@@ -2089,16 +1978,6 @@ function showView(view, from) {
     if (btn.dataset.view === view) btn.scrollIntoView({ block: "nearest", inline: "nearest" });
   });
   moveIndicator(!!from);
-  if (view === "demo" && !$("#demoView iframe")) {
-    const frame = el("iframe", { src: "static/simulator.html?v=" + (window.ASSET_V || ""), title: "simulator" });
-    // same origin, so the frame can be sized to its content (no inner scrollbar)
-    const fit = () => {
-      try { frame.style.height = (frame.contentDocument.documentElement.scrollHeight + 12) + "px"; } catch (e) { /* ignore */ }
-    };
-    frame.addEventListener("load", () => { fit(); setInterval(fit, 1000); });
-    $("#demoView").append(frame);
-  }
-  try { localStorage.setItem("gasMeterView", view); } catch (e) { /* ignore */ }
 }
 // a tap on a tab slides in the same direction as a swipe would
 document.querySelectorAll("#viewTabs button").forEach((btn) => btn.addEventListener("click", () => {
@@ -2114,10 +1993,6 @@ function swipeTab(direction) {
   const now = buttons.findIndex((b) => b.classList.contains("active")), next = now + (direction === "left" ? 1 : -1);
   if (now >= 0 && next >= 0 && next < buttons.length) showView(buttons[next].dataset.view, direction === "left" ? "right" : "left");
 }
-// the simulator (in a frame) reports its own swipes
-window.addEventListener("message", (e) => {
-  if (e.origin === location.origin && e.data && (e.data.gasSwipe === "left" || e.data.gasSwipe === "right")) swipeTab(e.data.gasSwipe);
-});
 
 // swipe left or right on the page to move to the next or the previous tab. The listeners are passive, so they never
 // get in the way of the vertical scroll. Sliders, lists, the field being edited, the tab bar, dialogs and the overview strip of a chart are left alone.

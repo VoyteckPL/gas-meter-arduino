@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.34.0
+
+* Nowa encja w HA „Przepływ gazu” (m³/h, średnia z ostatnich 15 minut), odświeżana co minutę, więc po wyłączeniu pieca spada do 0.
+* Zakładki uporządkowane: Przegląd, Zużycie, Bateria, Sieć, OTA. „Serwis” nazywa się teraz „OTA” i zawiera też kartę „Ustaw stan licznika” (zakładka Ustawienia zniknęła). Zakładka Demo (symulator) usunięta.
+* Apka zawsze otwiera się na Przeglądzie.
+* Bateria: usunięta karta „Historia baterii z Home Assistant” (import starych statystyk). Prognoza pokazuje trend napięcia dopiero, gdy jest wiarygodny (wcześniej przy kilku dniach danych dawała mylące „80 dni”); bez podwójnej legendy pod wykresem.
+
 ## 0.33.1
 
 * Usunięty wygląd „Zachód 3D”. Zostają „Zachód słońca”, „Zmierzch” i „Zmierzch + godziny”. Kto miał wybrany 3D, dostaje „Zachód słońca”.
