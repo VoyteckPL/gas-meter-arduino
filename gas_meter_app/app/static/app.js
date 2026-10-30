@@ -373,10 +373,16 @@ function build() {
     bt.addEventListener("click", () => { pec.range = key; loadPec(); });
     pecTabs.append(bt);
   }
+  const pecViews = el("div", { class: "tabs", id: "pecViews" });
+  for (const [label, key, hint] of [["Oś czasu", "A", "pionowo, sesje zgrupowane"], ["Godziny", "B", "paski minut i zł na godzinę"],
+                                    ["Sesje", "C", "karty z paskiem sesji"], ["Tory", "D", "tory dnia i tabela"]]) {
+    const bt = el("button", { class: "secondary", "data-view": key, text: label, title: hint });
+    bt.addEventListener("click", () => { pec.view = key; try { localStorage.setItem("gasMeterPecView", key); } catch (e) { /* private mode */ } renderPec(); });
+    pecViews.append(bt);
+  }
   root.append(el("section", { class: "card wide", id: "pecCard", hidden: "" }, [
-    el("div", { class: "ovhead" }, [el("h2", { text: "Piec: co chodziło" }), el("div", { class: "ovright" }, [pecTabs, costToggle()])]),
-    el("div", { class: "pecsum", id: "pecSum" }),
-    el("div", { class: "pecbar", id: "pecBar" }),
+    el("div", { class: "ovhead" }, [el("div", { class: "ovtitle" }, [el("h2", { text: "Piec: co chodziło" }), el("span", { class: "pectotal", id: "pecTotal" })]),
+      el("div", { class: "ovright" }, [pecViews, pecTabs, costToggle()])]),
     el("div", { id: "pecList" }),
   ]));
 
@@ -603,7 +609,7 @@ function update() {
 }
 
 // ----------------------------------------------------------------------- boiler history
-const pec = { range: "today", data: null };
+const pec = { range: "today", data: null, view: (() => { try { return localStorage.getItem("gasMeterPecView") || "A"; } catch (e) { return "A"; } })() };
 const hhmm = (ts) => new Date(ts * 1000).toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" });
 
 async function loadPec() {
@@ -616,64 +622,119 @@ function renderPec() {
   const d = pec.data;
   if (!d) return;
   document.querySelectorAll("#pecTabs button").forEach((b) => b.classList.toggle("active", b.dataset.range === pec.range));
+  document.querySelectorAll("#pecViews button").forEach((b) => b.classList.toggle("active", b.dataset.view === pec.view));
   const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
-  const from = pec.range === "today" ? midnight.getTime() / 1000 : d.now - d.days * 86400;
-  const runs = d.runs.filter((r) => r.end > from).map((r) => ({ ...r, start: Math.max(r.start, from) }));
+  const from = pec.range === "today" ? midnight.getTime() / 1000 : d.now - d.days * 86400, now = d.now;
+  // oldest first; the pump burns no gas (what the meter counted then is the end of the burn before)
+  const runs = d.runs.filter((r) => r.end > from).map((r) => {
+    const k = r.kind === "heating" ? "heat" : r.kind === "dhw" ? "dhw" : "pump";
+    const gas = k !== "pump";
+    return { k, a: Math.max(r.start, from), b: r.end, live: r.live, label: r.kind === "other" ? r.state : PEC_NAME[k],
+             m3: gas && r.m3 ? r.m3 : 0, zl: gas && r.cost ? r.cost : 0 };
+  }).reverse();
+  const total = runs.reduce((a, r) => a + r.zl, 0);
+  $("#pecTotal").textContent = showCost && runs.length ? zl(total) : "";
+  const list = $("#pecList");
+  list.className = "pec pec" + pec.view;
+  if (!runs.length) { list.innerHTML = '<p class="muted small">Piec nic nie robił w tym czasie.</p>'; return; }
+  list.innerHTML = { A: pecTimeline, B: pecHours, C: pecSessions, D: pecLanes }[pec.view](runs, from, now);
+}
 
-  // totals per kind
-  const sums = {};
+// ---- the four looks of the boiler history (pure functions: runs → HTML)
+const PEC_NAME = { heat: "Ogrzewanie", dhw: "Ciepła woda", pump: "Wybieg pompy" };
+const PEC_ICON = { heat: "flame", dhw: "drop", pump: "pump" };
+const pIcon = (k) => '<svg class="pi" viewBox="0 0 24 24" aria-hidden="true">' + STAT_ICONS[PEC_ICON[k]] + "</svg>";
+const pEsc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const pM3 = (v) => num(v, 2).replace(".", ",") + " m³";
+const pDay = (ts) => { const x = new Date(ts * 1000), t = new Date(), y = new Date(); y.setDate(t.getDate() - 1);
+  return x.toDateString() === t.toDateString() ? "Dziś" : x.toDateString() === y.toDateString() ? "Wczoraj" : x.toLocaleDateString("pl-PL", { weekday: "long", day: "numeric", month: "long" }); };
+const pMoney = (s) => (s.zl >= 0.005 ? (showCost ? '<span class="zl">' + zl(s.zl) + "</span>" : "") + "<small>" + pM3(s.m3) + "</small>" : "<small>bez gazu</small>");
+
+// runs closer than 5 min make one session; hot water never merges with heating
+function pecSessionsOf(runs) {
+  const out = [];
   for (const r of runs) {
-    if (r.kind === "pump") { r.m3 = null; r.cost = null; }
-    const t = sums[r.kind] = sums[r.kind] || { s: 0, m3: 0, cost: 0, n: 0 };
-    t.s += r.end - r.start; t.m3 += r.m3 || 0; t.cost += r.cost || 0; t.n++;
+    const s = out[out.length - 1];
+    if (s && r.a - s.b < 300 && !(s.k === "dhw" && r.k === "heat") && !(r.k === "dhw" && s.k !== "dhw")) { s.runs.push(r); s.b = r.b; s.live = r.live; }
+    else out.push({ k: r.k, a: r.a, b: r.b, live: r.live, runs: [r] });
   }
-  const sum = $("#pecSum"); sum.textContent = "";
-  for (const kind of ["heating", "dhw", "pump", "other"]) {
-    const t = sums[kind];
-    if (!t) continue;
-    const info = { kind, label: BOILER_KINDS[kind].label || "Inne", icon: BOILER_KINDS[kind].icon };
-    const item = el("div", { class: "pecitem pecsumitem boilerpill " + kind });
-    const ic = el("span", { class: "pi" }); ic.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true">' + STAT_ICONS[info.icon] + "</svg>";
-    item.append(ic, el("b", { text: info.label }),
-      el("span", { class: "pd", text: duration(t.s) + " · " + t.n + "×" + (t.m3 >= 0.005 ? " · " + num(t.m3, 2) + " m³" : "") }),
-      el("span", { class: "pc" }, showCost && t.cost >= 0.005 ? [el("em", { text: zl(t.cost) })] : []));
-    sum.append(item);
+  for (const s of out) {
+    const burn = s.runs.filter((r) => r.k !== "pump");
+    s.k = burn.some((r) => r.k === "heat") ? "heat" : burn.some((r) => r.k === "dhw") ? "dhw" : "pump";
+    s.m3 = s.runs.reduce((a, r) => a + r.m3, 0); s.zl = s.runs.reduce((a, r) => a + r.zl, 0);
+    s.starts = burn.length; s.burnS = burn.reduce((a, r) => a + r.b - r.a, 0);
+    s.pumpS = s.runs.filter((r) => r.k === "pump").reduce((a, r) => a + r.b - r.a, 0);
+    s.cycling = s.k === "heat" && s.starts >= 3 && s.burnS / s.starts < 120;
+    s.name = s.cycling ? "Ogrzewanie (taktowanie)" : s.k === "pump" ? s.runs[0].label : PEC_NAME[s.k];
   }
-  const total = runs.reduce((a, r) => a + (r.cost || 0), 0);
-  if (runs.length && showCost) sum.append(el("span", { class: "pectotal" }, [el("span", { text: "razem" }), el("b", { text: zl(total) })]));
-  else sum.append(el("span", { class: "muted small", text: "Piec nic nie robił w tym czasie." }));
+  return out.reverse();                                         // newest first
+}
+const pRange = (s) => hhmm(s.a) + "–" + (s.live ? "teraz" : hhmm(s.b));
+const pMeta = (s) => duration(s.b - s.a) + (s.starts > 1 ? " · " + s.starts + " zapłony" : "") + (s.pumpS && s.k !== "pump" ? " · pompa " + duration(s.pumpS) : "");
 
-  // the timeline: coloured runs on the time axis of the window
-  const bar = $("#pecBar"); bar.textContent = "";
-  const span = d.now - from;
-  for (const r of runs) bar.append(el("i", { class: r.kind, title: (BOILER_KINDS[r.kind].label || r.state) + " " + hhmm(r.start) + "–" + hhmm(r.end),
-    style: "left:" + ((r.start - from) / span * 100) + "%;width:" + Math.max(0.25, (r.end - r.start) / span * 100) + "%" }));
-  const ticks = el("div", { class: "pecticks" });
-  const step = span > 2 * 86400 ? 86400 : span > 12 * 3600 ? 6 * 3600 : 3 * 3600;
-  for (let t = Math.ceil(from / step) * step; t < d.now; t += step) {
-    const label = step >= 86400 ? new Date(t * 1000).toLocaleDateString("pl-PL", { weekday: "short" }) : hhmm(t);
-    ticks.append(el("span", { style: "left:" + ((t - from) / span * 100) + "%", text: label }));
-  }
-  bar.append(ticks);
+// A: one vertical line, sessions as boxes, gaps written out
+function pecTimeline(runs) {
+  const ss = pecSessionsOf(runs);
+  let h = "", day = null;
+  ss.forEach((s, i) => {
+    const dn = pDay(s.a);
+    if (dn !== day) { day = dn; h += '<div class="pecday">' + dn + "</div>"; }
+    h += '<div class="tl-row ' + s.k + '"><div class="tl-time">' + hhmm(s.a) + '</div><div class="tl-axis"><span class="tl-dot"></span></div>' +
+      '<div class="tl-box' + (s.live ? " live" : "") + '"><div class="t">' + pIcon(s.k) + "<span>" + pEsc(s.name) + '</span></div><div class="z">' + pMoney(s) + "</div>" +
+      '<div class="m">' + pRange(s) + " · " + pMeta(s) + "</div>" +
+      (s.runs.length > 2 ? '<div class="tl-sub">' + s.runs.filter((r) => r.k !== "pump").map((r) => "<i>" + hhmm(r.a) + " · " + duration(r.b - r.a) + "</i>").join("") + "</div>" : "") + "</div></div>";
+    const next = ss[i + 1];
+    if (next && s.a - next.b > 15 * 60 && pDay(next.a) === dn) h += '<div class="tl-row"><div></div><div class="tl-axis"></div><div class="tl-gap">przerwa ' + duration(s.a - next.b) + "</div></div>";
+  });
+  return h;
+}
 
-  // every run as a pill, grouped by day, newest first
-  const list = $("#pecList"); list.textContent = "";
-  let day = null, row = null;
-  const dayName = (ts) => { const x = new Date(ts * 1000), today = new Date(); const y = new Date(); y.setDate(today.getDate() - 1);
-    return x.toDateString() === today.toDateString() ? "Dziś" : x.toDateString() === y.toDateString() ? "Wczoraj" : x.toLocaleDateString("pl-PL", { weekday: "long", day: "numeric", month: "long" }); };
-  for (const r of runs) {
-    const name = dayName(r.start);
-    if (name !== day) { day = name; list.append(el("div", { class: "pecday", text: name })); row = el("div", { class: "pecrow" }); list.append(row); }
-    // one run = one row of fixed columns, so that times, durations, m³ and money line up
-    const info = boilerKind(r.state, r.kind === "pump" ? "other" : r.kind), gas = r.kind !== "pump";   // the pump burns no gas
-    const item = el("div", { class: "pecitem boilerpill " + info.kind + (r.live ? " on" : ""), title: r.state });
-    const ic = el("span", { class: "pi" }); ic.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true">' + STAT_ICONS[info.icon] + "</svg>";
-    item.append(ic, el("b", { text: info.label }), el("span", { class: "pt", text: hhmm(r.start) + "–" + (r.live ? "teraz" : hhmm(r.end)) }),
-      el("span", { class: "pd", text: duration(r.end - r.start) }),
-      el("span", { class: "pm", text: gas && r.m3 !== null && r.m3 >= 0.005 ? num(r.m3, 2) + " m³" : "" }),
-      showCost ? el("span", { class: "pc" }, gas && r.cost !== null && r.cost >= 0.005 ? [el("em", { text: zl(r.cost) })] : []) : "");
-    row.append(item);
+// B: every hour a strip of 60 minutes and its cost
+function pecHours(runs, from, now) {
+  let h = '<div class="pec-legend"><span class="heat">ogrzewanie</span><span class="dhw">ciepła woda</span><span class="pump">wybieg pompy</span></div>', day = null;
+  const first = Math.floor(Math.min(...runs.map((r) => r.a)) / 3600) * 3600;
+  for (let a = Math.floor(now / 3600) * 3600; a >= Math.max(first, Math.floor(from / 3600) * 3600); a -= 3600) {
+    const b = a + 3600, dn = pDay(a);
+    const parts = runs.filter((r) => r.b > a && r.a < b);
+    if (pec.range === "7d" && !parts.length) continue;           // a week: only the hours when something ran
+    if (dn !== day) { day = dn; h += '<div class="pecday">' + dn + "</div>"; }
+    const cost = parts.reduce((s, r) => s + (r.b > r.a ? r.zl * (Math.min(r.b, b) - Math.max(r.a, a)) / (r.b - r.a) : 0), 0);
+    const bars = parts.map((r) => '<i class="' + r.k + '" title="' + pEsc(r.label) + " " + hhmm(r.a) + "–" + hhmm(r.b) + '" style="left:' + (Math.max(r.a, a) - a) / 36 + "%;width:" + Math.max(0.6, (Math.min(r.b, b) - Math.max(r.a, a)) / 36) + '%"></i>').join("");
+    h += '<div class="hr-row' + (parts.length ? "" : " idle") + '"><span class="h">' + hhmm(a) + '</span><div class="strip">' + bars + '</div><span class="c">' + (showCost && cost >= 0.005 ? zl(cost) : cost >= 0.005 ? "" : "—") + "</span></div>";
   }
+  return h + '<div class="hr-row scale"><span></span><div><span>:00</span><span>:15</span><span>:30</span><span>:45</span><span>:60</span></div><span></span></div>';
+}
+
+// C: a card per session with a strip of what happened inside it
+function pecSessions(runs) {
+  let h = "", day = null;
+  for (const s of pecSessionsOf(runs)) {
+    const dn = pDay(s.a);
+    if (dn !== day) { day = dn; h += '<div class="pecday">' + dn + "</div>"; }
+    const span = Math.max(60, s.b - s.a);
+    const bars = s.runs.map((r) => '<i class="' + r.k + '" style="left:' + (r.a - s.a) / span * 100 + "%;width:" + Math.max(1.5, (r.b - r.a) / span * 100) + '%"></i>').join("");
+    h += '<div class="ss ' + s.k + (s.live ? " live" : "") + '"><div class="ic">' + pIcon(s.k) + '</div><div class="n">' + pEsc(s.name) + " <small>" + pRange(s) + "</small></div>" +
+      '<div class="z">' + pMoney(s) + '</div><div class="bar">' + bars + '</div><div class="sub">' + duration(s.b - s.a) +
+      (s.k !== "pump" ? " · palnik " + duration(s.burnS) : "") + (s.starts > 1 ? " · " + s.starts + " zapłony" : "") + (s.pumpS && s.k !== "pump" ? " · pompa " + duration(s.pumpS) : "") + "</div></div>";
+  }
+  return h;
+}
+
+// D: three tracks over the whole range and a table of what burnt gas
+function pecLanes(runs, from, now) {
+  const start = Math.min(from, ...runs.map((r) => r.a)), span = Math.max(3600, now - start);
+  const lane = (k) => '<div class="ln ' + k + '">' + pIcon(k) + "<span>" + (k === "pump" ? "Pompa" : PEC_NAME[k]) + '</span></div><div class="track ' + k + '">' +
+    runs.filter((r) => r.k === k).map((r) => '<i title="' + hhmm(r.a) + "–" + hhmm(r.b) + '" style="left:' + (r.a - start) / span * 100 + "%;width:" + (r.b - r.a) / span * 100 + '%"></i>').join("") + "</div>";
+  const step = span > 2 * 86400 ? 86400 : span > 12 * 3600 ? 3 * 3600 : span > 5 * 3600 ? 3600 : 1800;
+  let ticks = "";
+  for (let t = Math.ceil(start / step) * step; t < now; t += step) ticks += '<span style="left:' + (t - start) / span * 100 + '%">' + (step >= 86400 ? new Date(t * 1000).toLocaleDateString("pl-PL", { weekday: "short" }) : hhmm(t)) + "</span>";
+  const ev = pecSessionsOf(runs).filter((s) => s.k !== "pump");
+  return '<div class="lanes">' + lane("heat") + lane("dhw") + lane("pump") + '<div class="ticks">' + ticks + "</div></div>" +
+    '<table class="ev"><thead><tr><th>Co</th><th>Kiedy</th><th class="r hide-sm">Czas</th><th class="r">m³</th>' + (showCost ? '<th class="r">zł</th>' : "") + "</tr></thead><tbody>" +
+    ev.map((s) => '<tr class="' + s.k + '"><td><span class="k">' + pIcon(s.k) + "<span>" + (s.cycling ? "Taktowanie" : pEsc(s.name)) + "</span></span></td><td>" +
+      (pec.range === "7d" ? new Date(s.a * 1000).toLocaleDateString("pl-PL", { day: "numeric", month: "numeric" }) + " " : "") + pRange(s) +
+      '</td><td class="r hide-sm">' + duration(s.b - s.a) + '</td><td class="r">' + (s.m3 ? num(s.m3, 2).replace(".", ",") : "—") + "</td>" +
+      (showCost ? '<td class="r zl">' + (s.zl ? zl(s.zl) : "—") + "</td>" : "") + "</tr>").join("") + "</tbody></table>";
 }
 
 // ----------------------------------------------------------------------- chart

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.41.0
+
+* Historia pieca w czterech widokach do wyboru (zapamiętywany w przeglądarce): Oś czasu, Godziny, Sesje, Tory. Wszystkie mają jedną kolumnę, najnowsze na górze.
+* Krótkie zapłony z wybiegiem pompy (mniej niż 5 min przerwy) łączą się w jedną sesję; seria krótkich zapłonów jest opisana jako „taktowanie”.
+* Łączny koszt obok tytułu karty (chowany przyciskiem „zł”).
+
 ## 0.40.1
 
 * Stan pieca przy wykresie zmienia się w ciągu kilku sekund (apka pyta HA co 3 s zamiast co 20 s), bez odświeżania strony. Historia pieca przeładowuje się sama przy zmianie trybu.
