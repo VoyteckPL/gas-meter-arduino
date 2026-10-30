@@ -2556,7 +2556,7 @@ function swipeTab(direction) {
 (function () {
   let start = null;
   const blocked = (e) => {
-    if (e.target.closest("input[type=range], select, textarea, .viewtabs, .overlay, .switch, [data-noswipe]")) return true;
+    if (e.target.closest("input[type=range], select, textarea, .viewtabs, .overlay:not([hidden]), .switch, [data-noswipe]")) return true;
     if (e.target.matches("input") && e.target === document.activeElement) return true;      // the field being edited
     const canvas = e.target.closest("canvas");
     return !!(canvas && canvas._timeChart);        // a chart pans sideways itself, it must not change the tab
@@ -2565,6 +2565,8 @@ function swipeTab(direction) {
     start = e.touches.length === 1 && !blocked(e) ? { x: e.touches[0].clientX, y: e.touches[0].clientY, time: Date.now() } : null;
   }, { passive: true });
   document.addEventListener("touchmove", (e) => { if (e.touches.length > 1) start = null; }, { passive: true });
+  document.addEventListener("touchcancel", () => { start = null; }, { passive: true });
+  document.addEventListener("visibilitychange", () => { start = null; });
   document.addEventListener("touchend", (e) => {
     if (!start || !built) return;
     const t = e.changedTouches[0], dx = t.clientX - start.x, dy = t.clientY - start.y, quick = Date.now() - start.time < 700;
@@ -2583,6 +2585,13 @@ refresh();
 // after the phone wakes the page, timers and requests may have been frozen: reload at once instead of waiting for the next tick
 document.addEventListener("visibilitychange", () => { if (!document.hidden) { refresh(); if (built && !$("#root").hidden) drawChart(); } });
 window.addEventListener("pageshow", () => { refresh(); if (built && !$("#root").hidden) drawChart(); });
+function unstick() {
+  if (!document.querySelector(".overlay:not([hidden])")) document.body.classList.remove("noscroll");
+  if (viewSwap) { clearTimeout(viewSwap.timer); viewSwap.run(); viewSwap = null; }
+  document.querySelectorAll(".slide-out-left, .slide-out-right, .slide-from-left, .slide-from-right").forEach((n) => n.classList.remove("slide-out-left", "slide-out-right", "slide-from-left", "slide-from-right"));
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) unstick(); });
+window.addEventListener("pageshow", unstick);
 setInterval(refresh, 3000);
 setInterval(() => { if (built && !$("#root").hidden) { drawChart(); loadPec(); } if (built && !$("#boilerView").hidden) loadThermo(); }, 10000);   // the boiler history is live like the chart
 setInterval(() => { if (built) { const d = $("#histDialog"); if (d && !d.hidden) loadHistory(); if (!$("#batteryView").hidden) loadBattery(); } }, 60000);

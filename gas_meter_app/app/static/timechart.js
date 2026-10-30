@@ -84,6 +84,9 @@
       canvas.addEventListener("pointermove", (e) => this.onMove(e));
       canvas.addEventListener("pointerup", (e) => this.onUp(e));
       canvas.addEventListener("pointercancel", (e) => this.onUp(e));
+      // a finger whose "up" got lost (the app went to the background, the WebView took the touch) must not stay pressed
+      canvas.addEventListener("lostpointercapture", (e) => { if (this.pointers.has(e.pointerId)) this.onUp(e); });
+      TimeChart.all.add(this);
       canvas.addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse" && !this.drag) { this.hoverX = null; this.draw(); } });
       canvas.addEventListener("wheel", (e) => this.onWheel(e), { passive: false });
       canvas.addEventListener("dblclick", () => this.reset());
@@ -91,7 +94,10 @@
       if (window.ResizeObserver) { this.ro = new ResizeObserver(() => this.draw()); this.ro.observe(canvas); }
     }
 
-    destroy() { if (this.ro) this.ro.disconnect(); cancelAnimationFrame(this.anim && this.anim.id); }
+    destroy() { if (this.ro) this.ro.disconnect(); cancelAnimationFrame(this.anim && this.anim.id); TimeChart.all.delete(this); }
+
+    // forget every finger and gesture in progress
+    release() { this.pointers.clear(); this.drag = null; this.stopAnim(); }
 
     // ------------------------------------------------------------------ data and view
     setSeries(series, domain, keepView) {
@@ -163,6 +169,7 @@
     onDown(e) {
       const p = this.pos(e), L = this.layout;
       if (!L) return;
+      if (e.isPrimary) { this.pointers.clear(); this.drag = null; }     // the first finger down: nothing else can be pressed
       this.stopAnim();
       try { this.canvas.setPointerCapture(e.pointerId); } catch (err) { /* synthetic or finished pointer */ }
       this.pointers.set(e.pointerId, p);
@@ -766,5 +773,11 @@
     }
   }
 
+  TimeChart.all = new Set();
+  // the page goes to the background or comes back: no finger can still be on any chart
+  const releaseAll = () => TimeChart.all.forEach((c) => c.release());
+  document.addEventListener("visibilitychange", releaseAll);
+  window.addEventListener("pageshow", releaseAll);
+  window.addEventListener("blur", releaseAll);
   window.TimeChart = TimeChart;
 })();

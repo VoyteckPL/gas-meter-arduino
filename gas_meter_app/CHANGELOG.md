@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.45.1
+
+* Poprawka: przesuwanie i powiększanie wykresów przestawało działać, gdy zgubił się koniec jednego dotyku (np. apka przeszła w tło albo dopiero się uruchamiała). Wykres pamiętał „zawieszony” palec i każdy kolejny dotyk brał za szczypanie. Teraz pierwszy palec zawsze zaczyna od czysta, a po powrocie do apki wszystkie gesty są czyszczone.
+* Przesuwanie zakładek palcem: niedokończony gest jest zapominany po powrocie do apki, a ukryte okno nie blokuje przesuwania. Po powrocie do apki strona nie zostaje też zablokowana bez przewijania ani w połowie animacji zakładki.
+
 ## 0.45.0
 
 * Przegląd: nowy kafelek „Na zewnątrz” obok „Ostatni odczyt”: temperatura na zewnątrz i pogoda (pochmurno, deszcz…) z Home Assistanta, kolor zależny od temperatury. Źródło w nowej opcji „Temperatura na zewnątrz” (czujnik albo encja pogody); puste = pierwsza encja pogody z HA.
