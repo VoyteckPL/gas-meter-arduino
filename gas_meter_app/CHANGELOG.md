@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.35.1
+
+* Koszty wstecz: encja kosztu jest brana z informacji panelu Energia (`energy/info`), a nie zgadywana po nazwie.
+
 ## 0.35.0
 
 * Koszty gazu wstecz w panelu Energia (zakładka Zużycie → „Koszty w panelu Energia (wstecz)”). Każda godzina historii przed ustawieniem ceny dostaje zużycie × cena z faktury z tego miesiąca i trafia do tej samej statystyki kosztu, którą HA prowadzi dla Gazomierza; późniejsze godziny są przesunięte o dopisaną sumę, więc suma jest ciągła. „Sprawdź” tylko liczy.

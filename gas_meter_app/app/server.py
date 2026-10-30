@@ -1599,11 +1599,12 @@ async def cost_backfill(app, dry):
         raise ValueError("Nie znaleziono encji Gazomierz")
     cost_id = None
     prefs = (await core_ws_call([{"type": "energy/get_prefs"}]))[0] or {}
+    info = (await core_ws_call([{"type": "energy/info"}]))[0] or {}
     for source in prefs.get("energy_sources", []):
         if source.get("type") == "gas" and source.get("stat_energy_from") == gas_id:
-            cost_id = source.get("stat_cost") or gas_id + "_cost"
+            cost_id = source.get("stat_cost") or (info.get("cost_sensors") or {}).get(gas_id)
     if not cost_id:
-        raise ValueError("Gazomierz nie jest źródłem gazu w panelu Energia albo nie ma ustawionej ceny")
+        raise ValueError("Panel Energia nie podaje encji kosztu dla Gazomierza (brak ustawionej ceny albo encja kosztu jeszcze nie powstała)")
     listing = {i.get("statistic_id"): i for i in (await core_ws_call([{"type": "recorder/list_statistic_ids"}]))[0] or []}
     if cost_id not in listing:
         raise ValueError("Statystyka kosztu %s jeszcze nie istnieje. Home Assistant tworzy ją po pierwszej pełnej godzinie z ceną." % cost_id)
