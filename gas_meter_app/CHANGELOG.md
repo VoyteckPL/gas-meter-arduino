@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.43.0
+
+* Zakładka Piec w nowym wyglądzie. Ogrzewanie ma zawsze ciepłe kolory (pomarańcz → czerwień), ciepła woda zimne (turkus → błękit), niezależnie od tego, co piec robi.
+* Każda tarcza ma nagłówek z ikoną, stan w pigułce (Grzeje, Bezczynny, Wybieg pompy, Wyłączone; świecąca kropka, gdy piec pracuje), łuk z gradientem i podziałką, dużą zmierzoną temperaturę i „cel” pod spodem. Tryb przełącza się przyciskiem z napisami (Grzanie / Wyłączone, Włączona / Wyłączona). Wyłączona tarcza szarzeje.
+
 ## 0.42.1
 
 * Sterowanie piecem w osobnej zakładce „Piec” (zaraz po Przeglądzie), tarcze jedna pod drugą. Gdy apka nie znajdzie termostatów, zakładka mówi, co wpisać w opcjach.

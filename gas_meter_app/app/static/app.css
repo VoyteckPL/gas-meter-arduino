@@ -390,36 +390,55 @@ table.ev .k span { color: var(--text); }
 button.costtoggle { padding: 4px 11px; font-size: 12.5px; font-weight: 650; opacity: .55; }
 button.costtoggle.active { opacity: 1; background: color-mix(in srgb, var(--ok) 22%, transparent); border-color: color-mix(in srgb, var(--ok) 55%, transparent); color: inherit; }
 
-/* the boiler's thermostats: a dial per thermostat, like in HA Views */
-.thgrid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; max-width: 520px; margin: 0 auto; }   /* one under the other */
-.thtile { --tc: #4FB4E6; position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 14px 12px 12px; border-radius: 18px;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--tc) 9%, var(--card)), var(--card) 70%); border: 1px solid var(--line); }
-.thtile.working { box-shadow: 0 0 0 1px color-mix(in srgb, var(--tc) 35%, transparent), 0 8px 28px -10px color-mix(in srgb, var(--tc) 55%, transparent); }
-.thname { font-size: 19px; font-weight: 600; letter-spacing: -.2px; }
-.thbadge { font-size: 12px; font-weight: 600; padding: 1px 10px; border-radius: 6px; background: var(--chip); color: var(--muted); border: 1px solid var(--line); }
-.thbadge.on { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
-.thbody { position: relative; width: 100%; max-width: 250px; }
+/* the boiler's thermostats: one tile per kind, each in its own colour (heating warm, hot water blue) */
+.thgrid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; max-width: 520px; margin: 0 auto; }
+.thtile { --tc: #FF6A33; position: relative; display: flex; flex-direction: column; gap: 6px; padding: 16px 18px 18px; border-radius: 24px; overflow: hidden;
+  background: radial-gradient(120% 70% at 50% 0%, color-mix(in srgb, var(--tc) 16%, transparent), transparent 70%), var(--card);
+  border: 1px solid color-mix(in srgb, var(--tc) 22%, var(--line)); box-shadow: var(--shadow); }
+.thtile::before { content: ""; position: absolute; inset: 0 0 auto; height: 4px; background: linear-gradient(90deg, var(--tg0), var(--tg1)); }
+.thtile.working { box-shadow: var(--shadow), 0 10px 40px -14px color-mix(in srgb, var(--tc) 70%, transparent); }
+.thtile.off { background: var(--card); border-color: var(--line); }
+.thhead { display: flex; align-items: center; gap: 12px; }
+.thkic { width: 42px; height: 42px; flex: none; border-radius: 14px; display: grid; place-items: center; color: #fff; background: linear-gradient(140deg, var(--tg0), var(--tg1));
+  box-shadow: 0 6px 16px -6px color-mix(in srgb, var(--tc) 80%, transparent); }
+.thtile.off .thkic { filter: grayscale(.75) brightness(1.05); box-shadow: none; }
+.thkic svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.thtitle { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.thtitle b { font-size: 18px; letter-spacing: -.2px; }
+.thtitle small { font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+.thstate { --sc: #8C97A6; display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px; border-radius: 999px; font-size: 12.5px; font-weight: 650; white-space: nowrap;
+  color: var(--sc); background: color-mix(in srgb, var(--sc) 14%, transparent); border: 1px solid color-mix(in srgb, var(--sc) 35%, transparent); }
+.thstate i { width: 8px; height: 8px; border-radius: 50%; background: var(--sc); }
+.thstate.live i { animation: thping 1.6s ease-out infinite; }
+@keyframes thping { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--sc) 70%, transparent); } 100% { box-shadow: 0 0 0 9px transparent; } }
+.thbody { position: relative; width: 100%; max-width: 300px; margin: 0 auto; }
 .thdial { display: block; width: 100%; height: auto; overflow: visible; }
-.thdial .thtrack { fill: none; stroke: color-mix(in srgb, var(--muted) 22%, transparent); stroke-width: 13; stroke-linecap: round; }
-.thdial .tharc { fill: none; stroke-width: 13; stroke-linecap: round; filter: drop-shadow(0 0 6px color-mix(in srgb, var(--tc) 55%, transparent)); transition: d .35s; }
-.thdial .thknob { fill: #fff; stroke: var(--tc); stroke-width: 5; filter: drop-shadow(0 1px 3px rgba(0,0,0,.3)); }
-.thdial .thcur { fill: #fff; stroke: color-mix(in srgb, var(--muted) 60%, transparent); stroke-width: 1.5; }
-.thdial .thrange { fill: var(--muted); font-size: 12px; text-anchor: middle; font-variant-numeric: tabular-nums; }
-.thcentre { position: absolute; inset: 14% 0 auto; display: flex; flex-direction: column; align-items: center; gap: 2px; pointer-events: none; }
-.thic { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; background: color-mix(in srgb, var(--tc) 18%, var(--chip)); color: var(--tc); }
-.thic svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.thtile.working .thic { animation: boilerglow 2.2s ease-in-out infinite; --bc: var(--tc); }
-.thact { font-size: 14px; font-weight: 600; color: var(--tc); }
-.thnow { font-size: 40px; font-weight: 700; letter-spacing: -1px; line-height: 1.05; font-variant-numeric: tabular-nums; }
-.thnow small, .thset small { font-size: .5em; vertical-align: top; margin-left: 1px; }
-.thset { font-size: 26px; font-weight: 600; line-height: 1.1; opacity: .85; font-variant-numeric: tabular-nums; }
-.thtile.off .thnow { color: var(--muted); }
-.thextra { font-size: 15px; font-weight: 650; margin-top: -6px; }
-.thsteps { position: absolute; left: 50%; transform: translateX(-50%); width: min(calc(100% - 16px), 320px); top: 58%; display: flex; justify-content: space-between; pointer-events: none; }
-.thbtn { pointer-events: auto; width: 40px; height: 40px; border-radius: 50%; padding: 0; font-size: 22px; line-height: 1; background: var(--chip); color: var(--text); border: 1px solid var(--line); }
-.thbtn:hover:not(:disabled) { border-color: var(--tc); }
-.thmodes { display: flex; gap: 14px; margin-top: 4px; }
-.thmode { width: 52px; height: 46px; border-radius: 13px; padding: 0; display: grid; place-items: center; background: var(--chip); color: var(--muted); border: 1px solid var(--line); }
-.thmode svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.thmode.active { background: var(--tc); color: #fff; border-color: transparent; box-shadow: 0 4px 14px -4px color-mix(in srgb, var(--tc) 70%, transparent); }
-.thtile.off .thmode.active { background: #9DB4CC; }
+.thdial .thtrack { fill: none; stroke: color-mix(in srgb, var(--muted) 16%, transparent); stroke-width: 14; stroke-linecap: round; }
+.thdial .tharc { fill: none; stroke-width: 14; stroke-linecap: round; filter: drop-shadow(0 0 8px color-mix(in srgb, var(--tc) 50%, transparent)); }
+.thtile.off .thdial .tharc { filter: grayscale(1) opacity(.45); }
+.thdial .thknob { fill: #fff; stroke: var(--tg1); stroke-width: 4; filter: drop-shadow(0 2px 4px rgba(0,0,0,.35)); }
+.thtile.off .thdial .thknob { stroke: #9aa3ad; }
+.thdial .thtick { stroke: color-mix(in srgb, var(--muted) 35%, transparent); stroke-width: 1.2; stroke-linecap: round; }
+.thdial .thcur { fill: var(--text); }
+.thdial .thrange { fill: var(--muted); font-size: 11.5px; text-anchor: middle; font-variant-numeric: tabular-nums; }
+.thcentre { position: absolute; inset: 21% 0 auto; display: flex; flex-direction: column; align-items: center; pointer-events: none; }
+.thlbl { font-size: 11px; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); }
+.thnow { font-size: 52px; font-weight: 750; letter-spacing: -2px; line-height: 1; font-variant-numeric: tabular-nums; }
+.thnow small { font-size: .45em; vertical-align: top; margin-left: 2px; letter-spacing: 0; color: var(--tc); }
+.thtile.off .thnow, .thtile.off .thnow small { color: var(--muted); }
+.thset { margin-top: 8px; display: inline-flex; align-items: center; gap: 6px; padding: 3px 12px 3px 4px; border-radius: 999px; font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums;
+  background: color-mix(in srgb, var(--tc) 13%, transparent); }
+.thset span { font-size: 10.5px; font-weight: 650; text-transform: uppercase; letter-spacing: .08em; color: #fff; padding: 3px 8px; border-radius: 999px; background: linear-gradient(140deg, var(--tg0), var(--tg1)); }
+.thtile.off .thset { background: var(--chip); } .thtile.off .thset span { background: #9aa3ad; }
+.thextra { margin-top: 6px; font-size: 13px; font-weight: 650; color: var(--muted); }
+.thsteps { position: absolute; left: -6px; right: -6px; bottom: 8%; display: flex; justify-content: space-between; pointer-events: none; }
+.thbtn { pointer-events: auto; width: 44px; height: 44px; border-radius: 50%; padding: 0; font-size: 22px; font-weight: 500; line-height: 1; color: var(--text);
+  background: var(--card); border: 1px solid var(--line); box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+.thbtn:hover:not(:disabled) { border-color: var(--tc); color: var(--tc); }
+.thseg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px; padding: 4px; border-radius: 14px; background: var(--chip); }
+.thseg button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 9px 10px; border-radius: 11px; border: 0; background: none; color: var(--muted); font-weight: 650; font-size: 13.5px; }
+.thseg svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.thseg button.active { color: #fff; background: linear-gradient(140deg, var(--tg0), var(--tg1)); box-shadow: 0 4px 14px -5px color-mix(in srgb, var(--tc) 75%, transparent); }
+.thtile.off .thseg button.active { background: #8C97A6; box-shadow: none; }
+@media (max-width: 400px) { .thnow { font-size: 44px; } .thtile { padding: 14px 14px 16px; } }
+@media (prefers-reduced-motion: reduce) { .thstate.live i { animation: none; } }

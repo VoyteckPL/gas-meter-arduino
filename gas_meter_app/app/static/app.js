@@ -641,21 +641,31 @@ function thInfo(item) {
 }
 
 // a 270° arc from min to max: the set temperature fills it, a dot marks the measured one
-function thDial(info, color) {
-  const cx = 100, cy = 96, r = 78, start = 135, sweep = 270;
+function thDial(info, kind, id) {
+  const cx = 100, cy = 96, r = 80, start = 135, sweep = 270;
   const ang = (v) => start + sweep * Math.min(1, Math.max(0, (v - info.min) / (info.max - info.min)));
-  const pt = (a) => { const t = a * Math.PI / 180; return [cx + r * Math.cos(t), cy + r * Math.sin(t)]; };
+  const pt = (a, rr = r) => { const t = a * Math.PI / 180; return [cx + rr * Math.cos(t), cy + rr * Math.sin(t)]; };
   const arc = (a0, a1) => { const [x0, y0] = pt(a0), [x1, y1] = pt(a1); return "M" + x0.toFixed(2) + " " + y0.toFixed(2) + " A" + r + " " + r + " 0 " + (a1 - a0 > 180 ? 1 : 0) + " 1 " + x1.toFixed(2) + " " + y1.toFixed(2); };
-  let svg = '<svg class="thdial" viewBox="0 0 200 186" aria-hidden="true"><path class="thtrack" d="' + arc(start, start + sweep) + '"/>';
+  const [g0, g1] = TH_KIND[kind].grad, gid = "thg-" + id.replace(/\W/g, "");
+  let svg = '<svg class="thdial" viewBox="0 0 200 180" aria-hidden="true"><defs><linearGradient id="' + gid + '" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="' + g0 + '"/><stop offset="1" stop-color="' + g1 + '"/></linearGradient></defs>';
+  // fine ticks every step of 10 % of the range, under the arc
+  for (let i = 0; i <= 20; i++) { const a = start + sweep * i / 20, [x0, y0] = pt(a, r - 15), [x1, y1] = pt(a, r - (i % 5 ? 18 : 21)); svg += '<line class="thtick" x1="' + x0.toFixed(2) + '" y1="' + y0.toFixed(2) + '" x2="' + x1.toFixed(2) + '" y2="' + y1.toFixed(2) + '"/>'; }
+  svg += '<path class="thtrack" d="' + arc(start, start + sweep) + '"/>';
   if (info.target !== null && !info.unavailable) {
     const at = ang(info.target), [kx, ky] = pt(at);
-    svg += '<path class="tharc" style="stroke:' + color + '" d="' + arc(start, Math.max(start + 0.5, at)) + '"/><circle class="thknob" cx="' + kx.toFixed(2) + '" cy="' + ky.toFixed(2) + '" r="9"/>';
+    svg += '<path class="tharc" stroke="url(#' + gid + ')" d="' + arc(start, Math.max(start + 0.5, at)) + '"/><circle class="thknob" cx="' + kx.toFixed(2) + '" cy="' + ky.toFixed(2) + '" r="8.5"/>';
   }
-  if (info.current !== null) { const [x, y] = pt(ang(info.current)); svg += '<circle class="thcur" cx="' + x.toFixed(2) + '" cy="' + y.toFixed(2) + '" r="4.5"/>'; }
-  const [lx, ly] = pt(start), [rx, ry] = pt(start + sweep), f = (v) => num(v, info.step < 1 ? 1 : 0).replace(".", ",");
-  svg += '<text class="thrange" x="' + lx.toFixed(1) + '" y="' + (ly + 20).toFixed(1) + '">' + f(info.min) + '</text><text class="thrange" x="' + rx.toFixed(1) + '" y="' + (ry + 20).toFixed(1) + '">' + f(info.max) + "</text></svg>";
+  if (info.current !== null) { const [x, y] = pt(ang(info.current), r + 14); svg += '<circle class="thcur" cx="' + x.toFixed(2) + '" cy="' + y.toFixed(2) + '" r="3.4"><title>teraz</title></circle>'; }
+  const [lx, ly] = pt(start), [rx, ry] = pt(start + sweep), f = (v) => num(v, info.step < 1 ? 1 : 0).replace(".", ",").replace(",0", "");
+  svg += '<text class="thrange" x="' + lx.toFixed(1) + '" y="' + (ly + 20).toFixed(1) + '">' + f(info.min) + '°</text><text class="thrange" x="' + rx.toFixed(1) + '" y="' + (ry + 20).toFixed(1) + '">' + f(info.max) + "°</text></svg>";
   return svg;
 }
+
+// each kind keeps its own colour; what the boiler does shows in the status pill and the glow
+const TH_KIND = {
+  heat: { name: "Ogrzewanie", icon: "flame", grad: ["#FFC24B", "#FF4D2E"], color: "#FF6A33" },
+  water: { name: "Ciepła woda", icon: "drop", grad: ["#4FE3F0", "#3F6BFF"], color: "#2F9BFF" },
+};
 
 function renderThermo() {
   const d = thermo.data, card = $("#thCard"), grid = $("#thGrid");
@@ -668,39 +678,45 @@ function renderThermo() {
     return;
   }
   for (const item of d.items) {
-    const info = thInfo(item), act = TH_ACT[info.act] || [info.act, "#4FB4E6", "chip"], color = info.on ? act[1] : TH_ACT.off[1];
-    const name = item.attributes.friendly_name && !/ariston|genus/i.test(item.attributes.friendly_name) ? item.attributes.friendly_name : info.water ? "Ciepła woda" : "Ogrzewanie";
-    const tile = el("div", { class: "thtile" + (info.act === "heating" || info.act === "circulating" ? " working" : "") + (info.on ? "" : " off"), style: "--tc:" + color });
-    tile.append(el("div", { class: "thname", text: name }), el("span", { class: "thbadge" + (info.on ? " on" : ""), text: info.unavailable ? "Niedostępny" : info.on ? "Włączone" : "Wyłączone" }));
+    const info = thInfo(item), kind = info.water ? "water" : "heat", K = TH_KIND[kind];
+    const act = TH_ACT[info.act] || [info.act, K.color, "chip"];
+    const name = item.attributes.friendly_name && !/ariston|genus/i.test(item.attributes.friendly_name) ? item.attributes.friendly_name : K.name;
+    const working = info.on && (info.act === "heating" || info.act === "circulating");
+    const tile = el("div", { class: "thtile " + kind + (working ? " working" : "") + (info.on ? "" : " off"), style: "--tc:" + K.color + ";--tg0:" + K.grad[0] + ";--tg1:" + K.grad[1] });
+    // header: the kind with its icon, the state as a pill
+    const kic = el("span", { class: "thkic" }); kic.innerHTML = '<svg viewBox="0 0 24 24">' + STAT_ICONS[K.icon] + "</svg>";
+    const state = info.unavailable ? "Niedostępny" : !info.on ? "Wyłączone" : act[0];
+    tile.append(el("div", { class: "thhead" }, [kic, el("div", { class: "thtitle" }, [el("b", { text: name }), el("small", { text: info.water ? "zasobnik" : "obieg grzewczy" })]),
+      el("span", { class: "thstate" + (working ? " live" : "") + (info.on ? "" : " off"), style: "--sc:" + (info.on ? act[1] : "#8C97A6") }, [el("i"), state])]));
     const body = el("div", { class: "thbody" });
-    body.innerHTML = thDial(info, color);
-    const centre = el("div", { class: "thcentre" });
-    const ic = el("span", { class: "thic" }); ic.innerHTML = '<svg viewBox="0 0 24 24">' + (STAT_ICONS[act[2]] || STAT_ICONS.chip) + "</svg>";
-    centre.append(ic, el("div", { class: "thact", text: act[0] }),
-      el("div", { class: "thnow" }, [info.current !== null ? num(info.current, 1) : "—", el("small", { text: "°" })]),
-      el("div", { class: "thset", title: "Ustawiona temperatura" }, [info.target !== null ? num(info.target, info.step < 1 ? 1 : 0).replace(".0", "") : "—", el("small", { text: "°" })]));
-    body.append(centre);
-    tile.append(body);
-    if (!info.water && d.pressure && d.pressure.value !== null) tile.append(el("div", { class: "thextra", text: String(d.pressure.value).replace(".", ",") + " " + d.pressure.unit }));
+    body.innerHTML = thDial(info, kind, item.entity_id);
+    const f = (v) => num(v, info.step < 1 ? 1 : 0).replace(".", ",").replace(",0", "");
+    body.append(el("div", { class: "thcentre" }, [
+      el("div", { class: "thlbl", text: "teraz" }),
+      el("div", { class: "thnow" }, [info.current !== null ? num(info.current, 1).replace(".", ",") : "—", el("small", { text: "°" })]),
+      el("div", { class: "thset" }, [el("span", { text: "cel" }), info.target !== null ? f(info.target) + "°" : "—"]),
+      ...(!info.water && d.pressure && d.pressure.value !== null ? [el("div", { class: "thextra", text: String(d.pressure.value).replace(".", ",") + " " + d.pressure.unit })] : []),
+    ]));
     const minus = el("button", { class: "thbtn", "aria-label": "Niżej", text: "−" }), plus = el("button", { class: "thbtn", "aria-label": "Wyżej", text: "+" });
     minus.disabled = plus.disabled = info.target === null || info.unavailable;
     minus.addEventListener("click", () => thStep(item, -1)); plus.addEventListener("click", () => thStep(item, 1));
-    tile.append(el("div", { class: "thsteps" }, [minus, plus]));
-    // modes: heating / off for the heating, on / off for the hot water
-    const modes = el("div", { class: "thmodes" });
-    const modeBtn = (label, icon, active, fn) => { const b = el("button", { class: "thmode" + (active ? " active" : ""), title: label, "aria-label": label, "aria-pressed": String(active) });
-      b.innerHTML = '<svg viewBox="0 0 24 24">' + STAT_ICONS[icon] + "</svg>"; b.addEventListener("click", fn); return b; };
+    body.append(el("div", { class: "thsteps" }, [minus, plus]));
+    tile.append(body);
+    // modes as a segmented switch with words
+    const seg = el("div", { class: "thseg", role: "group", "aria-label": "Tryb" });
+    const segBtn = (label, icon, active, fn) => { const b = el("button", { class: active ? "active" : "", "aria-pressed": String(active) });
+      b.innerHTML = '<svg viewBox="0 0 24 24">' + STAT_ICONS[icon] + "</svg>"; b.append(label); b.addEventListener("click", fn); return b; };
     if (info.water) {
-      modes.append(modeBtn("Włącz", "flame", info.on, () => !info.on && thSend(item, "turn_on", null, { on: true })),
-                   modeBtn("Wyłącz", "power", !info.on, () => info.on && thOff(item, name, () => thSend(item, "turn_off", null, { on: false }))));
+      seg.append(segBtn("Włączona", "drop", info.on, () => !info.on && thSend(item, "turn_on", null, { on: true })),
+                 segBtn("Wyłączona", "power", !info.on, () => info.on && thOff(item, name, () => thSend(item, "turn_off", null, { on: false }))));
     } else {
-      for (const m of info.modes.filter((x) => TH_MODES[x])) modes.append(modeBtn(TH_MODES[m][0], TH_MODES[m][1], info.mode === m, () => {
+      for (const m of info.modes.filter((x) => TH_MODES[x])) seg.append(segBtn(m === "off" ? "Wyłączone" : TH_MODES[m][0], TH_MODES[m][1], info.mode === m, () => {
         if (info.mode === m) return;
         const go = () => thSend(item, "set_hvac_mode", m, { mode: m });
         if (m === "off") thOff(item, name, go); else go();
       }));
     }
-    tile.append(modes);
+    tile.append(seg);
     grid.append(tile);
   }
 }
