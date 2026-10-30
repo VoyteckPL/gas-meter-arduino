@@ -94,6 +94,16 @@ const STAT_ICONS = {
   coins: '<ellipse cx="9" cy="6.5" rx="6" ry="2.8"/><path d="M3 6.5v5c0 1.5 2.7 2.8 6 2.8s6-1.3 6-2.8v-5"/><path d="M9 14.3v2.4c0 1.5 2.7 2.8 6 2.8s6-1.3 6-2.8v-5c0-1.5-2.7-2.8-6-2.8"/>',
   tag: '<path d="M3.5 11.5V4.5a1 1 0 0 1 1-1h7l9 9-8 8z"/><circle cx="8" cy="8" r="1.4"/>',
   receipt: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h3"/>',
+  bolt: '<path d="M13 2.5 5 13.5h6l-1 8 8-11h-6z"/>',
+  hourglass: '<path d="M6 3h12M6 21h12M7 3v3a5 5 0 0 0 10 0V3M7 21v-3a5 5 0 0 1 10 0v3"/>',
+  bell: '<path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
+  pulse: '<path d="M3 12h4l2.5-6 4 12 2.5-6H21"/>',
+  alert: '<path d="M12 3.5 21 19.5H3z"/><path d="M12 10v4"/><circle cx="12" cy="16.8" r=".6"/>',
+  pin: '<path d="M12 21s-6.5-6-6.5-11a6.5 6.5 0 0 1 13 0c0 5-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/>',
+  router: '<rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 16.5h.01M11 16.5h.01"/><path d="M8.5 9.5a5 5 0 0 1 7 0M6 7a8.5 8.5 0 0 1 12 0"/>',
+  chip: '<rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9.5 9.5h5v5h-5z"/><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/>',
+  clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+  counter: '<rect x="3" y="6" width="18" height="12" rx="2.5"/><path d="M8 10v4M12 10v4M16 10v4"/>',
   radio: '<circle cx="12" cy="12" r="2"/><path d="M8.2 8.2a5.4 5.4 0 0 0 0 7.6M15.8 8.2a5.4 5.4 0 0 1 0 7.6M5.3 5.3a9.5 9.5 0 0 0 0 13.4M18.7 5.3a9.5 9.5 0 0 1 0 13.4"/>',
 };
 
@@ -104,6 +114,13 @@ function statTile(cls, label, icon, id, color, i18n) {
   return el("div", { class: "stat " + cls, id: "st-" + id, style: color ? "--kc:var(" + color + ")" : "" }, [ic, el("div", { class: "st" }, [
     el("div", i18n ? { class: "lbl", "data-i18n": label } : { class: "lbl", text: label }), el("div", { class: "val", id }), el("div", { class: "sub", id: id + "Sub" }),
   ])]);
+}
+
+// a folded card for settings and details: title, short description, content when opened
+function foldCard(root, title, sub, children) {
+  const c = el("details", { class: "card fold" }, [el("summary", {}, [el("h2", { text: title }), el("span", { class: "muted small", text: sub })]), el("div", { class: "foldbody" }, children)]);
+  root.append(c);
+  return c;
 }
 
 function el(tag, attrs, children) {
@@ -221,7 +238,6 @@ function build() {
     battery: $("#batteryView"), network: $("#networkView"), service: $("#serviceView"),
   };
   for (const node of Object.values(views)) node.textContent = "";
-  const note = (key) => el("section", { class: "card wide" }, [el("p", { class: "muted small", style: "margin:0", "data-i18n": key })]);
 
   // notice shown while the meter has not published anything yet
   root.append(el("section", { class: "card wide", id: "notice", hidden: "" }, [
@@ -297,8 +313,17 @@ function build() {
     el("div", { class: "ovwrap" }, [el("canvas", { id: "chart", style: "height:360px" }), el("div", { class: "ovpulse", id: "ovPulse", hidden: "" })]),
   ]));
 
-  // service
-  views.service.append(note("serviceNote"));
+  // service: the meter at a glance, the update, then the counter and the details folded
+  views.service.append(el("div", { class: "stats" }, [
+    el("div", { class: "sgroup two", role: "group", "aria-label": "Firmware" }, [
+      statTile("", "Firmware", "chip", "sFw", "--info"),
+      statTile("", "Czas pracy", "clock", "sUp", "--info"),
+    ]),
+    el("div", { class: "sgroup two", role: "group", "aria-label": "Licznik" }, [
+      statTile("", "Impulsy", "counter", "sCounter", "--accent"),
+      statTile("", "Obudzenia", "pulse", "sWakes", "--accent"),
+    ]),
+  ]));
   views.service.append(otaCard());
 
   // counter
@@ -310,33 +335,34 @@ function build() {
     if (counterInput.value.trim() === "" || !Number.isFinite(reading) || reading < 0) { toast("Wpisz poprawny stan licznika (m³), może być 0.", true); return; }
     send("counter", Math.round(reading * perM3));
   });
-  views.service.append(el("section", { class: "card" }, [
-    el("h2", { "data-i18n": "counterTitle" }),
+  views.service.append(el("h3", { class: "sechead", text: "Licznik i szczegóły" }));
+  foldCard(views.service, t("counterTitle"), "gdy gazomierz rozjedzie się z licznikiem", [
     el("div", { class: "row", id: "row-counter" }, [
       el("label", { for: "in-counter", "data-i18n": "counterLabel" }),
       el("div", { class: "field" }, [counterInput, counterSave]),
       el("div", { class: "pending", id: "pend-counter", hidden: "" }),
     ]),
     el("p", { class: "hint", "data-i18n": "counterHint" }),
-  ]));
+  ]);
 
-  // network
-  const network = el("section", { class: "card" }, [el("h2", { "data-i18n": "network" })]);
-  network.append(el("div", { class: "kv" }, [
-    el("span", { "data-i18n": "currentIp" }), el("span", { class: "v", id: "curIp" }),
-    el("span", { "data-i18n": "mac" }), el("span", { class: "v", id: "curMac" }),
-    el("span", { "data-i18n": "ssid" }), el("span", { class: "v", id: "curSsid" }),
-    el("span", { "data-i18n": "bssid" }), el("span", { class: "v", id: "curBssid" }),
+  // network: what the meter reports about its connection, read only
+  views.network.append(el("div", { class: "stats" }, [
+    el("div", { class: "sgroup three", role: "group", "aria-label": "WiFi" }, [
+      statTile("", "Sygnał WiFi", "wifi", "nRssi", "--info"),
+      statTile("", "Łączenie", "clock", "nConn", "--info"),
+      statTile("", "Nieudane sesje", "alert", "nFail", "--info"),
+    ]),
+    el("div", { class: "sgroup three", role: "group", "aria-label": "Adres" }, [
+      statTile("mono", "Adres IP", "pin", "curIp", "--muted"),
+      statTile("mono", "Punkt dostępu", "router", "curBssid", "--muted"),
+      statTile("mono", "MAC", "chip", "curMac", "--muted"),
+    ]),
   ]));
-  views.network.append(note("networkNote"));
-  views.network.append(network);
+  views.network.append(el("p", { class: "hint", style: "grid-column:1/-1;margin:0 2px", "data-i18n": "networkNote" }));
 
 
   // diagnostics
-  views.service.append(el("section", { class: "card" }, [
-    el("h2", { "data-i18n": "diagnostics" }),
-    el("div", { class: "kv", id: "diag" }),
-  ]));
+  foldCard(views.service, t("diagnostics"), "wszystkie liczniki gazomierza", [el("div", { class: "kv", style: "margin-top:0", id: "diag" })]);
 
   $("#loading") && $("#loading").remove();
   built = true;
@@ -447,10 +473,26 @@ function update() {
   setPending("counter");
 
   // network info
-  $("#curIp").textContent = v.ip || "—";
-  $("#curMac").textContent = v.mac || "—";
-  $("#curSsid").textContent = v.ssid || "—";
-  $("#curBssid").textContent = v.bssid || "—";
+  // network and service tiles
+  setStat("curIp", v.ip || "—", "", v.dhcp === undefined ? "" : Number(v.dhcp) ? "z DHCP (zapasowo)" : "stały adres");
+  setStat("curBssid", v.bssid || "—", "", v.ssid ? "sieć " + v.ssid : "");
+  setStat("curMac", v.mac || "—", "", "gazomierz");
+  setStat("nRssi", hasRssi ? String(rssi) : "—", "dBm", quality);
+  tone("nRssi", quality === "słaby" ? "var(--bad)" : quality === "średni" ? "var(--warn)" : "var(--ok)");
+  setStat("nConn", v.wifi_connect_ms !== undefined ? String(v.wifi_connect_ms) : "—", v.wifi_connect_ms !== undefined ? "ms" : "",
+          v.session_ms !== undefined ? "cała sesja " + v.session_ms + " ms" : "");
+  const fails = ["fail_wifi", "fail_mqtt", "fail_sub", "fail_ack"].map((k) => Number(v[k]));
+  const sessions = Number(v.WifiSessions);
+  if (fails.every(Number.isFinite)) {
+    const total = fails.reduce((a, b) => a + b, 0), rate = sessions + total ? total / (sessions + total) * 100 : 0;
+    setStat("nFail", String(total), "", (sessions ? num(rate, 0) + " % sesji · " : "") + fails.join("/"));
+    $("#st-nFail").title = "WiFi / broker / subskrypcja / potwierdzenie: " + fails.join(" / ");
+    tone("nFail", rate > 15 ? "var(--bad)" : rate > 5 ? "var(--warn)" : "var(--ok)");
+  } else setStat("nFail", "—", "", "firmware 0.4.5 lub nowszy");
+  setStat("sFw", v.fw_version || "—", "", v.reset_reason ? "ostatni restart: " + v.reset_reason : "");
+  setStat("sUp", v.uptime_s ? ago(Number(v.uptime_s)) : "—", "", v.hangs !== undefined ? "zawieszenia: " + v.hangs : "");
+  setStat("sCounter", v.counter !== undefined ? String(v.counter) : "—", "", v.pending !== undefined ? "oczekujące: " + v.pending : "");
+  setStat("sWakes", v.Wakes !== undefined ? String(v.Wakes) : "—", "", v.WifiSessions !== undefined ? "sesje WiFi: " + v.WifiSessions : "");
 
   // diagnostics
   const diag = $("#diag");
@@ -723,7 +765,7 @@ function buildUsage() {
   const root = $("#usageView");
   const card = (children, wide) => { const c = el("section", { class: "card" + (wide ? " wide" : "") }, children); root.append(c); return c; };
   // settings and data sources: folded cards at the bottom, in pairs
-  const fold = (title, sub, children) => { const c = el("details", { class: "card fold" }, [el("summary", {}, [el("h2", { text: title }), el("span", { class: "muted small", text: sub })]), el("div", { class: "foldbody" }, children)]); root.append(c); return c; };
+  const fold = (title, sub, children) => foldCard(root, title, sub, children);
   const eBtn = (text, cls, fn) => { const bt = el("button", { class: cls, text }); bt.addEventListener("click", fn); return bt; };
 
   root.append(el("div", { class: "stats" }, [
@@ -1536,66 +1578,27 @@ function buildBattery() {
   const root = $("#batteryView");
   const card = (children, wide) => { const c = el("section", { class: "card" + (wide ? " wide" : "") }, children); root.append(c); return c; };
 
+  root.append(el("div", { class: "stats" }, [
+    el("div", { class: "sgroup two", role: "group", "aria-label": "Stan" }, [
+      statTile("", "Naładowanie", "battery", "bSoc", "--ok"),
+      statTile("", "Pojemność", "bolt", "bCap", "--info"),
+    ]),
+    el("div", { class: "sgroup two", role: "group", "aria-label": "Prognoza" }, [
+      statTile("", "Wystarczy na", "hourglass", "bLife", "--accent"),
+      statTile("", "Naładuj do", "bell", "bCharge", "--warn"),
+    ]),
+    el("div", { class: "sgroup two", role: "group", "aria-label": "Pobór" }, [
+      statTile("", "Średni prąd", "pulse", "bAvg", "--info"),
+      statTile("", "Sesje WiFi na dobę", "wifi", "bSess", "--info"),
+    ]),
+  ]));
+
   const srcTabs = el("div", { class: "tabs", id: "bSrcTabs" });
   for (const [src, key] of [["meter", "bMeter"], ["bt", "bTest"]]) {
     const b = el("button", { class: "secondary", "data-src": src, "data-i18n": key });
     b.addEventListener("click", () => { battery.source = src; loadBattery(); });
     srcTabs.append(b);
   }
-  const nowCard = card([
-    el("h2", { "data-i18n": "bTitle" }), srcTabs,
-    el("div", { class: "big", id: "bVolt" }), el("div", { class: "muted small", "data-i18n": "bVolts" }),
-    el("div", { class: "bar" }, [el("div", { id: "bSocBar" })]),
-    el("div", { class: "kv" }, [
-      el("span", { "data-i18n": "bSoc" }), el("span", { class: "v", id: "bSoc" }),
-      el("span", { text: "" }), el("span", { class: "v small muted", id: "bCurve" }),
-      el("span", { "data-i18n": "bCapacity" }), el("span", { class: "v", id: "bCap" }),
-      el("span", { text: "" }), el("span", { class: "v small muted", id: "bCapNote" }),
-    ]),
-    el("p", { class: "hint", "data-i18n": "bCapHint" }),
-    el("p", { class: "hint", id: "bTestNote", "data-i18n": "bTestNote" }),
-  ]);
-  // the details of the discharge test (pin voltage, time, state, divider factor) belong to the same card, not to a second one
-  {
-    const old = $("#btCard"), box = el("div", { id: "bTestBox", hidden: "", style: "margin-top:10px" });
-    for (const part of old.querySelectorAll(":scope > .kv, :scope > .row")) box.append(part);
-    nowCard.querySelector(".kv").before(box);
-  }
-
-
-  const saved = (k, d) => { try { return localStorage.getItem(k) || d; } catch (e) { return d; } };
-  const mkInput = (id, key, def, step) => {
-    const input = el("input", { type: "number", id, min: "0", step });
-    input.value = saved(key, def);
-    input.addEventListener("change", () => { try { localStorage.setItem(key, input.value); } catch (e) { /* ignore */ } loadBattery(); });
-    return input;
-  };
-  card([
-    el("h2", { "data-i18n": "bTestCapTitle" }),
-    el("div", { class: "row" }, [el("label", { for: "bTestMa", "data-i18n": "bTestMa" }), el("div", { class: "field" }, [mkInput("bTestMa", "gasMeterTestMa", "", "1")])]),
-    el("div", { class: "row" }, [el("label", { for: "bTestCells", "data-i18n": "bTestCells" }), el("div", { class: "field" }, [mkInput("bTestCells", "gasMeterTestCells", "1", "1")])]),
-    el("div", { class: "kv" }, [el("span", { "data-i18n": "bTestCapEst" }), el("span", { class: "v", id: "bTestCapVal" }),
-                                el("span", { text: "" }), el("span", { class: "v small muted", id: "bTestCapNote" })]),
-    el("p", { class: "hint", "data-i18n": "bTestCapHint" }),
-  ]).id = "bTestCard";
-
-  card([
-    el("h2", { "data-i18n": "bPredTitle" }),
-    el("div", { class: "muted small", "data-i18n": "bModel" }),
-    el("div", { class: "pred", id: "bModelCut" }),
-    el("div", { class: "muted small", id: "bModelDates" }),
-    el("div", { id: "bTrendBox", hidden: "" }, [          // only once the trend is reliable: a few days of data say little on a flat Li-ion curve
-      el("div", { class: "muted small", style: "margin-top:12px", "data-i18n": "bTrend" }),
-      el("div", { class: "pred", id: "bTrendCut" }),
-      el("div", { class: "muted small", id: "bTrendDates" }),
-    ]),
-    el("div", { class: "muted small", style: "margin-top:12px", text: "Model z sezonami (zużycie gazu z faktur)" }),
-    el("div", { class: "pred", id: "bSeasonCut" }),
-    el("div", { class: "muted small", id: "bSeasonDates" }),
-    el("div", { id: "bSeasonTable", style: "overflow-x:auto;margin-top:6px" }),
-    el("p", { class: "hint", "data-i18n": "bPredHint" }),
-  ]);
-
   const rangeTabs = el("div", { class: "tabs", id: "bRangeTabs" });
   for (const [days, key] of [[7, "range7d"], [30, "bDays30"], [90, "bDays90"], [365, "bDays365"], [0, "rangeAll"]]) {
     const b = el("button", { class: "secondary", "data-days": days, "data-i18n": key });
@@ -1603,11 +1606,28 @@ function buildBattery() {
     rangeTabs.append(b);
   }
   const zoomBtn = (text, title, handler) => { const bt = el("button", { class: "secondary", text, title }); bt.addEventListener("click", handler); return bt; };
-  const canvas = el("canvas", { id: "bCanvas" });
+
+  // the discharge test (only while the test sketch runs): its readings, the divider and the measured capacity
+  const saved = (k, d) => { try { return localStorage.getItem(k) || d; } catch (e) { return d; } };
+  const mkInput = (id, key, def, step) => {
+    const input = el("input", { type: "number", id, min: "0", step });
+    input.value = saved(key, def);
+    input.addEventListener("change", () => { try { localStorage.setItem(key, input.value); } catch (e) { /* ignore */ } loadBattery(); });
+    return input;
+  };
+  const testBox = el("div", { id: "bTestBox", hidden: "", class: "testbox" }, [el("h3", { style: "margin-top:0", "data-i18n": "bTest" })]);
+  for (const part of $("#btCard").querySelectorAll(":scope > .kv, :scope > .row")) testBox.append(part);
+  testBox.append(el("div", { id: "bTestCard" }, [
+    el("div", { class: "row" }, [el("label", { for: "bTestMa", "data-i18n": "bTestMa" }), el("div", { class: "field" }, [mkInput("bTestMa", "gasMeterTestMa", "", "1")])]),
+    el("div", { class: "row" }, [el("label", { for: "bTestCells", "data-i18n": "bTestCells" }), el("div", { class: "field" }, [mkInput("bTestCells", "gasMeterTestCells", "1", "1")])]),
+    el("div", { class: "kv" }, [el("span", { "data-i18n": "bTestCapEst" }), el("span", { class: "v", id: "bTestCapVal" }),
+                                el("span", { text: "" }), el("span", { class: "v small muted", id: "bTestCapNote" })]),
+  ]), el("p", { class: "hint", id: "bTestNote", "data-i18n": "bTestNote" }));
+
   card([
     el("h2", { "data-i18n": "bChartTitle" }),
     el("div", { class: "chart-tools" }, [
-      rangeTabs,
+      el("div", { class: "field", style: "gap:8px;flex-wrap:wrap" }, [srcTabs, rangeTabs]),
       el("div", { class: "tabs" }, [
         zoomBtn("−", t("zoomOut"), () => battery.chart && battery.chart.zoom(2, undefined, true)),
         zoomBtn("+", t("zoomIn"), () => battery.chart && battery.chart.zoom(0.5, undefined, true)),
@@ -1615,32 +1635,47 @@ function buildBattery() {
       ]),
     ]),
     el("div", { class: "muted small", id: "bReadout" }),
-    canvas,
-    el("p", { class: "hint", "data-i18n": "chartHint" }),
+    el("canvas", { id: "bCanvas" }),
+    testBox,
+  ], true);
+
+  card([
+    el("h2", { "data-i18n": "bPredTitle" }),
+    el("div", { class: "split" }, [
+      el("div", { class: "preds" }, [
+        el("div", {}, [el("div", { class: "muted small", text: "Model z sezonami (zużycie z faktur)" }), el("div", { class: "pred", id: "bSeasonCut" }), el("div", { class: "muted small", id: "bSeasonDates" })]),
+        el("div", {}, [el("div", { class: "muted small", "data-i18n": "bModel" }), el("div", { class: "pred", id: "bModelCut" }), el("div", { class: "muted small", id: "bModelDates" })]),
+        el("div", { id: "bTrendBox", hidden: "" }, [          // only once the trend is reliable: a few days of data say little on a flat Li-ion curve
+          el("div", { class: "muted small", "data-i18n": "bTrend" }), el("div", { class: "pred", id: "bTrendCut" }), el("div", { class: "muted small", id: "bTrendDates" })]),
+      ]),
+      el("div", { id: "bSeasonTable", style: "overflow-x:auto" }),
+    ]),
   ], true);
 
   const slider = el("input", { type: "range", id: "bSlider", min: "0", max: "1000", step: "10", value: "266" });
   slider.addEventListener("input", renderBattery);
   card([
-    el("h2", { "data-i18n": "bBudgetTitle" }),
-    el("div", { class: "stack", id: "bStack" }),
-    el("div", { class: "kv", id: "bBudget" }),
-    el("h2", { style: "margin-top:18px", "data-i18n": "bWhatIf" }),
-    el("div", { class: "kv" }, [el("span", { "data-i18n": "bPulsesDay" }), el("span", { class: "v", id: "bSliderVal" })]),
-    slider,
-    el("div", { class: "kv" }, [el("span", { "data-i18n": "bWhatIfOut" }), el("span", { class: "v", id: "bSliderOut" })]),
-    el("p", { class: "hint", "data-i18n": "bAvgDay" }),
-  ]).id = "bBudgetCard";
+    el("div", { class: "split" }, [
+      el("div", {}, [el("h2", { "data-i18n": "bBudgetTitle" }), el("div", { class: "stack", id: "bStack" }), el("div", { class: "kv", id: "bBudget" })]),
+      el("div", {}, [
+        el("h2", { "data-i18n": "bWhatIf" }),
+        el("div", { class: "kv" }, [el("span", { "data-i18n": "bPulsesDay" }), el("span", { class: "v", id: "bSliderVal" })]),
+        slider,
+        el("div", { class: "kv" }, [el("span", { "data-i18n": "bWhatIfOut" }), el("span", { class: "v", id: "bSliderOut" })]),
+        el("p", { class: "hint", "data-i18n": "bAvgDay" }),
+      ]),
+    ]),
+  ], true).id = "bBudgetCard";
 
-  card([el("h2", { "data-i18n": "bStatsTitle" }), el("div", { class: "kv", id: "bStats" })]);
+  root.append(el("h3", { class: "sechead", text: "Szczegóły i ustawienia" }));
+  foldCard(root, t("bStatsTitle"), "sesje, czasy, prąd, sygnał", [el("div", { class: "kv", style: "margin-top:0", id: "bStats" })]);
 
   const testBtn = el("button", { class: "secondary", "data-i18n": "nTest" });
   testBtn.addEventListener("click", () => notifyAction("test"));
   const reportBtn = el("button", { class: "secondary", "data-i18n": "nNow" });
   reportBtn.addEventListener("click", () => notifyAction("report"));
-  card([
-    el("h2", { "data-i18n": "nTitle" }),
-    el("div", { class: "kv" }, [
+  foldCard(root, t("nTitle"), "raporty i ostrzeżenia o baterii", [
+    el("div", { class: "kv", style: "margin-top:0" }, [
       el("span", { "data-i18n": "nReport" }), el("span", { class: "v", id: "nReport" }),
       el("span", { "data-i18n": "nNext" }), el("span", { class: "v", id: "nNext" }),
       el("span", { "data-i18n": "nLevel" }), el("span", { class: "v", id: "nLevel" }),
@@ -1652,7 +1687,6 @@ function buildBattery() {
     el("p", { class: "hint", id: "nNotHa", hidden: "" }),
     el("div", { class: "muted small", style: "margin-top:12px", "data-i18n": "nLog" }),
     el("div", { id: "nLog", class: "small" }),
-    el("p", { class: "hint", "data-i18n": "nHint" }),
   ]);
 
   battery.built = true;
@@ -1735,6 +1769,7 @@ async function loadBattery() {
   const hasTest = state && state.values["bt/pin_mv"] !== undefined;
   if (!hasTest) battery.source = "meter";
   document.querySelectorAll("#bSrcTabs button").forEach((b) => { b.hidden = b.dataset.src === "bt" && !hasTest; });
+  $("#bSrcTabs").hidden = !hasTest;                  // one source only: no switch
   document.querySelectorAll("#bSrcTabs button").forEach((b) => b.classList.toggle("active", b.dataset.src === battery.source));
   $("#bTestBox").hidden = battery.source !== "bt";
   try {
@@ -1753,24 +1788,19 @@ function renderBattery() {
   const isTest = d.source === "bt";
   $("#bTestNote").hidden = !isTest;
   $("#bTestCard").hidden = !isTest;
+  const put = (id, value, unit, sub) => { $("#" + id).replaceChildren(value, ...(unit ? [el("small", { text: unit })] : [])); $("#" + id + "Sub").textContent = sub || ""; };
   const cap = d.capacity;
-  if (cap) {
-    $("#bCap").textContent = Math.round(cap.total_mah) + " mAh";
-    $("#bCapNote").textContent = cap.cells + " × " + Math.round(cap.per_cell_mah) + " mAh × " + Math.round(cap.usable_pct) + " % " + t("bUsable") +
-      " (" + (cap.source === "measured" ? t("bCapMeasured") : (cap.preset !== "custom" ? cap.preset + ", " : "") + t("bCapRated")) + ")";
-  }
+  if (cap) put("bCap", String(Math.round(cap.total_mah)), "mAh", cap.cells + " × " + Math.round(cap.per_cell_mah) + " mAh · " + (cap.source === "measured" ? t("bCapMeasured") : t("bCapRated")));
+  else put("bCap", "—");
   if (isTest) {
     const tc = d.test_capacity;
     $("#bTestCapVal").textContent = tc ? Math.round(tc.per_cell_mah) + " mAh" : "—";
     $("#bTestCapNote").textContent = tc ? t(tc.final ? "bTestCapFinal" : "bTestCapRunning") : "";
   }
   $("#bBudgetCard").hidden = isTest;
-  $("#bVolt").textContent = d.volts === undefined ? "—" : num(d.volts, 3) + " V";
-  $("#bSoc").textContent = d.soc === undefined ? "—" : d.soc.toFixed(0) + " %";
-  const bar = $("#bSocBar");
-  bar.style.width = (d.soc || 0) + "%";
-  bar.style.background = d.soc < 15 ? "var(--bad)" : d.soc < 40 ? "var(--warn)" : "var(--ok)";
-  $("#bCurve").textContent = d.curve === "learned" ? t("bCurveLearned") : t("bCurveGeneric");
+  put("bSoc", d.soc === undefined ? "—" : d.soc.toFixed(0), d.soc === undefined ? "" : "%",
+      (d.volts === undefined ? "" : num(d.volts, 3) + " V · ") + (d.curve === "learned" ? "krzywa z testu" : "krzywa ogólna Li-ion"));
+  $("#st-bSoc").style.setProperty("--kc", d.soc < 15 ? "var(--bad)" : d.soc < 40 ? "var(--warn)" : "var(--ok)");
 
   // predictions
   const model = d.model, trend = d.trend && d.trend.confidence !== "low" ? d.trend : null;
@@ -1823,6 +1853,22 @@ function renderBattery() {
   if (p) {
     const ma = p.sleep_ma + p.self_ma + (p.status_sessions_per_day + ppd * p.spp) * p.session_mah / 24;
     $("#bSliderOut").textContent = fmtLife(p.capacity_mah / (ma * 24)) + " (" + (ma * 1000).toFixed(0) + " µA)";
+  }
+
+  // tiles: the best forecast (seasons, then the model, then the trend), when to charge, the average current
+  {
+    const fsx = !isTest ? d.forecast_season : null, best = fsx && fsx.reached ? fsx : model || trend;
+    const day = (days) => new Date((d.now + days * 86400) * 1000).toLocaleDateString("pl-PL");
+    if (fsx && !fsx.reached) put("bLife", "ponad 3", "lata", "przy obecnym zużyciu gazu");
+    else if (best && best.days_to_cutoff !== undefined && best.days_to_cutoff !== null) put("bLife", fmtLife(best.days_to_cutoff), "", "do ok. " + day(best.days_to_cutoff));
+    else put("bLife", "—", "", t("bNoModel"));
+    const warn = best && best.days_to_warn !== undefined && best.days_to_warn !== null ? best.days_to_warn : null;
+    if (warn !== null) put("bCharge", day(warn), "", "za " + fmtLife(warn));
+    else put("bCharge", "—", "", "");
+    const avg = d.budget_ma ? d.budget_ma.total : model ? model.current_ma : null;
+    put("bAvg", avg ? (avg * 1000).toFixed(0) : "—", avg ? "µA" : "", avg && d.budget_ma ? "sesje WiFi " + (d.budget_ma.sessions / d.budget_ma.total * 100).toFixed(0) + " % poboru" : "");
+    put("bSess", d.sessions_day !== null && d.sessions_day !== undefined ? num(d.sessions_day, 0) : "—", "",
+        d.pulses_day !== null && d.pulses_day !== undefined ? "impulsy: " + num(d.pulses_day, 0) + " na dobę" : "");
   }
 
   // statistics

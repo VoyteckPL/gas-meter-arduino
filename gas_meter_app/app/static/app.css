@@ -121,10 +121,15 @@ main, .bgrid {
   .stat.hero .val { font-size: 26px; }
 }
 .sgroup.two { flex: 1 1 300px; grid-template-columns: 1fr 1fr; }
+.sgroup.three { flex: 1 1 450px; grid-template-columns: repeat(3, 1fr); }
+.stat.mono .val { font: 600 12.5px/1.75 ui-monospace, "SF Mono", Menlo, Consolas, monospace; letter-spacing: 0; overflow: hidden; text-overflow: ellipsis; }
+.split { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+.preds { display: grid; gap: 14px; align-content: start; }
+.testbox { margin-top: 12px; padding: 12px 14px; border-radius: 12px; background: var(--chip); }
 
 /* the usage tab: two equal columns, so half cards always come in pairs and leave no holes */
-#usageView { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
-#usageView .card h3 { font-size: 13px; margin: 16px 0 6px; }
+.view2 { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+.view2 .card h3 { font-size: 13px; margin: 16px 0 6px; }
 .sechead { grid-column: 1 / -1; margin: 8px 2px -4px; font-size: 11px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 .fold { padding: 0; }
 .fold summary { list-style: none; cursor: pointer; padding: 14px 16px; display: flex; align-items: baseline; gap: 10px; }
@@ -135,11 +140,12 @@ main, .bgrid {
 .foldbody { padding: 0 16px 16px; }
 #uSeason { display: grid; grid-template-rows: repeat(6, auto); grid-auto-flow: column; column-gap: 32px; }
 .nomodel .chart-tools, .nomodel h3 { display: none; }
-@media (max-width: 760px) { #usageView { grid-template-columns: minmax(0, 1fr); } #uSeason { grid-template-rows: none; grid-auto-flow: row; } }
+@media (max-width: 760px) { .view2 { grid-template-columns: minmax(0, 1fr); } .split { grid-template-columns: minmax(0, 1fr); } #uSeason { grid-template-rows: none; grid-auto-flow: row; } }
 
 @media (max-width: 560px) {
   .stats { gap: 10px; }
-  .sgroup.gas, .sgroup.dev, .sgroup.two { flex-basis: 100%; grid-template-columns: 1fr 1fr; }
+  .sgroup.gas, .sgroup.dev, .sgroup.two, .sgroup.three { flex-basis: 100%; grid-template-columns: 1fr 1fr; }
+  .sgroup.three .stat:last-child { grid-column: 1 / -1; }
   .sgroup.dev .stat:last-child { grid-column: 1 / -1; }
   .stat { padding: 10px 12px; gap: 9px; }
   .stat .ic { width: 36px; height: 36px; border-radius: 11px; } .stat .ic svg { width: 20px; height: 20px; }
@@ -173,6 +179,8 @@ button {
 }
 button.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); font-weight: 500; padding: 4px 10px; }
 button.secondary { background: var(--chip); color: var(--text); border: 1px solid var(--line); }
+a.button { display: inline-block; text-decoration: none; border-radius: 10px; padding: 8px 14px; font-size: 14px; font-weight: 600; }
+a.button.secondary { background: var(--chip); color: var(--text); border: 1px solid var(--line); }
 button:disabled { opacity: .5; cursor: default; }
 .pending { margin-top: 4px; font-size: 12px; color: var(--warn); display: flex; gap: 8px; align-items: center; }
 .pending a { color: var(--accent); cursor: pointer; text-decoration: underline; }

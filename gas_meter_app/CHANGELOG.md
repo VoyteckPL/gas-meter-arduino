@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.38.0
+
+* Bateria, Sieć i OTA w nowym stylu: u góry pasek kafelków, niżej karty na całą szerokość, szczegóły i ustawienia zwinięte na dole.
+* Bateria: kafelki naładowanie, pojemność, wystarczy na, naładuj do, średni prąd, sesje WiFi na dobę. Prognoza żywotności i tabela miesięcy obok siebie, „Na co idzie energia” obok „A gdyby…”. Statystyki dla nerdów i powiadomienia zwinięte. Dane testu rozładowania są w karcie wykresu.
+* Sieć: sygnał, czas łączenia, nieudane sesje (z odsetkiem), adres IP, punkt dostępu i MAC.
+* OTA: firmware, czas pracy, impulsy i obudzenia na górze; ustawianie stanu licznika i diagnostyka zwinięte.
+
 ## 0.37.0
 
 * Zakładka Zużycie uporządkowana: u góry pasek odczytów jak na Przeglądzie (zużycie, koszty, prognoza), niżej wykresy na całą szerokość, bez pustych miejsc.
