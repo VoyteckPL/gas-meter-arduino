@@ -443,6 +443,10 @@ class Bridge:
             # diagnostics sent with the status (every hour, or with a pulse 5 min after the last status): history and charts in HA
             ("session_ms", "Ostatnia sesja WiFi", "session_ms", "ms", "duration", "measurement", "diagnostic"),
             ("wifi_connect_ms", "Czas łączenia z WiFi", "wifi_connect_ms", "ms", "duration", "measurement", "diagnostic"),
+            ("fail_wifi", "Nieudane sesje: WiFi", "fail_wifi", None, None, "total_increasing", "diagnostic"),
+            ("fail_mqtt", "Nieudane sesje: połączenie z brokerem", "fail_mqtt", None, None, "total_increasing", "diagnostic"),
+            ("fail_sub", "Nieudane sesje: subskrypcja", "fail_sub", None, None, "total_increasing", "diagnostic"),
+            ("fail_ack", "Nieudane sesje: brak potwierdzenia", "fail_ack", None, None, "total_increasing", "diagnostic"),
             ("awake_wifi_s", "Czas pracy z WiFi", "awake_wifi_s", "s", "duration", "total_increasing", "diagnostic"),
             ("awake_other_s", "Czas pracy bez WiFi", "awake_other_s", "s", "duration", "total_increasing", "diagnostic"),
             ("wakes", "Obudzenia", "Wakes", None, None, "total_increasing", "diagnostic"),

@@ -42,7 +42,7 @@
 #include "esp_ota_ops.h"
 #include "esp_timer.h"
 
-#define FW_VERSION "0.4.4"
+#define FW_VERSION "0.4.5"
 // The version is also kept as a marker in the binary: the Gas Meter app reads it from the .bin file it serves for the update
 static const char FW_MARKER[] = "GASMETER_FW:" FW_VERSION;
 
@@ -131,7 +131,7 @@ IPAddress DNS_SERVER(192, 168, 1, 1);
 #endif
 
 // ------------------------------- RTC memory ---------------------------------
-#define CACHE_MAGIC 0x6A5C0DE4UL     // changed with the layout: the first start of a new layout is a cold start (counter from flash)
+#define CACHE_MAGIC 0x6A5C0DE5UL     // changed with the layout: the first start of a new layout is a cold start (counter from flash)
 
 struct Cache {
   uint32_t magic;
@@ -165,6 +165,10 @@ struct Cache {
   uint32_t awakeWifiMs;    // time awake in wake-ups with a WiFi session (or a try) since power-on: the battery model of the app
   uint32_t awakeOtherMs;   // time awake in wake-ups without WiFi (the contact opens, flutter checks) since power-on
   uint32_t lastSessionMs;  // how long the last wake-up with a WiFi session was awake, from the start of the program to sleep
+  uint16_t failWifi;       // failed sessions since power-on, by the stage that failed: no WiFi connection,
+  uint16_t failMqtt;       //   no MQTT connection,
+  uint16_t failSub;        //   subscription not answered,
+  uint16_t failAck;        //   counter not acknowledged (or a remote counter command not applied)
 };
 
 RTC_NOINIT_ATTR Cache cache;
@@ -773,6 +777,7 @@ static bool preferredBssid(uint8_t out[6]) {
 #define DHCP_SESSIONS 50
 #define DHCP_PROBE    255
 static bool g_usedDhcp = false;
+static uint8_t g_failStage = 0;      // where the last session failed: 1 WiFi, 2 MQTT connection, 3 subscription, 4 acknowledgement
 
 static bool wifiUp(unsigned long timeoutMs) {
   unsigned long start = millis();
@@ -940,6 +945,7 @@ static bool publishAll(bool sendStatus) {
 
   if (!mqtt.connect(MQTT_CLIENT_ID, MQTT_USER, MQTT_PASS)) {
     LOG("MQTT connection failed\r\n");
+    g_failStage = 2;
     return false;
   }
   net.setNoDelay(true);       // send every message at once: with Nagle's algorithm each small publish waits for an acknowledgement (about 60 ms each)
@@ -954,6 +960,7 @@ static bool publishAll(bool sendStatus) {
   if (!mqtt.subscribe(topic("config/#"))) {
     LOG("MQTT subscription not answered at %lu ms\r\n", (unsigned long)millis());
     mqtt.disconnect();
+    g_failStage = 3;
     return false;
   }
   if (!cache.mqttSynced) restoreBase(mqtt);
@@ -993,6 +1000,15 @@ static bool publishAll(bool sendStatus) {
     snprintf(buf, sizeof(buf), "%u", (unsigned)(cache.hangs & 0x3F));
     mqtt.publish(topic("hangs"), String(buf), true, 0);
     mqtt.publish(topic("dhcp"), String(g_usedDhcp ? "1" : "0"), true, 0);
+    // failed sessions by stage (counters since power-on): where the retries come from
+    snprintf(buf, sizeof(buf), "%u", (unsigned)cache.failWifi);
+    mqtt.publish(topic("fail_wifi"), String(buf), true, 0);
+    snprintf(buf, sizeof(buf), "%u", (unsigned)cache.failMqtt);
+    mqtt.publish(topic("fail_mqtt"), String(buf), true, 0);
+    snprintf(buf, sizeof(buf), "%u", (unsigned)cache.failSub);
+    mqtt.publish(topic("fail_sub"), String(buf), true, 0);
+    snprintf(buf, sizeof(buf), "%u", (unsigned)cache.failAck);
+    mqtt.publish(topic("fail_ack"), String(buf), true, 0);
     // time awake (counters since power-on, without this wake-up): with them the app knows what the battery really spends
     snprintf(buf, sizeof(buf), "%.1f", cache.awakeWifiMs / 1000.0);
     mqtt.publish(topic("awake_wifi_s"), String(buf), true, 0);
@@ -1039,6 +1055,7 @@ static bool publishAll(bool sendStatus) {
   otaAfterSession(mqtt, confirmed);
 #endif
   mqtt.disconnect();
+  if (!confirmed) g_failStage = 4;
   LOG("MQTT %s at %lu ms\r\n", confirmed ? "published and disconnected" : "counter NOT acknowledged", (unsigned long)millis());
   return confirmed;
 }
@@ -1171,6 +1188,7 @@ void setup() {
     wifiWake = true;
     cache.lastTryS = now;
     bool ok = false;
+    g_failStage = 1;
     if (wifiUp((coldStart && !cache.baseKnown) ? WIFI_TIMEOUT_FIRST_MS : WIFI_TIMEOUT_MS)) {
       ok = publishAll(statusWanted);
 #if OTA_ENABLED
@@ -1196,6 +1214,8 @@ void setup() {
       cache.sends++;
       if (statusWanted) cache.lastStatusS = now;
     } else if (cache.failCount < 255) {
+      uint16_t *stage = g_failStage == 2 ? &cache.failMqtt : g_failStage == 3 ? &cache.failSub : g_failStage == 4 ? &cache.failAck : &cache.failWifi;
+      if (*stage < 65535) (*stage)++;
       cache.failCount++;
       interval = retryDelayS(cache.failCount);
       LOG("Send failed (%u in a row), next try in %lu s\r\n", (unsigned)cache.failCount, (unsigned long)interval);

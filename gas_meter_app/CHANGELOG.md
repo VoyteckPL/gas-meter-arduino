@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.35.4
+
+* Nowe encje diagnostyczne (firmware 0.4.5): Nieudane sesje – WiFi, połączenie z brokerem, subskrypcja, brak potwierdzenia. Pokazują, na którym etapie zawodzą sesje licznika.
+
 ## 0.35.3
 
 * Koszty wstecz: gdy HA po zaimportowanych godzinach zaczął sumę kosztu od zera (panel pokazywał ujemny koszt), przycisk wykrywa spadek sumy i podnosi resztę statystyki o brakującą wartość.

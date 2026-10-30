@@ -387,6 +387,20 @@ int main(int argc, char **) {
     expect("status every hour: 4 reports in 3 hours", status >= 4 && status <= 5);
   }
 
+  { // failed sessions are counted by the stage that failed and published with the status
+    world_reset(); int n = train(10, 10, 30, 1.0); g_ack_failures = 3;
+    Result r = simulate(S(3 * 3600 + 120));
+    int ack = -1;
+    for (auto &p : g_pubs) if (p.topic == "Gaz/Gazomierz/fail_ack") ack = atoi(p.payload.c_str());
+    expect("failed sessions counted by stage (no acknowledgement) and published",
+           r.chip == 1000 + (uint64_t)n && cache.failAck == 3 && cache.failWifi == 0 && cache.failMqtt == 0 && ack == 3);
+  }
+  { // MQTT connection fails: counted as such, not as WiFi
+    world_reset(); int n = train(10, 10, 5, 1.0); g_mqtt_ok = false;
+    Result r = simulate(S(200)); (void)n; (void)r;
+    expect("broker connection failures counted as MQTT", cache.failMqtt > 0 && cache.failWifi == 0);
+  }
+
   printf("\n%s (%d failure(s))\n", failures ? "SOME TESTS FAILED" : "ALL TESTS PASSED", failures);
   return failures ? 1 : 0;
 }
