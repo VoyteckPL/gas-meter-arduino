@@ -50,6 +50,9 @@ configuration:
   boiler_entity:
     name: Encja stanu pieca
     description: Encja z Home Assistanta ze stanem pieca (np. Ariston), do podziału gazu na ciepłą wodę i ogrzewanie. Apka tylko ją czyta.
+  thermostat_entities:
+    name: Termostaty pieca
+    description: Encje climate / water_heater do sterowania piecem w apce, po przecinku (np. climate.ariston, water_heater.ariston). Puste = apka znajdzie je sama na tym samym urządzeniu co encja stanu pieca.
   ota_key:
     name: Klucz aktualizacji firmware (ota_key)
     description: Tajny tekst (min. 12 znaków), ten sam co OTA_KEY w secrets.h firmware. Podpisuje polecenie aktualizacji gazomierza.

@@ -98,6 +98,7 @@ const STAT_ICONS = {
   pump: '<circle cx="11" cy="13" r="7"/><path d="M11 6h10"/><path d="M8.6 15.6a3.4 3.4 0 1 1 5.8-2.4"/><path d="M14.4 10.4v2.8h-2.8"/>',
   fan: '<circle cx="12" cy="12" r="1.6"/><path d="M12 10.4C11 6 13 3 16 4s1.5 5.5-2.4 7.2M13.6 12.4c4.3 1 6.6 3.4 5.4 6.2s-5.6.9-6.4-3.2M10.5 12.9c-3.2 3.1-6.6 3.6-7.7.7s3.4-4.9 6.9-3"/>',
   pause: '<circle cx="12" cy="12" r="8.5"/><path d="M10 9v6M14 9v6"/>',
+  power: '<path d="M12 3v8"/><path d="M6.6 6.6a7.5 7.5 0 1 0 10.8 0"/>',
   bolt: '<path d="M13 2.5 5 13.5h6l-1 8 8-11h-6z"/>',
   hourglass: '<path d="M6 3h12M6 21h12M7 3v3a5 5 0 0 0 10 0V3M7 21v-3a5 5 0 0 1 10 0v3"/>',
   bell: '<path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
@@ -366,6 +367,12 @@ function build() {
     el("div", { class: "ovwrap" }, [el("canvas", { id: "chart", style: "height:360px" }), el("div", { class: "ovpulse", id: "ovPulse", hidden: "" })]),
   ]));
 
+  // the boiler's thermostats (heating, hot water): set temperature and mode, like the dials in HA Views
+  root.append(el("section", { class: "card wide", id: "thCard", hidden: "" }, [
+    el("div", { class: "ovhead" }, [el("h2", { text: "Sterowanie piecem" })]),
+    el("div", { class: "thgrid", id: "thGrid" }),
+  ]));
+
   // the boiler: every run of today (or 24 h, 7 days) as a pill, with time, gas and money
   const pecTabs = el("div", { class: "tabs", id: "pecTabs" });
   for (const [label, key] of [["Dziś", "today"], ["24 godz.", "24h"], ["7 dni", "7d"]]) {
@@ -605,6 +612,121 @@ function update() {
   for (const [tab, count] of Object.entries(counts)) {
     const button = document.querySelector('#viewTabs button[data-view="' + tab + '"]');
     if (button) { if (count) button.dataset.pending = count; else delete button.dataset.pending; }
+  }
+}
+
+// ----------------------------------------------------------------------- thermostats
+const thermo = { data: null, pending: {}, timers: {} };
+const TH_ACT = {                                  // what the boiler is doing: label, colour, icon
+  heating: ["Grzeje", "#FF7A2F", "flame"], circulating: ["Wybieg pompy", "#A77BF0", "pump"], idle: ["Bezczynny", "#4FB4E6", "pause"],
+  off: ["Wyłączony", "#9DB4CC", "power"], cooling: ["Chłodzi", "#38BDF8", "drop"],
+};
+const TH_MODES = { heat: ["Grzanie", "flame"], off: ["Wyłącz", "power"], auto: ["Auto", "chip"], heat_cool: ["Auto", "chip"] };
+
+async function loadThermo() {
+  if (!built) return;
+  try { thermo.data = await api("thermostats"); } catch (e) { return; }
+  renderThermo();
+}
+
+function thInfo(item) {
+  const a = item.attributes || {}, n = (v) => (v === null || v === undefined || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
+  const p = thermo.pending[item.entity_id] || {}, water = item.domain === "water_heater";
+  const min = n(a.min_temp) ?? (water ? 35 : 7), max = Math.max(min + 1, n(a.max_temp) ?? (water ? 65 : 30)), step = n(a.target_temp_step) || (water ? 1 : 0.5);
+  const on = water ? (p.on ?? item.state !== "off") : (p.mode ?? item.state) !== "off";
+  const act = !on ? "off" : String(a.hvac_action || "").toLowerCase();
+  return { a, water, on, mode: p.mode ?? item.state, modes: Array.isArray(a.hvac_modes) ? a.hvac_modes : [], min, max, step,
+           current: n(a.current_temperature), target: p.temperature ?? n(a.temperature),
+           act: TH_ACT[act] ? act : act ? act : "idle", unavailable: item.state === "unavailable" || item.state === "unknown" };
+}
+
+// a 270° arc from min to max: the set temperature fills it, a dot marks the measured one
+function thDial(info, color) {
+  const cx = 100, cy = 96, r = 78, start = 135, sweep = 270;
+  const ang = (v) => start + sweep * Math.min(1, Math.max(0, (v - info.min) / (info.max - info.min)));
+  const pt = (a) => { const t = a * Math.PI / 180; return [cx + r * Math.cos(t), cy + r * Math.sin(t)]; };
+  const arc = (a0, a1) => { const [x0, y0] = pt(a0), [x1, y1] = pt(a1); return "M" + x0.toFixed(2) + " " + y0.toFixed(2) + " A" + r + " " + r + " 0 " + (a1 - a0 > 180 ? 1 : 0) + " 1 " + x1.toFixed(2) + " " + y1.toFixed(2); };
+  let svg = '<svg class="thdial" viewBox="0 0 200 186" aria-hidden="true"><path class="thtrack" d="' + arc(start, start + sweep) + '"/>';
+  if (info.target !== null && !info.unavailable) {
+    const at = ang(info.target), [kx, ky] = pt(at);
+    svg += '<path class="tharc" style="stroke:' + color + '" d="' + arc(start, Math.max(start + 0.5, at)) + '"/><circle class="thknob" cx="' + kx.toFixed(2) + '" cy="' + ky.toFixed(2) + '" r="9"/>';
+  }
+  if (info.current !== null) { const [x, y] = pt(ang(info.current)); svg += '<circle class="thcur" cx="' + x.toFixed(2) + '" cy="' + y.toFixed(2) + '" r="4.5"/>'; }
+  const [lx, ly] = pt(start), [rx, ry] = pt(start + sweep), f = (v) => num(v, info.step < 1 ? 1 : 0).replace(".", ",");
+  svg += '<text class="thrange" x="' + lx.toFixed(1) + '" y="' + (ly + 20).toFixed(1) + '">' + f(info.min) + '</text><text class="thrange" x="' + rx.toFixed(1) + '" y="' + (ry + 20).toFixed(1) + '">' + f(info.max) + "</text></svg>";
+  return svg;
+}
+
+function renderThermo() {
+  const d = thermo.data, card = $("#thCard");
+  card.hidden = !d || !d.items || !d.items.length;
+  if (card.hidden) return;
+  const grid = $("#thGrid"); grid.textContent = "";
+  for (const item of d.items) {
+    const info = thInfo(item), act = TH_ACT[info.act] || [info.act, "#4FB4E6", "chip"], color = info.on ? act[1] : TH_ACT.off[1];
+    const name = item.attributes.friendly_name && !/ariston|genus/i.test(item.attributes.friendly_name) ? item.attributes.friendly_name : info.water ? "Ciepła woda" : "Ogrzewanie";
+    const tile = el("div", { class: "thtile" + (info.act === "heating" || info.act === "circulating" ? " working" : "") + (info.on ? "" : " off"), style: "--tc:" + color });
+    tile.append(el("div", { class: "thname", text: name }), el("span", { class: "thbadge" + (info.on ? " on" : ""), text: info.unavailable ? "Niedostępny" : info.on ? "Włączone" : "Wyłączone" }));
+    const body = el("div", { class: "thbody" });
+    body.innerHTML = thDial(info, color);
+    const centre = el("div", { class: "thcentre" });
+    const ic = el("span", { class: "thic" }); ic.innerHTML = '<svg viewBox="0 0 24 24">' + (STAT_ICONS[act[2]] || STAT_ICONS.chip) + "</svg>";
+    centre.append(ic, el("div", { class: "thact", text: act[0] }),
+      el("div", { class: "thnow" }, [info.current !== null ? num(info.current, 1) : "—", el("small", { text: "°" })]),
+      el("div", { class: "thset", title: "Ustawiona temperatura" }, [info.target !== null ? num(info.target, info.step < 1 ? 1 : 0).replace(".0", "") : "—", el("small", { text: "°" })]));
+    body.append(centre);
+    tile.append(body);
+    if (!info.water && d.pressure && d.pressure.value !== null) tile.append(el("div", { class: "thextra", text: String(d.pressure.value).replace(".", ",") + " " + d.pressure.unit }));
+    const minus = el("button", { class: "thbtn", "aria-label": "Niżej", text: "−" }), plus = el("button", { class: "thbtn", "aria-label": "Wyżej", text: "+" });
+    minus.disabled = plus.disabled = info.target === null || info.unavailable;
+    minus.addEventListener("click", () => thStep(item, -1)); plus.addEventListener("click", () => thStep(item, 1));
+    tile.append(el("div", { class: "thsteps" }, [minus, plus]));
+    // modes: heating / off for the heating, on / off for the hot water
+    const modes = el("div", { class: "thmodes" });
+    const modeBtn = (label, icon, active, fn) => { const b = el("button", { class: "thmode" + (active ? " active" : ""), title: label, "aria-label": label, "aria-pressed": String(active) });
+      b.innerHTML = '<svg viewBox="0 0 24 24">' + STAT_ICONS[icon] + "</svg>"; b.addEventListener("click", fn); return b; };
+    if (info.water) {
+      modes.append(modeBtn("Włącz", "flame", info.on, () => !info.on && thSend(item, "turn_on", null, { on: true })),
+                   modeBtn("Wyłącz", "power", !info.on, () => info.on && thOff(item, name, () => thSend(item, "turn_off", null, { on: false }))));
+    } else {
+      for (const m of info.modes.filter((x) => TH_MODES[x])) modes.append(modeBtn(TH_MODES[m][0], TH_MODES[m][1], info.mode === m, () => {
+        if (info.mode === m) return;
+        const go = () => thSend(item, "set_hvac_mode", m, { mode: m });
+        if (m === "off") thOff(item, name, go); else go();
+      }));
+    }
+    tile.append(modes);
+    grid.append(tile);
+  }
+}
+
+async function thOff(item, name, go) {
+  const ok = await confirmDialog({ title: "Wyłączyć?", message: name + " zostanie wyłączone.", confirmText: "Wyłącz", danger: true });
+  if (ok) go();
+}
+
+// − / +: the dial follows at once, Home Assistant gets the value when the taps stop
+function thStep(item, dir) {
+  const info = thInfo(item), id = item.entity_id;
+  const next = Math.min(info.max, Math.max(info.min, Math.round((info.target + dir * info.step) / info.step) * info.step));
+  thermo.pending[id] = { ...thermo.pending[id], temperature: Math.round(next * 100) / 100 };
+  renderThermo();
+  clearTimeout(thermo.timers[id]);
+  thermo.timers[id] = setTimeout(() => thSend(item, "set_temperature", thermo.pending[id].temperature, {}), 700);
+}
+
+async function thSend(item, action, value, pending) {
+  const id = item.entity_id;
+  thermo.pending[id] = { ...thermo.pending[id], ...pending };
+  renderThermo();
+  try {
+    await api("thermostats", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entity_id: id, action, value }) });
+    // the device needs a moment: read it back a few times, then drop what is still pending
+    for (const ms of [1500, 4000, 8000]) setTimeout(loadThermo, ms);
+    setTimeout(() => { delete thermo.pending[id]; renderThermo(); }, 9000);
+  } catch (e) {
+    delete thermo.pending[id]; renderThermo();
+    toast("Piec nie przyjął zmiany: " + e.message, true);
   }
 }
 
@@ -2216,7 +2338,7 @@ async function refresh() {
   try {
     state = await api("state");
     if (!built) {
-      build(); drawChart(); setTimeout(loadPec, 500);
+      build(); drawChart(); setTimeout(loadPec, 500); setTimeout(loadThermo, 300);
       showView("panel");                         // the app always opens on the overview
     }
     update();
@@ -2326,5 +2448,5 @@ refresh();
 document.addEventListener("visibilitychange", () => { if (!document.hidden) { refresh(); if (built && !$("#root").hidden) drawChart(); } });
 window.addEventListener("pageshow", () => { refresh(); if (built && !$("#root").hidden) drawChart(); });
 setInterval(refresh, 3000);
-setInterval(() => { if (built && !$("#root").hidden) { drawChart(); loadPec(); } }, 10000);   // the boiler history is live like the chart
+setInterval(() => { if (built && !$("#root").hidden) { drawChart(); loadPec(); loadThermo(); } }, 10000);   // the boiler history is live like the chart
 setInterval(() => { if (built) { const d = $("#histDialog"); if (d && !d.hidden) loadHistory(); if (!$("#batteryView").hidden) loadBattery(); } }, 60000);

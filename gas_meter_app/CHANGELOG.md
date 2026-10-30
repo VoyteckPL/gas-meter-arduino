@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.42.0
+
+* Nowa karta „Sterowanie piecem” na Przeglądzie: tarcze ogrzewania i ciepłej wody jak w HA Views. Widać zmierzoną i ustawioną temperaturę, co robi piec (grzeje, bezczynny, wybieg pompy, wyłączony) i ciśnienie. Przyciski −/+ zmieniają temperaturę (wysyłana po chwili, gdy przestaniesz klikać), przyciski trybu włączają i wyłączają (wyłączenie z potwierdzeniem).
+* Termostaty apka znajduje sama na urządzeniu encji stanu pieca (climate i water_heater, plus czujnik ciśnienia w barach). Można je wskazać ręcznie w nowej opcji „Termostaty pieca”.
+
 ## 0.41.1
 
 * Historia pieca odświeża się na żywo razem z wykresem (co 10 s zamiast co minutę).

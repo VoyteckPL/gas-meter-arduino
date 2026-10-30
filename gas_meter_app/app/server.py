@@ -2009,6 +2009,85 @@ async def api_boiler(request):
     return web.json_response(result)
 
 
+# ------------------------------- boiler control: thermostats -------------------------------
+THERMO_DOMAINS = ("climate", "water_heater")
+THERMO_KEYS = ("friendly_name", "hvac_modes", "hvac_action", "current_temperature", "temperature", "min_temp", "max_temp",
+               "target_temp_step", "operation_list", "operation_mode", "preset_mode", "unit_of_measurement")
+
+
+async def thermostat_entities(app):
+    """The thermostats to show (the option, else the climate / water_heater entities of the boiler's device) and the
+    pressure sensor of that device (unit bar). Looked up once per 10 minutes."""
+    cache = app.setdefault("thermo_cache", {"at": 0, "ids": [], "pressure": None})
+    if time.time() - cache["at"] < 600:
+        return cache["ids"], cache["pressure"]
+    chosen = [e.strip() for e in (app["options"].get("thermostat_entities") or "").split(",") if e.strip()]
+    ids, pressure = chosen, None
+    boiler_id = (app["options"].get("boiler_entity") or "").strip()
+    try:
+        registry = (await core_ws_call([{"type": "config/entity_registry/list"}]))[0] or []
+    except Exception as error:
+        log.warning("thermostats: entity registry failed: %s", error)
+        registry = []
+    device = next((e.get("device_id") for e in registry if e.get("entity_id") == (chosen[0] if chosen else boiler_id)), None)
+    if device:
+        mine = [e["entity_id"] for e in registry if e.get("device_id") == device and not e.get("disabled_by")]
+        if not chosen:            # heating first, then hot water
+            ids = sorted([x for x in mine if x.split(".")[0] in THERMO_DOMAINS], key=lambda x: (x.startswith("water_heater"), x))
+        for sensor in [x for x in mine if x.startswith("sensor.")]:
+            st = await core_get("/states/" + quote(sensor))
+            if st and str((st.get("attributes") or {}).get("unit_of_measurement", "")).lower() == "bar":
+                pressure = sensor
+                break
+    cache.update(at=time.time(), ids=ids, pressure=pressure)
+    return ids, pressure
+
+
+async def api_thermostats(request):
+    """GET: the state of the boiler's thermostats. POST {entity_id, action, value}: sets a temperature or a mode."""
+    app = request.app
+    if not core_token():
+        return web.json_response({"items": [], "in_ha": False})
+    ids, pressure = await thermostat_entities(app)
+    if request.method == "POST":
+        try:
+            body = await request.json()
+        except ValueError:
+            return web.json_response({"error": "bad request"}, status=400)
+        entity, action, value = body.get("entity_id"), body.get("action"), body.get("value")
+        if entity not in ids:
+            return web.json_response({"error": "Nieznany termostat"}, status=400)
+        domain = entity.split(".")[0]
+        if action == "set_temperature":
+            try:
+                result = await call_service(domain + "/set_temperature", {"entity_id": entity, "temperature": float(value)})
+            except (TypeError, ValueError):
+                return web.json_response({"error": "Zła temperatura"}, status=400)
+        elif action == "set_hvac_mode" and domain == "climate":
+            result = await call_service("climate/set_hvac_mode", {"entity_id": entity, "hvac_mode": str(value)})
+        elif action == "set_operation_mode" and domain == "water_heater":
+            result = await call_service("water_heater/set_operation_mode", {"entity_id": entity, "operation_mode": str(value)})
+        elif action in ("turn_on", "turn_off"):
+            result = await call_service(domain + "/" + action, {"entity_id": entity})
+        else:
+            return web.json_response({"error": "Nieznana akcja"}, status=400)
+        log.info("thermostat %s: %s %s -> %s", entity, action, value, "ok" if result["ok"] else result["detail"])
+        if not result["ok"]:
+            return web.json_response({"error": result["detail"]}, status=502)
+        return web.json_response({"ok": True})
+    items = []
+    for entity in ids:
+        st = await core_get("/states/" + quote(entity))
+        if not st:
+            continue
+        a = st.get("attributes") or {}
+        items.append({"entity_id": entity, "domain": entity.split(".")[0], "state": st.get("state"),
+                      "attributes": {k: a[k] for k in THERMO_KEYS if k in a}})
+    p = await core_get("/states/" + quote(pressure)) if pressure else None
+    return web.json_response({"items": items, "in_ha": True,
+                              "pressure": {"value": p.get("state"), "unit": (p.get("attributes") or {}).get("unit_of_measurement", "bar")} if p else None})
+
+
 async def api_boiler_log(request):
     """Every run of the boiler in the last days (heating, hot water, pump overrun...) with its gas and its cost."""
     app, now = request.app, time.time()
@@ -2155,6 +2234,8 @@ def create_app(options):
     app.router.add_post("/api/bills", api_bills)
     app.router.add_get("/api/boiler", api_boiler)
     app.router.add_get("/api/boiler_log", api_boiler_log)
+    app.router.add_get("/api/thermostats", api_thermostats)
+    app.router.add_post("/api/thermostats", api_thermostats)
     app.router.add_post("/api/boiler", api_boiler)
     app.router.add_get("/api/forecast", api_forecast)
     app.router.add_get("/api/weather", api_weather)
