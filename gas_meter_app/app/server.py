@@ -2129,7 +2129,12 @@ async def api_thermo_history(request):
     attrs = st.get("attributes") or {}
     water = entity.startswith("water_heater.") or bool(re.search(r"water|dhw|hot|cwu|zasob", entity + " " + str(attrs.get("friendly_name", "")), re.I)) \
         or (number(attrs.get("min_temp")) or 0) >= 30
-    result = thermo.analyse(rows, meter, per_m3, now, since, water)
+    # the burner's work from the boiler's state entity (hot water or heating), like the boiler history on the overview
+    transitions = app["boiler"]["transitions"]
+    spans = [(x, y) for x, y, mode in boiler.intervals(transitions, now) if mode == ("dhw" if water else "heating") and y > since] if transitions else None
+    result = thermo.analyse(rows, meter, per_m3, now, since, water, spans)
+    result["source"] = "boiler" if spans is not None else "thermostat"
+    result["covered_from"] = transitions[0][0] if transitions else (rows[0][0] if rows else now)
     points = [[round(t, 1), cur, tgt] for t, cur, tgt, _ in rows if t >= since - 3600]
     result.update(entity_id=entity, water=water, now=now, since=since, points=thin(points, 1500), per_m3=per_m3)
     return web.json_response(result)

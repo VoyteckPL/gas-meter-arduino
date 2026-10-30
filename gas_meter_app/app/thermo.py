@@ -32,12 +32,14 @@ def temp_at(rows, times, ts):
     return rows[i][1] if i >= 0 else None
 
 
-def analyse(rows, meter, price, now, since, water):
+def analyse(rows, meter, price, now, since, water, spans=None):
+    """spans: when the burner really worked for this thermostat (from the boiler's own state entity, the same source as
+    the boiler history of the app); without them the thermostat's hvac_action is used."""
     rows = [r for r in rows if r[0] <= now]
     times = [r[0] for r in rows]
     mtimes = [p[0] for p in meter]
     runs = []
-    for a, b in runs_of(rows, now):
+    for a, b in (spans if spans is not None else runs_of(rows, now)):
         a = max(a, since)
         if b <= a:
             continue

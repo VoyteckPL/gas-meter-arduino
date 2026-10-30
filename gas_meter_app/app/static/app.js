@@ -785,7 +785,8 @@ async function loadThermoHistory() {
   const stats = $("#thxStats"); stats.textContent = "";
   const put = (tile, value, unit, sub) => { tile.querySelector(".val").replaceChildren(value, ...(unit ? [el("small", { text: unit })] : [])); tile.querySelector(".sub").textContent = sub || ""; return tile; };
   const g1 = el("div", { class: "sgroup two" }), g2 = el("div", { class: "sgroup two" });
-  g1.append(put(statTile("", "Palnik pracował", "clock", "thxH", "--accent"), duration(d.hours * 3600), "", "w " + (thx.hours <= 24 ? "24 godz." : thx.hours / 24 + " dni")),
+  g1.append(put(statTile("", "Palnik pracował", "clock", "thxH", "--accent"), duration(d.hours * 3600), "",
+              d.covered_from > d.since + 3600 ? "dane od " + new Date(d.covered_from * 1000).toLocaleDateString("pl-PL", { day: "numeric", month: "numeric" }) : "w " + (thx.hours <= 24 ? "24 godz." : thx.hours / 24 + " dni")),
             put(statTile("", "Zapłony", "flame", "thxN", "--accent"), String(d.starts), "", d.water ? "nagrzania zasobnika" : d.short ? "w tym krótkich: " + d.short : "bez taktowania"));
   g2.append(put(statTile("", "Gaz", "counter", "thxM", "--info"), num(d.m3, 2).replace(".", ","), "m³", "z gazomierza"),
             put(statTile("", "Koszt", "coins", "thxZ", "--ok"), showCost && d.cost !== null ? zl(d.cost) : "—", "", d.per_m3 ? "gaz " + num(d.per_m3, 2).replace(".", ",") + " zł/m³" : "brak faktur"));

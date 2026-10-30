@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.44.2
+
+* Szczegóły termostatu: okresy grzania, zapłony, gaz i koszt liczone ze stanu pieca (tak jak historia na Przeglądzie), a nie z „hvac_action” termostatu, które w Ariston nie pokrywa się z pracą palnika (stąd 0,00 m³ na nagrzanie). Temperatury dalej z termostatu. Gdy historia stanu pieca jest krótsza niż wybrany zakres, kafelek mówi, od kiedy są dane.
+
 ## 0.44.1
 
 * Poprawka: od 0.42.1 wykres licznika na Przeglądzie nie rysował się przy pierwszym otwarciu apki (brakujące tłumaczenie zakładki „Piec” przerywało budowanie strony). Brak tłumaczenia nie zatrzymuje już strony, a błąd odświeżania trafia do konsoli przeglądarki.
