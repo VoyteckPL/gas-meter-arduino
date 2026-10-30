@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.45.0
+
+* Przegląd: nowy kafelek „Na zewnątrz” obok „Ostatni odczyt”: temperatura na zewnątrz i pogoda (pochmurno, deszcz…) z Home Assistanta, kolor zależny od temperatury. Źródło w nowej opcji „Temperatura na zewnątrz” (czujnik albo encja pogody); puste = pierwsza encja pogody z HA.
+
 ## 0.44.3
 
 * Historia pieca na Przeglądzie ma krótki tytuł „Piec”.

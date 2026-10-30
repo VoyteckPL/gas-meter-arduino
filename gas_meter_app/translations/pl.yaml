@@ -53,6 +53,9 @@ configuration:
   thermostat_entities:
     name: Termostaty pieca
     description: Encje climate / water_heater do sterowania piecem w apce, po przecinku (np. climate.ariston, water_heater.ariston). Puste = apka znajdzie je sama na tym samym urządzeniu co encja stanu pieca.
+  outdoor_entity:
+    name: Temperatura na zewnątrz
+    description: Czujnik temperatury zewnętrznej albo encja pogody (np. sensor.temperatura_zewnetrzna, weather.forecast_home). Puste = pierwsza encja pogody z Home Assistanta.
   ota_key:
     name: Klucz aktualizacji firmware (ota_key)
     description: Tajny tekst (min. 12 znaków), ten sam co OTA_KEY w secrets.h firmware. Podpisuje polecenie aktualizacji gazomierza.

@@ -574,11 +574,39 @@ async def index(request):
     return web.Response(text=html, content_type="text/html", headers={"Cache-Control": "no-store"})
 
 
+async def outdoor_temperature(app):
+    """The temperature outside, from Home Assistant: the outdoor_entity option (a sensor or a weather entity), else the
+    first weather entity. Read at most once a minute."""
+    cache = app.setdefault("outdoor_cache", {"at": 0, "value": None, "entity": None})
+    if time.time() - cache["at"] < 60 or not core_token():
+        return cache["value"]
+    cache["at"] = time.time()
+    entity = (app["options"].get("outdoor_entity") or "").strip() or cache["entity"]
+    if not entity:
+        states = await core_get("/states") or []
+        entity = next((x["entity_id"] for x in states if x.get("entity_id", "").startswith("weather.")
+                       and (x.get("attributes") or {}).get("temperature") is not None), None)
+        cache["entity"] = entity
+    st = await core_get("/states/" + quote(entity)) if entity else None
+    value = None
+    if st:
+        a = st.get("attributes") or {}
+        raw = a.get("temperature") if entity.startswith("weather.") else st.get("state")
+        try:
+            value = {"temp": round(float(raw), 1), "name": a.get("friendly_name") or entity, "entity": entity,
+                     "condition": st.get("state") if entity.startswith("weather.") else None}
+        except (TypeError, ValueError):
+            value = None
+    cache["value"] = value
+    return value
+
+
 async def api_state(request):
     data = request.app["store"].snapshot()
     data["schema"] = SCHEMA
     data["language"] = request.app["options"].get("language", "auto")
     data["battery_app"] = request.app.get("battery_last")
+    data["outdoor"] = await outdoor_temperature(request.app)
     cache = request.app.setdefault("price_cache", {"at": 0, "value": None})
     if time.time() - cache["at"] > 300:
         monthly, factor = bills_context(request.app)

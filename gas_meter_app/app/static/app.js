@@ -99,6 +99,7 @@ const STAT_ICONS = {
   fan: '<circle cx="12" cy="12" r="1.6"/><path d="M12 10.4C11 6 13 3 16 4s1.5 5.5-2.4 7.2M13.6 12.4c4.3 1 6.6 3.4 5.4 6.2s-5.6.9-6.4-3.2M10.5 12.9c-3.2 3.1-6.6 3.6-7.7.7s3.4-4.9 6.9-3"/>',
   pause: '<circle cx="12" cy="12" r="8.5"/><path d="M10 9v6M14 9v6"/>',
   power: '<path d="M12 3v8"/><path d="M6.6 6.6a7.5 7.5 0 1 0 10.8 0"/>',
+  thermo: '<path d="M14 14.8V5a2 2 0 1 0-4 0v9.8a4 4 0 1 0 4 0z"/><path d="M12 9v7"/>',
   bolt: '<path d="M13 2.5 5 13.5h6l-1 8 8-11h-6z"/>',
   hourglass: '<path d="M6 3h12M6 21h12M7 3v3a5 5 0 0 0 10 0V3M7 21v-3a5 5 0 0 1 10 0v3"/>',
   bell: '<path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
@@ -334,6 +335,7 @@ function build() {
       statTile("", "battery", "battery", "battery", null, true),
       statTile("", "signal", "wifi", "rssi", null, true),
       statTile("", "lastRead", "radio", "lastData", null, true),
+      statTile("", "Na zewnątrz", "thermo", "outTemp", "--info"),
     ]),
   ]));
   // a click on a tile (or on a value of the battery test) opens its history
@@ -529,6 +531,11 @@ function update() {
   const newest = Math.max(0, ...Object.entries(state.updated).filter(([k]) => !k.startsWith("cfg/") && !k.startsWith("app/")).map(([, ts]) => ts));
   if (newest) setStat("lastData", ago(now - newest), t("ago"), clock(newest));
   else setStat("lastData", t("never"), "", "");
+  const out = state.outdoor;
+  const SKY = { sunny: "słonecznie", "clear-night": "bezchmurnie", partlycloudy: "częściowe zachmurzenie", cloudy: "pochmurno", rainy: "deszcz",
+                pouring: "ulewa", snowy: "śnieg", "snowy-rainy": "deszcz ze śniegiem", fog: "mgła", windy: "wietrznie", lightning: "burza", "lightning-rainy": "burza z deszczem", hail: "grad" };
+  setStat("outTemp", out ? num(out.temp, 1) : "—", out ? "°C" : "", out ? (SKY[out.condition] || out.name) : "brak czujnika w HA");
+  tone("outTemp", !out ? "var(--muted)" : out.temp <= 0 ? "#3d9bff" : out.temp < 10 ? "var(--info)" : out.temp < 22 ? "var(--ok)" : "var(--warn)");
   tone("lastData", !newest || now - newest > 6 * 3600 ? "var(--bad)" : now - newest > 2 * 3600 ? "var(--warn)" : "var(--info)");
   $("#sub").textContent = (v.cubic_meters !== undefined ? num(v.cubic_meters, 2) + " m³" : t("noData")) + (newest ? " · " + ago(now - newest) + " " + t("ago") : "");
 
