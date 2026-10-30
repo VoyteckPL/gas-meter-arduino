@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.46.1
+
+* Wykresy przy dużym powiększeniu: linia sprzed widocznego fragmentu nie jest już ucinana u dołu (oś Y obejmuje poziom, z którym linia wchodzi w widok), etykiety osi z długimi liczbami (7301.485) mają tyle miejsca, ile potrzebują, a dymek na wykresie licznika pokazuje stan w miejscu palca, zamiast skakać do odczytu poza widokiem.
+
 ## 0.46.0
 
 * Obsługa firmware 0.4.7: impulsy, które dotarły razem po nieudanej sesji, trafiają na wykres w momentach, w których je policzono (gazomierz wysyła, ile sekund temu był każdy z nich). Koniec ze skokami o kilka impulsów.

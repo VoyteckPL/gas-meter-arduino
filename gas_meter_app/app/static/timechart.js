@@ -437,13 +437,31 @@
 
       const navH = this.o.nav ? 42 : 0;
       const hasRight = this.series.some((s) => s.axis === "right" && s.points.length);
-      const left = 50, right = hasRight && !this.o.rightHidden ? 42 : 12, top = 12, axisH = 22;
+      let left = 50;
+      const right = hasRight && !this.o.rightHidden ? 42 : 12, top = 12, axisH = 22;
       const navTop = H - navH - 2;
       const plotBottom = H - navH - (this.o.nav ? 10 : 2) - axisH;
-      const plotW = W - left - right, plotH = plotBottom - top;
+      let plotW = W - left - right;
+      const plotH = plotBottom - top;
       const [v0, v1] = this.view, [f0, f1] = this.full;
       // "auto": month ticks (every month named, year at January and at the first one) when more than about 5 months are shown
       const monthly = this.o.monthlyTicks === true || (this.o.monthlyTicks === "auto" && v1 - v0 > 150 * DAY);
+      // long readings (7301.485) need more room for the axis labels than the usual 50 px
+      {
+        let a = Infinity, b = -Infinity;
+        for (const s of this.series) {
+          if (s.axis === "right") continue;
+          const pts = this.active(s, v0, v1), i0 = Math.max(0, lowerBound(pts, v0) - 1), i1 = Math.min(pts.length, lowerBound(pts, v1) + 1);
+          for (let i = i0; i < i1; i++) { a = Math.min(a, pts[i][1]); b = Math.max(b, pts[i][1]); }
+        }
+        if (isFinite(a)) {
+          const st = niceStep(Math.max(b - a, 1e-6) * 1.16, Math.max(3, Math.floor(plotH / 46)));
+          const dec = Math.min(4, Math.max(0, Math.ceil(-Math.log10(st) - 1e-9)));
+          const widest = Math.max(ctx.measureText((b + st).toFixed(dec)).width, ctx.measureText((a - st).toFixed(dec)).width);
+          left = Math.max(left, Math.ceil(widest) + 12);
+          plotW = W - left - right;
+        }
+      }
       const sx = (t) => left + (t - v0) / (v1 - v0) * plotW;
       const L = this.layout = {
         left, plotW, plotH, plotBottom, navTop, W, H,
@@ -477,6 +495,12 @@
         if (s.axis === "right") { if (p[0] >= v0 && p[0] <= v1) { rlo = Math.min(rlo, p[1]); rhi = Math.max(rhi, p[1]); } continue; }
         if (p[0] < v0 - (v1 - v0) * 0.02 || p[0] > v1 + (v1 - v0) * 0.02) continue;
         lo = Math.min(lo, p[1]); hi = Math.max(hi, p[1]);
+      }
+      // a step line runs into the view at the level of the last reading before it: that level must fit too
+      for (const { s, pts } of prepared) {
+        if (s.axis === "right" || s.kind !== "step" || !pts.length) continue;
+        const k = lowerBound(pts, v0) - 1;
+        if (k >= 0) { lo = Math.min(lo, pts[k][1]); hi = Math.max(hi, pts[k][1]); }
       }
       if (!isFinite(lo)) for (const { s, pts } of prepared) for (const p of pts) { if (s.axis === "right") continue; lo = Math.min(lo, p[1]); hi = Math.max(hi, p[1]); }
       for (const v of this.o.includeY) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
@@ -696,7 +720,9 @@
         if (s.noHover || !pts.length) continue;
         const i = lowerBound(pts, t), cand = [pts[i - 1], pts[i]].filter(Boolean);
         if (!cand.length) continue;
-        const near = cand.reduce((a, b) => (Math.abs(a[0] - t) <= Math.abs(b[0] - t) ? a : b));
+        let near = cand.reduce((a, b) => (Math.abs(a[0] - t) <= Math.abs(b[0] - t) ? a : b));
+        if (s.kind === "step") near = [t, (pts[i] && pts[i][0] === t ? pts[i] : pts[i - 1] || pts[i])[1]];    // the level at the cursor
+        else if (near[0] < c.v0 || near[0] > c.v1) { const inside = cand.find((p) => p[0] >= c.v0 && p[0] <= c.v1); if (!inside) continue; near = inside; }
         if (Math.abs(near[0] - t) > (c.v1 - c.v0) * 0.08 && s.dashed) continue;
         rows.push({ s, p: near });
         if (!anchor || Math.abs(near[0] - t) < Math.abs(anchor[0] - t)) anchor = near;
