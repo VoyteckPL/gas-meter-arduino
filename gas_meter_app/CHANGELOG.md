@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.41.1
+
+* Historia pieca odświeża się na żywo razem z wykresem (co 10 s zamiast co minutę).
+
 ## 0.41.0
 
 * Historia pieca w czterech widokach do wyboru (zapamiętywany w przeglądarce): Oś czasu, Godziny, Sesje, Tory. Wszystkie mają jedną kolumnę, najnowsze na górze.

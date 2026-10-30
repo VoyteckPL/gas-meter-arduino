@@ -2326,6 +2326,5 @@ refresh();
 document.addEventListener("visibilitychange", () => { if (!document.hidden) { refresh(); if (built && !$("#root").hidden) drawChart(); } });
 window.addEventListener("pageshow", () => { refresh(); if (built && !$("#root").hidden) drawChart(); });
 setInterval(refresh, 3000);
-setInterval(() => { if (built && !$("#root").hidden) drawChart(); }, 10000);
-setInterval(() => { if (built && !$("#root").hidden) loadPec(); }, 60000);
+setInterval(() => { if (built && !$("#root").hidden) { drawChart(); loadPec(); } }, 10000);   // the boiler history is live like the chart
 setInterval(() => { if (built) { const d = $("#histDialog"); if (d && !d.hidden) loadHistory(); if (!$("#batteryView").hidden) loadBattery(); } }, 60000);
