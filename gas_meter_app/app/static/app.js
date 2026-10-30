@@ -769,6 +769,11 @@ function buildUsage() {
   const costRun = async (action) => {
     try {
       const r = await api("cost_backfill", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) });
+      if (r.repair) {
+        costOut.textContent = (r.done ? "Naprawiono: " : "Znaleziono spadek sumy kosztu od ") + new Date(r.at * 1000).toLocaleString("pl-PL") + ", suma podniesiona o " + num(r.lift, 2) + " " + r.unit + ".";
+        if (r.done) toast("Suma kosztu naprawiona");
+        return;
+      }
       const years = Object.entries(r.years || {}).map(([y, v]) => y + ": " + num(v, 2) + " " + r.unit).join(" · ");
       costOut.textContent = (r.done ? "Wpisano " : "Do wpisania: ") + r.hours + " godzin, razem " + num(r.total, 2) + " " + r.unit + ". " + years;
       if (r.done) toast("Koszty gazu wpisane do panelu Energia");

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.35.3
+
+* Koszty wstecz: gdy HA po zaimportowanych godzinach zaczął sumę kosztu od zera (panel pokazywał ujemny koszt), przycisk wykrywa spadek sumy i podnosi resztę statystyki o brakującą wartość.
+
 ## 0.35.2
 
 * Koszty wstecz działają też, gdy HA nie zapisał jeszcze żadnej godziny kosztu: historia jest wpisywana do ostatniej pełnej godziny.

@@ -1613,6 +1613,18 @@ async def cost_backfill(app, dry):
         "type": "recorder/statistics_during_period", "start_time": "2000-01-01T00:00:00+00:00",
         "statistic_ids": [gas_id, cost_id], "period": "hour", "types": ["sum"]}]))[0] or {}
     cost_rows = [r for r in stats.get(cost_id) or [] if r.get("sum") is not None]
+    # a drop of the sum (Home Assistant restarted it from zero after the imported hours): lift everything after it
+    drop = next((i for i in range(1, len(cost_rows)) if cost_rows[i]["sum"] < cost_rows[i - 1]["sum"] - 0.5), None)
+    if drop is not None:
+        lift = float(cost_rows[drop - 1]["sum"])
+        at = stat_time(cost_rows[drop]["start"])
+        out = {"cost_id": cost_id, "repair": True, "at": at, "lift": round(lift, 2), "unit": unit}
+        if not dry:
+            await core_ws_call([{"type": "recorder/adjust_sum_statistics", "statistic_id": cost_id,
+                                 "start_time": datetime.fromtimestamp(at, timezone.utc).isoformat(),
+                                 "adjustment": round(lift, 4), "adjustment_unit_of_measurement": unit}])
+            out["done"] = True
+        return out
     # no hour of cost yet: write the history up to the last full hour; Home Assistant continues the sum from it
     first_cost = stat_time(cost_rows[0]["start"]) if cost_rows else time.time() // 3600 * 3600
     gas_rows = [(stat_time(r["start"]), float(r["sum"])) for r in stats.get(gas_id) or [] if r.get("sum") is not None]
