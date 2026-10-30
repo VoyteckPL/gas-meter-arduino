@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.38.1
+
+* Wykres licznika: bez stanu licznika przy kropce „teraz” (jest w pasku odczytów).
+* Obok tytułu wykresu: co teraz robi piec (Ogrzewanie, Ciepła woda, Wybieg pompy, spoczynek), od kiedy i jak długo. Stan „cooling” z encji HVAC jest pokazywany jako wybieg pompy. Ikona świeci, gdy piec pracuje.
+
 ## 0.38.0
 
 * Bateria, Sieć i OTA w nowym stylu: u góry pasek kafelków, niżej karty na całą szerokość, szczegóły i ustawienia zwinięte na dole.

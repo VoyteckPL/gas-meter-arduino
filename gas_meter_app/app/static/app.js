@@ -94,6 +94,9 @@ const STAT_ICONS = {
   coins: '<ellipse cx="9" cy="6.5" rx="6" ry="2.8"/><path d="M3 6.5v5c0 1.5 2.7 2.8 6 2.8s6-1.3 6-2.8v-5"/><path d="M9 14.3v2.4c0 1.5 2.7 2.8 6 2.8s6-1.3 6-2.8v-5c0-1.5-2.7-2.8-6-2.8"/>',
   tag: '<path d="M3.5 11.5V4.5a1 1 0 0 1 1-1h7l9 9-8 8z"/><circle cx="8" cy="8" r="1.4"/>',
   receipt: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h3"/>',
+  drop: '<path d="M12 3s6 6.4 6 11a6 6 0 0 1-12 0c0-4.6 6-11 6-11z"/>',
+  fan: '<circle cx="12" cy="12" r="1.6"/><path d="M12 10.4C11 6 13 3 16 4s1.5 5.5-2.4 7.2M13.6 12.4c4.3 1 6.6 3.4 5.4 6.2s-5.6.9-6.4-3.2M10.5 12.9c-3.2 3.1-6.6 3.6-7.7.7s3.4-4.9 6.9-3"/>',
+  pause: '<circle cx="12" cy="12" r="8.5"/><path d="M10 9v6M14 9v6"/>',
   bolt: '<path d="M13 2.5 5 13.5h6l-1 8 8-11h-6z"/>',
   hourglass: '<path d="M6 3h12M6 21h12M7 3v3a5 5 0 0 0 10 0V3M7 21v-3a5 5 0 0 1 10 0v3"/>',
   bell: '<path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
@@ -308,7 +311,7 @@ function build() {
     looks.append(bt);
   }
   root.append(el("section", { class: "card wide ovcard", id: "ovCard" }, [
-    el("div", { class: "ovhead" }, [el("h2", { text: "Licznik gazu" }), looks]),
+    el("div", { class: "ovhead" }, [el("div", { class: "ovtitle" }, [el("h2", { text: "Licznik gazu" }), el("span", { class: "boilerpill", id: "boilerNow", hidden: "" })]), looks]),
     ranges,
     el("div", { class: "ovwrap" }, [el("canvas", { id: "chart", style: "height:360px" }), el("div", { class: "ovpulse", id: "ovPulse", hidden: "" })]),
   ]));
@@ -473,6 +476,23 @@ function update() {
   setPending("counter");
 
   // network info
+  // what the boiler is doing right now, next to the chart title
+  {
+    const b = state.boiler, pill = $("#boilerNow");
+    pill.hidden = !b;
+    if (b) {
+      const raw = String(b.state || ""), low = raw.toLowerCase();
+      const overrun = /cool|pump|overrun|wybieg|nachlauf/.test(low);         // the HVAC entity reports the pump overrun as "cooling"
+      const kind = b.mode === "heating" || b.mode === "dhw" ? b.mode : overrun ? "pump" : b.mode === "idle" ? "idle" : "other";
+      const label = { heating: "Ogrzewanie", dhw: "Ciepła woda", pump: "Wybieg pompy", idle: "Piec w spoczynku" }[kind] || raw;
+      const icon = { heating: "flame", dhw: "drop", pump: "fan", idle: "pause" }[kind] || "chip";
+      pill.className = "boilerpill " + kind + (kind === "heating" || kind === "dhw" || kind === "pump" ? " on" : "");
+      pill.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true">' + STAT_ICONS[icon] + "</svg>";
+      pill.append(el("b", { text: label }), el("span", { text: b.since ? "od " + new Date(b.since * 1000).toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" }) + " · " + ago(now - b.since) : "" }));
+      pill.title = "Stan pieca: " + raw;
+    }
+  }
+
   // network and service tiles
   setStat("curIp", v.ip || "—", "", v.dhcp === undefined ? "" : Number(v.dhcp) ? "z DHCP (zapasowo)" : "stały adres");
   setStat("curBssid", v.bssid || "—", "", v.ssid ? "sieć " + v.ssid : "");
@@ -592,7 +612,7 @@ async function drawChart(animate) {
   const series = [];
   if (look.bars) series.push({ name: "", color: "#ffb36b", points: hourly, kind: "bars", axis: "right", barDt: 3600, noHover: true,
                                barFill: [[0, "rgba(255,170,100,0.55)"], [1, "rgba(255,90,140,0.10)"]] });
-  series.push({ name: "", color: look.fancy.dot, points, kind: "step", fancy: look.fancy });
+  series.push({ name: "", color: look.fancy.dot, points, kind: "step", fancy: { ...look.fancy, pill: null } });   // no reading at the dot: the strip above shows it
   const half = overviewSpan / 2;
   // room for the future on the right, so that the present can stay in the middle
   chart.setSeries(series, [Math.min(points.length ? points[0][0] : now, now - half), now + half], true);
