@@ -90,8 +90,21 @@ const STAT_ICONS = {
   history: '<path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1L3.5 8.5"/><path d="M3.5 3.5v5h5"/><path d="M12 7.5V12l3 2"/>',
   battery: '<rect x="2.5" y="7" width="17" height="10" rx="2.6"/><path d="M22 10.5v3"/><path d="M6 10v4M9.5 10v4"/>',
   wifi: '<path d="M2.5 8.8a14 14 0 0 1 19 0"/><path d="M5.6 12.2a9.5 9.5 0 0 1 12.8 0"/><path d="M8.8 15.5a5 5 0 0 1 6.4 0"/><circle cx="12" cy="19" r="1.1"/>',
+  trend: '<path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/>',
+  coins: '<ellipse cx="9" cy="6.5" rx="6" ry="2.8"/><path d="M3 6.5v5c0 1.5 2.7 2.8 6 2.8s6-1.3 6-2.8v-5"/><path d="M9 14.3v2.4c0 1.5 2.7 2.8 6 2.8s6-1.3 6-2.8v-5c0-1.5-2.7-2.8-6-2.8"/>',
+  tag: '<path d="M3.5 11.5V4.5a1 1 0 0 1 1-1h7l9 9-8 8z"/><circle cx="8" cy="8" r="1.4"/>',
+  receipt: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h3"/>',
   radio: '<circle cx="12" cy="12" r="2"/><path d="M8.2 8.2a5.4 5.4 0 0 0 0 7.6M15.8 8.2a5.4 5.4 0 0 1 0 7.6M5.3 5.3a9.5 9.5 0 0 0 0 13.4M18.7 5.3a9.5 9.5 0 0 1 0 13.4"/>',
 };
+
+// one tile of a reading strip: value in #id, small text in #idSub, colour from `color` (a CSS variable)
+function statTile(cls, label, icon, id, color, i18n) {
+  const ic = el("span", { class: "ic", "aria-hidden": "true" });
+  ic.innerHTML = '<svg viewBox="0 0 24 24">' + STAT_ICONS[icon] + "</svg>";
+  return el("div", { class: "stat " + cls, id: "st-" + id, style: color ? "--kc:var(" + color + ")" : "" }, [ic, el("div", { class: "st" }, [
+    el("div", i18n ? { class: "lbl", "data-i18n": label } : { class: "lbl", text: label }), el("div", { class: "val", id }), el("div", { class: "sub", id: id + "Sub" }),
+  ])]);
+}
 
 function el(tag, attrs, children) {
   const node = document.createElement(tag);
@@ -240,24 +253,17 @@ function build() {
   ]));
 
   // readings in one compact strip, in two groups: the gas and the meter itself. A click opens the history.
-  const stat = (cls, labelKey, icon, valId, subId) => {
-    const ic = el("span", { class: "ic", "aria-hidden": "true" });
-    ic.innerHTML = '<svg viewBox="0 0 24 24">' + STAT_ICONS[icon] + "</svg>";
-    return el("div", { class: "stat " + cls, id: "st-" + valId }, [ic, el("div", { class: "st" }, [
-      el("div", { class: "lbl", "data-i18n": labelKey }), el("div", { class: "val", id: valId }), el("div", { class: "sub", id: subId }),
-    ])]);
-  };
   root.append(el("div", { class: "stats" }, [
     el("div", { class: "sgroup gas", role: "group", "aria-label": "Gaz" }, [
-      stat("hero", "meter", "flame", "meter", "meterSub"),
-      stat("", "flow", "flow", "flow", "flowSub"),
-      stat("", "today", "calendar", "today", "todaySub"),
-      stat("", "lastUse", "history", "lastUse", "lastUseSub"),
+      statTile("hero", "meter", "flame", "meter", null, true),
+      statTile("", "flow", "flow", "flow", null, true),
+      statTile("", "today", "calendar", "today", null, true),
+      statTile("", "lastUse", "history", "lastUse", null, true),
     ]),
     el("div", { class: "sgroup dev", role: "group", "aria-label": "Gazomierz" }, [
-      stat("", "battery", "battery", "battery", "batterySub"),
-      stat("", "signal", "wifi", "rssi", "rssiSub"),
-      stat("", "lastRead", "radio", "lastData", "lastDataSub"),
+      statTile("", "battery", "battery", "battery", null, true),
+      statTile("", "signal", "wifi", "rssi", null, true),
+      statTile("", "lastRead", "radio", "lastData", null, true),
     ]),
   ]));
   // a click on a tile (or on a value of the battery test) opens its history
@@ -716,23 +722,24 @@ const monthM3 = (entry) => (entry.m3 !== null && entry.m3 !== undefined ? entry.
 function buildUsage() {
   const root = $("#usageView");
   const card = (children, wide) => { const c = el("section", { class: "card" + (wide ? " wide" : "") }, children); root.append(c); return c; };
-  const tile = (color, icon, label, id, sub) => el("div", { class: "card kpi", style: "--kc:var(" + color + ")" }, [
-    el("div", { class: "lbl" }, [el("span", { text: label }), el("span", { class: "ic", text: icon })]),
-    el("div", { class: "val", id }), el("div", { class: "sub", id: id + "Sub", text: sub || "" })]);
-  root.append(el("div", { class: "kpis", style: "grid-column:1/-1" }, [
-    tile("--accent", "🔥", "Ostatnie 12 miesięcy", "uYear"),
-    tile("--accent", "💰", "Koszt, 12 miesięcy", "uCost"),
-    tile("--muted", "⚖️", "Średnia cena", "uPrice", "z opłatami stałymi"),
-    tile("--muted", "📈", "Rok do roku", "uYoy", "względem poprzednich 12 mies."),
-  ]));
+  // settings and data sources: folded cards at the bottom, in pairs
+  const fold = (title, sub, children) => { const c = el("details", { class: "card fold" }, [el("summary", {}, [el("h2", { text: title }), el("span", { class: "muted small", text: sub })]), el("div", { class: "foldbody" }, children)]); root.append(c); return c; };
+  const eBtn = (text, cls, fn) => { const bt = el("button", { class: cls, text }); bt.addEventListener("click", fn); return bt; };
 
-  card([el("h2", { text: "Prognoza rachunku" }),
-        el("div", { class: "kpis" }, [
-          tile("--accent", "🧾", "Najbliższa faktura", "fNext", ""),
-          tile("--accent", "📅", "Następne 12 miesięcy", "fYear", ""),
-          tile("--muted", "⚖️", "Cena gazu", "fPrice", "")]),
-        el("div", { id: "fTable", style: "overflow-x:auto;margin-top:8px" }),
-        el("p", { class: "hint", id: "fHint" })], true);
+  root.append(el("div", { class: "stats" }, [
+    el("div", { class: "sgroup two", role: "group", "aria-label": "Zużycie" }, [
+      statTile("hero", "Ostatnie 12 mies.", "flame", "uYear"),
+      statTile("", "Rok do roku", "trend", "uYoy"),
+    ]),
+    el("div", { class: "sgroup two", role: "group", "aria-label": "Koszty" }, [
+      statTile("", "Koszt 12 mies.", "coins", "uCost", "--ok"),
+      statTile("", "Średnia cena", "tag", "uPrice", "--info"),
+    ]),
+    el("div", { class: "sgroup two", role: "group", "aria-label": "Prognoza" }, [
+      statTile("", "Najbliższa faktura", "receipt", "fNext", "--warn"),
+      statTile("", "Następne 12 mies.", "calendar", "fYear", "--warn"),
+    ]),
+  ]));
 
   const unitTabs = el("div", { class: "tabs", id: "uUnits" });
   for (const [unit, label] of [["m3", "m³"], ["kwh", "kWh"], ["cost", "zł"]]) {
@@ -762,17 +769,13 @@ function buildUsage() {
   yoy.addEventListener("pointermove", (e) => { usage.yoyHover = e.clientX - yoy.getBoundingClientRect().left; drawYearCompare(); });
   yoy.addEventListener("pointerleave", () => { usage.yoyHover = null; drawYearCompare(); });
   yoy.addEventListener("pointerdown", (e) => { usage.yoyHover = e.clientX - yoy.getBoundingClientRect().left; drawYearCompare(); });
-  card([el("h2", { text: "Porównanie lat" }), el("p", { class: "hint", style: "margin:0 0 6px", text: "Ten sam miesiąc w kolejnych latach: widać, czy zima była zimniejsza albo oszczędniejsza. Kliknij rok, żeby go dodać lub ukryć." }), el("div", { id: "uYoyChips", class: "chips" }), yoy], true);
+  card([el("h2", { text: "Porównanie lat" }), el("div", { id: "uYoyChips", class: "chips" }), yoy,
+        el("h3", { text: "Rocznie" }), el("div", { id: "uYears", style: "overflow-x:auto" })], true);
+  card([el("h2", { text: "Profil sezonowy (średnio na miesiąc)" }), el("div", { id: "uSeason" })], true);
+
   const wzoom = (text, handler) => { const bt = el("button", { class: "secondary", text }); bt.addEventListener("click", handler); return bt; };
-  const lat = el("input", { type: "number", id: "wLat", step: "0.01", placeholder: "52.23", style: "width:110px" });
-  const lon = el("input", { type: "number", id: "wLon", step: "0.01", placeholder: "21.01", style: "width:110px" });
-  const locBtn = el("button", { class: "secondary", text: "Zapisz lokalizację" });
-  locBtn.addEventListener("click", () => weatherAction({ action: "location", lat: lat.value, lon: lon.value }));
-  const refBtn = el("button", { class: "ghost", text: "Pobierz temperatury" });
-  refBtn.addEventListener("click", () => weatherAction({ action: "refresh" }));
   card([el("h2", { text: "Pogoda a zużycie" }),
         el("p", { class: "hint", style: "margin:0 0 8px", id: "wSummary", text: "Pobieram temperatury…" }),
-        el("h3", { text: "Temperatura i zużycie w czasie" }),
         el("div", { class: "chart-tools" }, [el("div", { class: "tabs" }, [
           wzoom("−", () => weatherState.chart && weatherState.chart.zoom(2, undefined, true)),
           wzoom("+", () => weatherState.chart && weatherState.chart.zoom(0.5, undefined, true)),
@@ -780,16 +783,10 @@ function buildUsage() {
           wzoom("Wszystko", () => weatherState.chart && weatherState.chart.reset())])]),
         el("canvas", { id: "wTime" }),
         el("p", { class: "hint", id: "wTimeHint" }),
-        el("h3", { text: "Zależność: im zimniej, tym więcej gazu" }),
-        el("canvas", { id: "wScatter" }),
-        el("p", { class: "hint", id: "wScatterHint" }),
-        el("h3", { text: "Prognoza na najbliższe 12 miesięcy" }),
+        el("h3", { text: "Prognoza na 12 miesięcy" }),
         el("canvas", { id: "wForecast" }),
-        el("div", { id: "wSeasons", style: "overflow-x:auto" }),
-        el("p", { class: "hint", id: "wStatus" }),
-        el("div", { class: "field", style: "gap:8px;flex-wrap:wrap;align-items:center" }, [el("span", { class: "muted small", text: "Szer./dł. geogr.:" }), lat, lon, locBtn, refBtn]),
-        el("p", { class: "hint", text: "Temperatury dobowe pochodzą z darmowego archiwum Open-Meteo (bez konta i klucza); wysyłane są tylko współrzędne zaokrąglone do ok. 1 km. Stopniodni = suma różnic poniżej 15,5 °C. Model to zużycie = stałe + współczynnik × stopniodni, dopasowane do miesięcy z faktur." })], true);
-  const eBtn = (text, cls, fn) => { const bt = el("button", { class: cls, text }); bt.addEventListener("click", fn); return bt; };
+        el("div", { id: "wSeasons" })], true);
+
   card([el("h2", { text: "Piec: ciepła woda i ogrzewanie" }),
         el("p", { class: "hint", style: "margin:0 0 8px", id: "bhSummary", text: "Czytam stany pieca…" }),
         el("canvas", { id: "bhCanvas" }),
@@ -797,16 +794,48 @@ function buildUsage() {
         el("p", { class: "hint", id: "bhHint" }),
         el("h3", { text: "Miesiące i sezony" }),
         el("canvas", { id: "bmCanvas" }),
-        el("div", { id: "bmTable", style: "overflow-x:auto;margin-top:8px" }),
-        el("h3", { text: "Panel Energia: woda, ogrzewanie, reszta" }),
-        el("p", { class: "hint", style: "margin:0 0 8px", text: "Trzy osobne statystyki gazu godzina po godzinie: „Gaz – ciepła woda”, „Gaz – ogrzewanie” i „Gaz – postój i reszta”. Razem dają zużycie gazomierza. Dodaj je w Ustawienia → Pulpity → Energia jako źródła gazu. Zaczynają się od pierwszej godziny, dla której apka zna stany pieca (HA trzyma je ok. 10 dni), a nowe godziny są dopisywane co godzinę." }),
-        el("div", { id: "beStatus", class: "muted small" }),
-        el("div", { class: "field", style: "gap:8px;flex-wrap:wrap;margin-top:8px" }, [
-          eBtn("Wyślij do panelu Energia", "", () => boilerEnergy("energy_import")),
-          eBtn("Usuń z Home Assistanta", "secondary", () => { if (confirm("Usunąć trzy statystyki gazu z Home Assistanta?")) boilerEnergy("energy_clear"); })])], true);
-  card([el("h2", { text: "Profil sezonowy (średnio na miesiąc)" }), el("div", { id: "uSeason" }),
-        el("p", { class: "hint", text: "Średnia ze wszystkich lat z faktur. Impulsy na dobę to to, co gazomierz będzie liczył w danym miesiącu, więc od tego zależy zużycie baterii." })]);
-  card([el("h2", { text: "Rocznie" }), el("div", { id: "uYears", style: "overflow-x:auto" })]);
+        el("div", { id: "bmTable", style: "overflow-x:auto;margin-top:8px" })], true);
+
+  root.append(el("h3", { class: "sechead", text: "Dane i ustawienia" }));
+
+  const text = el("textarea", { id: "uText", rows: "6", placeholder: "Wklej tutaj tabelę ze strony „Faktury” w eBOK (zaznacz, skopiuj, wklej).", style: "width:100%;font:12px ui-monospace,monospace;padding:8px;border:1px solid var(--line);border-radius:10px;background:var(--input);color:var(--text);box-sizing:border-box" });
+  const factor = el("input", { type: "number", id: "uFactor", min: "8", max: "14", step: "0.01" });
+  const factorBtn = el("button", { class: "secondary", text: "Zapisz" });
+  factorBtn.addEventListener("click", () => billsAction({ action: "factor", value: factor.value }, "Zapisano współczynnik"));
+  const useEstimate = el("button", { class: "ghost", id: "uUseEst", text: "Użyj", hidden: "" });
+  useEstimate.addEventListener("click", () => { factor.value = usage.data.estimate.toFixed(2); billsAction({ action: "factor", value: factor.value }, "Zapisano współczynnik"); });
+  const preview = el("button", { class: "secondary", text: "Podgląd" });
+  preview.addEventListener("click", () => billsAction({ action: "preview", text: text.value }, null, true));
+  const importBtn = el("button", { text: "Importuj" });
+  importBtn.addEventListener("click", async () => {
+    const ok = await confirmDialog({ title: "Zaimportować faktury?", confirmText: "Importuj",
+      message: "Faktury dołączą się do zapisanych (te same numery są aktualizowane). Dane zostają tylko w apce, nie trafiają do GitHuba ani do Home Assistant." });
+    if (ok) billsAction({ action: "import", text: text.value }, "Zaimportowano faktury", true);
+  });
+  const clear = el("button", { class: "ghost", text: "Usuń faktury" });
+  clear.addEventListener("click", async () => {
+    const ok = await confirmDialog({ title: "Usunąć zapisane faktury?", danger: true, confirmText: "Usuń", message: "Faktury znikną z apki (statystyki zużycia i kosztów). Możesz je wkleić ponownie." });
+    if (ok) billsAction({ action: "clear" }, "Usunięto faktury");
+  });
+  fold("Faktury z eBOK", "wklej tabelę faktur", [
+    el("p", { class: "hint", style: "margin-top:0", text: "W eBOK otwórz „Faktury”, zaznacz tabelę, skopiuj i wklej. Apka nie zna Twojego hasła." }),
+    text,
+    el("div", { class: "field", style: "gap:8px;flex-wrap:wrap;margin-top:8px" }, [preview, importBtn, clear]),
+    el("div", { class: "kv", id: "uPreview" }),
+    el("div", { class: "row", style: "margin-top:12px" }, [el("label", { for: "uFactor", text: "kWh na m³" }), el("div", { class: "field" }, [factor, factorBtn])]),
+    el("div", { class: "muted small", id: "uEstimate" }), useEstimate,
+    el("div", { class: "muted small", style: "margin-top:8px", id: "uStatus" }),
+  ]);
+
+  const syncBtn = el("button", { class: "secondary", text: "Pobierz teraz" });
+  syncBtn.addEventListener("click", syncOrlen);
+  fold("Orlen", "faktury i odczyt z integracji", [
+    el("p", { class: "hint", style: "margin-top:0", text: "Z integracji „Orlen gas sensor” w HA: nowe faktury dopisują się same, a odczyt Orlenu jest porównywany z gazomierzem." }),
+    el("div", { class: "kv", id: "oInfo" }),
+    el("div", { class: "field", style: "gap:8px;margin-top:10px;flex-wrap:wrap" }, [syncBtn]),
+    el("p", { class: "hint", id: "oNote" }),
+  ]);
+
   const costOut = el("div", { class: "muted small", style: "margin-top:8px", id: "costOut" });
   const costRun = async (action) => {
     try {
@@ -821,51 +850,30 @@ function buildUsage() {
       if (r.done) toast("Koszty gazu wpisane do panelu Energia");
     } catch (e) { costOut.textContent = ""; toast(e.message, true); }
   };
-  card([el("h2", { text: "Koszty w panelu Energia (wstecz)" }),
-        el("p", { class: "hint", style: "margin:0 0 8px", text: "Panel Energia liczy koszt gazu dopiero od chwili ustawienia ceny, więc wcześniejsze miesiące mają 0 zł. Tu każda godzina historii dostaje zużycie × cena z faktury z tego miesiąca (kwota ÷ m³, razem z opłatami stałymi) i trafia do tej samej statystyki kosztu, którą HA prowadzi dla Gazomierza. „Sprawdź” tylko liczy, nic nie zapisuje. Można uruchomić raz." }),
-        costOut,
-        el("div", { class: "field", style: "gap:8px;flex-wrap:wrap;margin-top:8px" }, [
-          eBtn("Sprawdź", "secondary", () => costRun("check")),
-          eBtn("Wpisz koszty wstecz", "", () => { if (confirm("Wpisać koszty historii do statystyki kosztu gazu w Home Assistancie?")) costRun("run"); })])]);
+  fold("Panel Energia w HA", "koszty wstecz i podział pieca", [
+    el("h3", { style: "margin-top:0", text: "Koszty wstecz" }),
+    el("p", { class: "hint", style: "margin:0 0 8px", text: "Wcześniejsze miesiące mają w panelu 0 zł. To dopisuje koszt każdej godziny według ceny z faktury. „Sprawdź” tylko liczy." }),
+    el("div", { class: "field", style: "gap:8px;flex-wrap:wrap" }, [
+      eBtn("Sprawdź", "secondary", () => costRun("check")),
+      eBtn("Wpisz koszty wstecz", "", () => { if (confirm("Wpisać koszty historii do statystyki kosztu gazu w Home Assistancie?")) costRun("run"); })]),
+    costOut,
+    el("h3", { text: "Woda, ogrzewanie, reszta" }),
+    el("p", { class: "hint", style: "margin:0 0 8px", text: "Trzy statystyki gazu z podziałem według pracy pieca. Dodaj je w Ustawienia → Pulpity → Energia jako źródła gazu." }),
+    el("div", { id: "beStatus", class: "muted small" }),
+    el("div", { class: "field", style: "gap:8px;flex-wrap:wrap;margin-top:8px" }, [
+      eBtn("Wyślij do panelu Energia", "", () => boilerEnergy("energy_import")),
+      eBtn("Usuń z HA", "secondary", () => { if (confirm("Usunąć trzy statystyki gazu z Home Assistanta?")) boilerEnergy("energy_clear"); })]),
+  ]);
 
-  const text = el("textarea", { id: "uText", rows: "7", placeholder: "Wklej tutaj tabelę ze strony „Faktury” w eBOK (zaznacz, skopiuj, wklej).", style: "width:100%;font:12px ui-monospace,monospace;padding:8px;border:1px solid var(--line);border-radius:10px;background:var(--input);color:var(--text);box-sizing:border-box" });
-  const factor = el("input", { type: "number", id: "uFactor", min: "8", max: "14", step: "0.01" });
-  const factorBtn = el("button", { class: "secondary", text: "Zapisz" });
-  factorBtn.addEventListener("click", () => billsAction({ action: "factor", value: factor.value }, "Zapisano współczynnik"));
-  const useEstimate = el("button", { class: "ghost", id: "uUseEst", text: "Użyj", hidden: "" });
-  useEstimate.addEventListener("click", () => { factor.value = usage.data.estimate.toFixed(2); billsAction({ action: "factor", value: factor.value }, "Zapisano współczynnik"); });
-  const preview = el("button", { class: "secondary", text: "Podgląd" });
-  preview.addEventListener("click", () => billsAction({ action: "preview", text: text.value }, null, true));
-  const importBtn = el("button", { text: "Importuj faktury" });
-  importBtn.addEventListener("click", async () => {
-    const ok = await confirmDialog({ title: "Zaimportować faktury?", confirmText: "Importuj",
-      message: "Faktury dołączą się do zapisanych (te same numery są aktualizowane). Dane zostają tylko w apce, nie trafiają do GitHuba ani do Home Assistant." });
-    if (ok) billsAction({ action: "import", text: text.value }, "Zaimportowano faktury", true);
-  });
-  const clear = el("button", { class: "ghost", text: "Usuń faktury" });
-  clear.addEventListener("click", async () => {
-    const ok = await confirmDialog({ title: "Usunąć zapisane faktury?", danger: true, confirmText: "Usuń", message: "Faktury znikną z apki (statystyki zużycia i kosztów). Możesz je wkleić ponownie." });
-    if (ok) billsAction({ action: "clear" }, "Usunięto faktury");
-  });
-  card([
-    el("h2", { text: "Faktury z eBOK" }),
-    el("p", { class: "hint", style: "margin-top:0", text: "Zaloguj się w eBOK, otwórz „Faktury”, zaznacz tabelę, skopiuj i wklej poniżej. Apka nie loguje się na Twoje konto i nie zna hasła. Faktura trafia do miesiąca poprzedzającego termin płatności." }),
-    text,
-    el("div", { class: "field", style: "gap:8px;flex-wrap:wrap;margin-top:8px" }, [preview, importBtn, clear]),
-    el("div", { class: "kv", id: "uPreview" }),
-    el("div", { class: "row", style: "margin-top:14px" }, [el("label", { for: "uFactor", text: "Współczynnik kWh na m³ (przeliczenie faktur na m³)" }), el("div", { class: "field" }, [factor, factorBtn])]),
-    el("div", { class: "muted small", id: "uEstimate" }), useEstimate,
-    el("div", { class: "muted small", style: "margin-top:10px", id: "uStatus" }),
-  ], true);
-  const syncBtn = el("button", { class: "secondary", text: "Pobierz teraz" });
-  syncBtn.addEventListener("click", syncOrlen);
-  card([
-    el("h2", { text: "Połączenie z Orlen (integracja Orlen gas sensor)" }),
-    el("p", { class: "hint", style: "margin-top:0", text: "Jeśli w Home Assistant działa integracja „Orlen gas sensor” (logowanie do eBOK robi ona, apka nie zna hasła), nowe faktury dopisują się tu same, razem z prawdziwym zużyciem w m³ i współczynnikiem kWh/m³, a odczyt Orlenu jest porównywany z Twoim gazomierzem." }),
-    el("div", { class: "kv", id: "oInfo" }),
-    el("div", { class: "field", style: "gap:8px;margin-top:10px;flex-wrap:wrap" }, [syncBtn]),
-    el("p", { class: "hint", id: "oNote" }),
-  ], true);
+  const lat = el("input", { type: "number", id: "wLat", step: "0.01", placeholder: "52.23", style: "width:110px" });
+  const lon = el("input", { type: "number", id: "wLon", step: "0.01", placeholder: "21.01", style: "width:110px" });
+  fold("Pogoda", "lokalizacja i temperatury", [
+    el("div", { class: "field", style: "gap:8px;flex-wrap:wrap;align-items:center" }, [el("span", { class: "muted small", text: "Szer./dł.:" }), lat, lon,
+      eBtn("Zapisz", "secondary", () => weatherAction({ action: "location", lat: lat.value, lon: lon.value })),
+      eBtn("Pobierz temperatury", "ghost", () => weatherAction({ action: "refresh" }))]),
+    el("p", { class: "hint", id: "wStatus" }),
+    el("p", { class: "hint", text: "Temperatury z darmowego archiwum Open-Meteo; wysyłane są tylko współrzędne zaokrąglone do ok. 1 km." }),
+  ]);
   usage.built = true;
 }
 
@@ -931,6 +939,7 @@ async function loadBoiler() {
 
 function drawBoiler() {
   const d = boilerState.data, summary = $("#bhSummary"), canvas = $("#bhCanvas"), table = $("#bhTable"), hint = $("#bhHint");
+  canvas.closest(".card").hidden = !(d && d.entity);         // no boiler entity set: no empty card
   if (!summary) return;
   table.textContent = "";
   if (!d || !d.entity) { summary.textContent = "Wpisz encję pieca w opcji boiler_entity, a apka rozbije gaz na ciepłą wodę i ogrzewanie."; canvas.style.display = "none"; hint.textContent = ""; return; }
@@ -968,7 +977,7 @@ function drawBoiler() {
   }
   drawBoilerMonths(d);
   renderBoilerEnergy(d.energy);
-  hint.textContent = "Gaz między zmianami stanu pieca jest czytany z odczytów gazomierza, więc tryb dostaje dokładnie tyle gazu, ile zużyto w jego trakcie (dokładność około 0,01 m³ na granicę). „Moc” to średnie m³ na godzinę razy kWh/m³ z faktur. Dane o piecu apka tylko czyta i zapisuje u siebie.";
+  hint.textContent = "";
 }
 
 function drawBoilerMonths(d) {
@@ -1169,39 +1178,25 @@ async function loadForecast() {
   let d = null;
   try { d = await api("forecast"); } catch (e) { d = null; }
   const f = d && d.forecast;
+  const zl = (v) => num(v, 0);
   if (!f) {
-    for (const id of ["fNext", "fYear", "fPrice"]) { $("#" + id).textContent = "—"; $("#" + id + "Sub").textContent = ""; }
-    $("#fTable").textContent = ""; $("#fHint").textContent = "Zaimportuj faktury z eBOK, żeby policzyć prognozę rachunku.";
+    for (const id of ["fNext", "fYear"]) { $("#" + id).textContent = "—"; $("#" + id + "Sub").textContent = "brak faktur"; }
     return;
   }
-  const n = f.next, label = (key) => MONTH_FULL[Number(key.slice(5, 7)) - 1] + " " + key.slice(0, 4), zl = (v) => num(v, 0) + " zł";
-  $("#fNext").textContent = "ok. " + zl(n.cost);
-  $("#fNextSub").textContent = "za " + label(n.month) + ", " + zl(n.low) + " – " + zl(n.high) + " · " + num(n.m3, 0) + " m³" +
-    (n.state === "in_progress" ? " (do dziś " + num(n.so_far_m3, 0) + " m³)" : n.state === "actual" ? " (miesiąc już zakończony)" : "");
-  $("#fYear").textContent = "ok. " + zl(f.year_cost);
-  $("#fYearSub").textContent = f.last_year_cost ? "rok wcześniej " + zl(f.last_year_cost) + " (" + (f.year_cost >= f.last_year_cost ? "+" : "−") + num(Math.abs(f.year_cost / f.last_year_cost - 1) * 100, 0) + " %)" : "kolejne " + f.year_months + " miesięcy";
-  $("#fPrice").textContent = num(f.price.avg, 2) + " zł/kWh";
-  $("#fPriceSub").textContent = f.price.fitted ? "opłata stała ok. " + zl(f.price.fixed) + "/mies. + " + num(f.price.per_kwh, 2) + " zł/kWh" : "średnio z ostatnich faktur";
-  const box = $("#fTable"); box.textContent = "";
-  const t = el("table", { class: "mini" }, [el("tr", {}, ["Miesiąc", "m³", "kWh", "Rachunek", "Zakres"].map((h) => el("th", { text: h })))]);
-  for (const r of f.months.slice(0, 6)) {
-    t.append(el("tr", {}, [label(r.month), num(r.m3, 0), num(r.kwh, 0), zl(r.cost), zl(r.low) + " – " + zl(r.high)].map((v) => el("td", { text: v }))));
-  }
-  box.append(t);
-  $("#fHint").textContent = "Faktura jest przypisana do miesiąca przed terminem płatności. Zużycie tego miesiąca liczone jest z odczytów gazomierza do dziś, a reszta z modelu pogody" +
-    (d.weather_model ? "" : " (jeszcze bez pogody, więc ze średniej z poprzednich lat)") + ". Cena = opłata stała + cena za kWh dopasowane do faktur z ostatnich 12 miesięcy; zakres to typowy błąd modelu. To szacunek, a nie wyliczenie Orlenu.";
+  const n = f.next, label = (key) => MONTH_FULL[Number(key.slice(5, 7)) - 1] + " " + key.slice(0, 4);
+  $("#fNext").replaceChildren("ok. " + zl(n.cost), el("small", { text: "zł" }));
+  $("#fNextSub").textContent = "za " + label(n.month) + " · " + zl(n.low) + "–" + zl(n.high) + " zł";
+  $("#fYear").replaceChildren("ok. " + zl(f.year_cost), el("small", { text: "zł" }));
+  $("#fYearSub").textContent = f.last_year_cost ? (f.year_cost >= f.last_year_cost ? "+" : "−") + num(Math.abs(f.year_cost / f.last_year_cost - 1) * 100, 0) + "% wobec ostatnich 12 mies." : "kolejne " + f.year_months + " mies.";
 }
 
-const weatherState = { data: null, chart: null, chartReady: false, scatterHover: null, forecastHover: null };
+const weatherState = { data: null, chart: null, chartReady: false, forecastHover: null };
 
 function bindWeatherHover() {
-  const sc = $("#wScatter"), fc = $("#wForecast");
-  const set = (canvas, key, fn) => (e) => { const r = canvas.getBoundingClientRect(); weatherState[key] = fn(e, r); (canvas === sc ? drawWScatter : drawWForecast)(); };
+  const fc = $("#wForecast");
   for (const type of ["pointermove", "pointerdown"]) {
-    sc.addEventListener(type, set(sc, "scatterHover", (e, r) => ({ x: e.clientX - r.left, y: e.clientY - r.top })));
-    fc.addEventListener(type, set(fc, "forecastHover", (e, r) => e.clientX - r.left));
+    fc.addEventListener(type, (e) => { weatherState.forecastHover = e.clientX - fc.getBoundingClientRect().left; drawWForecast(); });
   }
-  sc.addEventListener("pointerleave", () => { weatherState.scatterHover = null; drawWScatter(); });
   fc.addEventListener("pointerleave", () => { weatherState.forecastHover = null; drawWForecast(); });
 }
 
@@ -1242,29 +1237,21 @@ function renderWeather() {
   const m = d.model;
   $("#wStatus").textContent = (d.status && d.status.ok === false ? d.status.error + " " : "") +
     (d.days ? "Temperatury z " + d.days + " dni" + (d.fetched ? ", pobrane " + new Date(d.fetched * 1000).toLocaleDateString("pl-PL") : "") + "." : "Brak temperatur. Sprawdź lokalizację i połączenie z internetem.");
+  $("#wTime").closest(".card").classList.toggle("nomodel", !m);
   if (!m) {
     $("#wSummary").textContent = d.days ? "Potrzeba co najmniej 6 miesięcy z fakturami i temperaturą, żeby policzyć model." : "Czekam na temperatury i faktury.";
-    for (const id of ["wTime", "wScatter", "wForecast"]) { const c = $("#" + id); c.style.display = "none"; }
-    $("#wSeasons").textContent = ""; $("#wScatterHint").textContent = "";
+    for (const id of ["wTime", "wForecast"]) { const c = $("#" + id); c.style.display = "none"; }
+    $("#wSeasons").textContent = "";
     return;
   }
-  for (const id of ["wTime", "wScatter", "wForecast"]) $("#" + id).style.display = "";
-  $("#wSummary").textContent = "Stałe zużycie (woda, kuchnia): " + num(m.base, 0) + " m³ na miesiąc. Ogrzewanie: " + num(m.per_hdd, 2) + " m³ na każdy stopniodzień. " +
-    "Dopasowanie R² = " + num(m.r2, 2) + " (" + m.months + " miesięcy, typowy błąd ±" + num(m.residual_sd, 0) + " m³).";
+  for (const id of ["wTime", "wForecast"]) $("#" + id).style.display = "";
+  $("#wSummary").textContent = "Woda i kuchnia: ok. " + num(m.base, 0) + " m³ na miesiąc, reszta to ogrzewanie i rośnie z mrozem.";
   drawWeatherTime();
-  drawWScatter();
   drawWForecast();
-  $("#wTimeHint").textContent = "Słupki to zużycie gazu z faktur (lewa oś), niebieska linia to średnia temperatura miesiąca (prawa oś), przerywana linia to zużycie, jakie przewiduje model z samej pogody. Gdy słupek jest wyraźnie nad linią, zużyłeś więcej, niż wynika z zimna. Przeciągnij, żeby przewijać, kółko myszy lub dwa palce przybliżają, dwuklik wraca do całości.";
-  $("#wScatterHint").textContent = "Każda kropka to jeden miesiąc z faktury. Poziomo: jak zimny był miesiąc (stopniodni, 0 = ciepły, 600 = bardzo mroźny), pionowo: ile gazu zużyłeś. Kropki układają się wzdłuż linii, więc zużycie rośnie z zimnem; nachylenie linii to m³ na stopniodzień. Dotknij kropki, żeby zobaczyć miesiąc.";
+  $("#wTimeHint").textContent = "Słupki: zużycie z faktur. Niebieska linia: temperatura. Przerywana: ile wynikałoby z samej pogody.";
   const total = sumBy(d.forecast, (f) => f.m3);
   const box = $("#wSeasons"); box.textContent = "";
-  if (d.forecast.length) box.append(el("p", { class: "hint", text: "Typowa pogoda z ostatnich lat daje na najbliższe 12 miesięcy ok. " + num(total, 0) + " m³ (pod każdym słupkiem średnia temperatura miesiąca)." }));
-  if (d.yearly.length) {
-    const t = el("table", { class: "mini" }, [el("tr", {}, ["Sezon grzewczy", "m³", "stopniodni", "m³ na 1000 stopniodni"].map((h) => el("th", { text: h })))]);
-    for (const y of d.yearly) t.append(el("tr", {}, [y.season + "/" + String(y.season + 1).slice(2), num(y.m3, 0), num(y.hdd, 0), num(y.per_1000, 0)].map((v) => el("td", { text: v }))));
-    box.append(el("h3", { text: "Czy dom jest oszczędniejszy? (zużycie przy tej samej zimie)" }), t,
-      el("p", { class: "hint", text: "Mniejsza liczba m³ na 1000 stopniodni to mniej gazu przy takim samym mrozie, więc lepsza izolacja lub niższe ogrzewanie. Sezon liczony od października do kwietnia, tylko pełne sezony." }));
-  }
+  if (d.forecast.length) box.append(el("p", { class: "hint", text: "Przy typowej pogodzie: ok. " + num(total, 0) + " m³ w ciągu 12 miesięcy." }));
 }
 
 
@@ -1288,43 +1275,6 @@ function drawWeatherTime() {
   setLegend($("#wTime"), legendOf([bars, model, temp].map((x) => Object.assign({}, x, x === model ? { name: "Zużycie wg modelu (z pogody)" } : x === temp ? { name: "Temperatura (°C, prawa oś, zimno u góry)" } : { name: "Zużycie z faktur (m³)" })), []));
   weatherState.chart.setSeries([bars, model, temp], [monthStart(first), monthStart(list[list.length - 1].month) + 31 * 86400], !fresh);
   if (fresh) { weatherState.chartReady = true; weatherState.chart.setView(weatherState.chart.full[1] - 3 * 365 * 86400, weatherState.chart.full[1], false); }
-}
-
-function scatterGeometry(d, W, H) {
-  const m = d.model, left = 40, right = 10, top = 14, bottom = 26, pw = W - left - right, ph = H - top - bottom;
-  const maxX = niceMax(Math.max(...d.rows.map((r) => r.hdd), 1)), maxY = niceMax(Math.max(...d.rows.map((r) => r.m3), m.base + m.per_hdd * maxX.top, 1));
-  return { left, right, top, bottom, pw, ph, maxX, maxY, sx: (v) => left + v / maxX.top * pw, sy: (v) => top + ph - v / maxY.top * ph };
-}
-
-function drawWScatter() {
-  const d = weatherState.data, canvas = $("#wScatter");
-  if (!d || !d.model) return;
-  setLegend(canvas, [{ label: "Miesiąc z faktury (ostatnie 2 lata ciemniej)", color: cssColor("--accent"), kind: "dot" }, { label: "Model: stałe + współczynnik × stopniodni", color: cssColor("--text"), kind: "dash" }]);
-  const sc = plainCanvas(canvas);
-  if (!sc) return;
-  const { ctx, W, H } = sc, m = d.model, g = scatterGeometry(d, W, H), { left, top, pw, maxX, maxY, sx, sy } = g;
-  const textC = cssColor("--text"), muted = cssColor("--muted"), line = cssColor("--line"), accent = cssColor("--accent"), card = cssColor("--card");
-  ctx.strokeStyle = line; ctx.fillStyle = muted; ctx.textAlign = "right";
-  for (let v = 0; v <= maxY.top + 1e-9; v += maxY.step) { const y = Math.round(sy(v)) + 0.5; ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(left + pw, y); ctx.stroke(); ctx.fillText(String(Math.round(v)), left - 6, y + 4); }
-  ctx.textAlign = "center";
-  for (let v = 0; v <= maxX.top + 1e-9; v += maxX.step) ctx.fillText(String(Math.round(v)), sx(v), H - 8);
-  ctx.textAlign = "left"; ctx.fillText("m³ / miesiąc", left + 4, 10); ctx.textAlign = "right"; ctx.fillText("stopniodni w miesiącu →", W - g.right, 10);
-  ctx.strokeStyle = textC; ctx.setLineDash([5, 4]); ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(sx(0), sy(m.base)); ctx.lineTo(sx(maxX.top), sy(m.base + m.per_hdd * maxX.top)); ctx.stroke(); ctx.setLineDash([]); ctx.lineWidth = 1;
-  const lastYear = Number(d.rows[d.rows.length - 1].month.slice(0, 4)), hov = weatherState.scatterHover;
-  let near = null;
-  if (hov) { let best = 18; for (const r of d.rows) { const dist = Math.hypot(sx(r.hdd) - hov.x, sy(r.m3) - hov.y); if (dist < best) { best = dist; near = r; } } }
-  for (const r of d.rows) { ctx.globalAlpha = Number(r.month.slice(0, 4)) >= lastYear - 1 ? 0.95 : 0.45; ctx.fillStyle = accent; ctx.beginPath(); ctx.arc(sx(r.hdd), sy(r.m3), r === near ? 7 : 4, 0, 7); ctx.fill(); }
-  ctx.globalAlpha = 1;
-  if (near) {
-    const lines = [MONTH_FULL[Number(near.month.slice(5, 7)) - 1] + " " + near.month.slice(0, 4), num(near.m3, 0) + " m³", num(near.hdd, 0) + " stopniodni, " + num(near.mean, 1) + " °C", "model: " + num(m.base + m.per_hdd * near.hdd, 0) + " m³"];
-    ctx.font = "12px system-ui, sans-serif";
-    const w = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 20, h = lines.length * 17 + 10;
-    let bx = sx(near.hdd) + 12; if (bx + w > W - 4) bx = sx(near.hdd) - 12 - w;
-    const by = Math.min(Math.max(top, sy(near.m3) - h / 2), g.top + g.ph - h);
-    ctx.fillStyle = card; ctx.strokeStyle = line; ctx.shadowColor = "rgba(0,0,0,.18)"; ctx.shadowBlur = 8; ctx.shadowOffsetY = 2;
-    ctx.beginPath(); ctx.roundRect ? ctx.roundRect(bx, by, w, h, 8) : ctx.rect(bx, by, w, h); ctx.fill(); ctx.shadowColor = "transparent"; ctx.stroke(); ctx.textAlign = "left";
-    lines.forEach((l, i) => { ctx.fillStyle = i === 0 ? muted : textC; ctx.font = (i === 0 ? "11px" : "600 12px") + " system-ui, sans-serif"; ctx.fillText(l, bx + 10, by + 17 + i * 17 - (i === 0 ? 1 : 0)); });
-  }
 }
 
 function drawWForecast() {
@@ -1394,16 +1344,21 @@ function renderUsage() {
   // tiles: the last 12 months with an invoice against the 12 before
   const last = m.slice(-12), prev = m.slice(-24, -12);
   const k = (s) => num(s, 0);
-  $("#uYear").textContent = last.length ? k(sumBy(last, monthM3)) + " m³" : "—";
+  const put = (id, value, unit) => $("#" + id).replaceChildren(value, ...(unit ? [el("small", { text: unit })] : []));
+  put("uYear", last.length ? k(sumBy(last, monthM3)) : "—", last.length ? "m³" : "");
   $("#uYearSub").textContent = last.length ? k(sumBy(last, (e) => e.kwh)) + " kWh, " + last.length + " mies." : "brak faktur";
-  $("#uCost").textContent = last.length ? k(sumBy(last, (e) => e.cost)) + " zł" : "—";
+  put("uCost", last.length ? k(sumBy(last, (e) => e.cost)) : "—", last.length ? "zł" : "");
+  $("#uCostSub").textContent = last.length ? "z opłatami stałymi" : "";
   const kwh12 = sumBy(last, (e) => e.kwh), cost12 = sumBy(last, (e) => e.cost);
-  $("#uPrice").textContent = kwh12 ? num(cost12 / kwh12, 3) + " zł/kWh" : "—";
+  put("uPrice", kwh12 ? num(cost12 / kwh12, 3) : "—", kwh12 ? "zł/kWh" : "");
+  $("#uPriceSub").textContent = kwh12 ? "ok. " + num(cost12 / sumBy(last, monthM3), 2) + " zł/m³" : "";
   if (prev.length === 12 && last.length === 12) {
     const change = (kwh12 / sumBy(prev, (e) => e.kwh) - 1) * 100;
     const rounded = Math.round(change);
-    $("#uYoy").textContent = (rounded > 0 ? "+" : "") + (rounded === 0 ? 0 : rounded) + " %";
-  } else $("#uYoy").textContent = "—";
+    put("uYoy", (rounded > 0 ? "+" : rounded < 0 ? "−" : "") + Math.abs(rounded), "%");
+    $("#uYoySub").textContent = rounded > 0 ? "więcej niż rok wcześniej" : rounded < 0 ? "mniej niż rok wcześniej" : "tyle samo co rok wcześniej";
+    $("#st-uYoy").style.setProperty("--kc", rounded > 3 ? "var(--bad)" : rounded < -3 ? "var(--ok)" : "var(--muted)");
+  } else { put("uYoy", "—"); $("#uYoySub").textContent = "potrzeba 24 mies. faktur"; }
 
   // seasonal profile
   const season = $("#uSeason"); season.textContent = "";
@@ -1482,8 +1437,7 @@ function drawUsage() {
   if (fresh) { usage.chartReady = true; applyUsageRange(false); }
   document.querySelectorAll("#uUnits button").forEach((b) => b.classList.toggle("active", b.dataset.unit === unit));
   document.querySelectorAll("#uRanges button").forEach((b) => b.classList.toggle("active", Number(b.dataset.days) === usage.days));
-  $("#uHint").textContent = "Faktura jest przypisana do miesiąca poprzedzającego termin płatności, więc to przybliżenie. Szare tło to sezon grzewczy (październik–kwiecień), linia przerywana to średnia z 12 miesięcy. " +
-    (unit === "m3" ? "m³ pochodzą z faktur, a gdy faktura ich nie podaje, są przeliczone (" + Number(d.factor).toFixed(2) + " kWh na m³)." : "");
+  $("#uHint").textContent = "Szare tło: sezon grzewczy. Przerywana linia: średnia z 12 miesięcy." + (unit === "m3" ? " m³ z faktur (albo przeliczone, " + Number(d.factor).toFixed(2) + " kWh/m³)." : "");
   drawYearCompare();
 }
 

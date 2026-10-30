@@ -120,9 +120,26 @@ main, .bgrid {
   .stat .val { margin-top: 7px; }
   .stat.hero .val { font-size: 26px; }
 }
+.sgroup.two { flex: 1 1 300px; grid-template-columns: 1fr 1fr; }
+
+/* the usage tab: two equal columns, so half cards always come in pairs and leave no holes */
+#usageView { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+#usageView .card h3 { font-size: 13px; margin: 16px 0 6px; }
+.sechead { grid-column: 1 / -1; margin: 8px 2px -4px; font-size: 11px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.fold { padding: 0; }
+.fold summary { list-style: none; cursor: pointer; padding: 14px 16px; display: flex; align-items: baseline; gap: 10px; }
+.fold summary::-webkit-details-marker { display: none; }
+.fold summary h2 { margin: 0; }
+.fold summary::after { content: ""; margin-left: auto; width: 8px; height: 8px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(45deg); transition: transform .15s; align-self: center; }
+.fold[open] summary::after { transform: rotate(-135deg); }
+.foldbody { padding: 0 16px 16px; }
+#uSeason { display: grid; grid-template-rows: repeat(6, auto); grid-auto-flow: column; column-gap: 32px; }
+.nomodel .chart-tools, .nomodel h3 { display: none; }
+@media (max-width: 760px) { #usageView { grid-template-columns: minmax(0, 1fr); } #uSeason { grid-template-rows: none; grid-auto-flow: row; } }
+
 @media (max-width: 560px) {
   .stats { gap: 10px; }
-  .sgroup.gas, .sgroup.dev { flex-basis: 100%; grid-template-columns: 1fr 1fr; }
+  .sgroup.gas, .sgroup.dev, .sgroup.two { flex-basis: 100%; grid-template-columns: 1fr 1fr; }
   .sgroup.dev .stat:last-child { grid-column: 1 / -1; }
   .stat { padding: 10px 12px; gap: 9px; }
   .stat .ic { width: 36px; height: 36px; border-radius: 11px; } .stat .ic svg { width: 20px; height: 20px; }

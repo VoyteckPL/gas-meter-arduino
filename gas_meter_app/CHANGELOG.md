@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.37.0
+
+* Zakładka Zużycie uporządkowana: u góry pasek odczytów jak na Przeglądzie (zużycie, koszty, prognoza), niżej wykresy na całą szerokość, bez pustych miejsc.
+* Usunięte: tabela prognozy na 6 miesięcy, wykres „im zimniej, tym więcej gazu” i tabela „Czy dom jest oszczędniejszy?”. Krótsze opisy przy wykresach.
+* „Rocznie” jest teraz w karcie „Porównanie lat”, a profil sezonowy w dwóch kolumnach.
+* Faktury z eBOK, Orlen, Panel Energia (koszty wstecz i podział pieca) i lokalizacja pogody są zwinięte na dole w sekcji „Dane i ustawienia”.
+* Karta pieca znika, gdy nie ma ustawionej encji pieca.
+
 ## 0.36.0
 
 * Nowy pasek odczytów na Przeglądzie: wszystko w jednym rzędzie, w dwóch grupach (gaz | gazomierz), z większymi ikonami.
