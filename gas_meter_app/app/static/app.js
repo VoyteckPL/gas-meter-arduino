@@ -1009,7 +1009,7 @@ const OVERVIEW_LOOKS = {
     fancy: { width: 3.2, line: DUSK_LINE, fill: [[0, "rgba(255,138,80,0.42)"], [0.5, "rgba(255,79,139,0.18)"], [1, "rgba(120,60,200,0.08)"]], sheen: 0.12,
              glow: "rgba(255,140,90,0.9)", glowBlur: 20, highlight: 0.5, dot: "#ffb35c", pill: SUNSET_PILL } },
 };
-const BOILER_ICONS = { dhw: "💧", heating: "🔥", other: "" };
+const BOILER_ICONS = { dhw: "💧", heating: "🔥", pump: "", other: "" };
 let overviewLook = (() => { try { return localStorage.getItem("gasMeterLook"); } catch (e) { return null; } })();
 if (!OVERVIEW_LOOKS[overviewLook]) overviewLook = "sunset";
 let overviewFollow = true;                       // the present stays in the middle of the chart until the user moves the view
@@ -1072,7 +1072,7 @@ async function drawChart(animate) {
   chart.o.emptyText = t("noData");
   chart.o.now = now;
   chart.o.bands = modes.map(([from, to, mode]) => ({ from, to, fade: BOILER_COLORS[mode] || BOILER_COLORS.other, icon: BOILER_ICONS[mode] || "",
-                                                       label: mode === "other" ? "" : bandCost(points, from, to) }));
+                                                       label: mode === "other" || mode === "pump" ? "" : bandCost(points, from, to) }));
   const series = [];
   if (look.bars) series.push({ name: "", color: "#ffb36b", points: hourly, kind: "bars", axis: "right", barDt: 3600, noHover: true,
                                barFill: [[0, "rgba(255,170,100,0.55)"], [1, "rgba(255,90,140,0.10)"]] });
@@ -1085,7 +1085,7 @@ async function drawChart(animate) {
   const used = [...new Set(modes.map((m) => m[2]))];
   setLegend(canvas, [{ label: "Licznik (m³)", color: "linear-gradient(90deg,#ffcf5c,#e8437a)", kind: "line" },
     ...(look.bars ? [{ label: "m³ na godzinę", color: "linear-gradient(180deg,#ffaa64,#ff5a8c66)", kind: "box" }] : []),
-    ...["heating", "dhw", "other"].filter((m) => used.includes(m)).map((m) => ({ label: BOILER_NAMES[m], color: BOILER_COLORS[m], kind: "box" }))]);
+    ...["heating", "dhw", "pump", "other"].filter((m) => used.includes(m)).map((m) => ({ label: BOILER_NAMES[m], color: BOILER_COLORS[m], kind: "box" }))]);
   placePulse();                                   // after the legend: it moves the canvas down
 }
 
@@ -1103,8 +1103,8 @@ const HIST = {
   btVolt:  { key: "hBtVolt",  kind: "bt",      unit: "V",    dec: 3, area: true, stat: "range", raw: true, test: true },
   btPin:   { key: "hBtPin",   kind: "bt_pin",  unit: "mV",   dec: 0, stat: "range", raw: true, test: true },
 };
-const BOILER_COLORS = { dhw: "#3d9bff", heating: "#ff7a45", other: "#a898b0" };
-const BOILER_NAMES = { dhw: "Ciepła woda", heating: "Ogrzewanie", other: "Inne" };
+const BOILER_COLORS = { dhw: "#1f7bff", heating: "#ff5a1f", pump: "#9b5cf6", other: "#8d8499" };
+const BOILER_NAMES = { dhw: "Ciepła woda", heating: "Ogrzewanie", pump: "Wybieg pompy", other: "Inne" };
 const PRESETS = [["range1h", 3600], ["range6h", 6 * 3600], ["range24h", 86400], ["range7d", 7 * 86400], ["range14d", 14 * 86400], ["rangeAll", 0]];
 const history = { entity: "meter", chart: null, token: 0, detailToken: 0 };
 
@@ -1198,11 +1198,11 @@ async function loadHistory() {
     try { modes = await api("series?kind=modes&hours=87600"); } catch (e) { modes = []; }
     if (token !== history.token) return;
   }
-  chart.o.bands = modes.map(([from, to, mode]) => ({ from, to, color: (BOILER_COLORS[mode] || BOILER_COLORS.other) + "2e", ink: BOILER_COLORS[mode] || BOILER_COLORS.other,
-                                                       label: history.entity === "meter" && mode !== "other" ? bandCost(points, from, to) : "" }));
+  chart.o.bands = modes.map(([from, to, mode]) => ({ from, to, color: (BOILER_COLORS[mode] || BOILER_COLORS.other) + "55", ink: BOILER_COLORS[mode] || BOILER_COLORS.other,
+                                                       label: history.entity === "meter" && mode !== "other" && mode !== "pump" ? bandCost(points, from, to) : "" }));
   const used = [...new Set(modes.map((m) => m[2]))];
   setLegend($("#histCanvas"), [{ label: t(spec.key) + (spec.unit ? " (" + spec.unit + ")" : ""), color: cssColor("--accent"), kind: spec.bars ? "box" : "line" },
-    ...["dhw", "heating", "other"].filter((m) => used.includes(m)).map((m) => ({ label: BOILER_NAMES[m], color: BOILER_COLORS[m], kind: "box" }))]);
+    ...["dhw", "heating", "pump", "other"].filter((m) => used.includes(m)).map((m) => ({ label: BOILER_NAMES[m], color: BOILER_COLORS[m], kind: "box" }))]);
   chart.setSeries(series, [spec.span ? now - spec.span : (points.length ? points[0][0] : now - 86400), now]);
   chart.setView(now - (spec.view || 7 * 86400), now, false);
   $("#histEmptyBtn").hidden = !(spec.battery && !points.length);

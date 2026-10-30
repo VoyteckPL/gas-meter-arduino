@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.46.3
+
+* Wykresy gazu: wyraźniejsze kolory pracy pieca (mocniejsze pasy i gruby pasek u dołu). Wybieg pompy ma własny fioletowy kolor i pozycję w legendzie, zamiast szarego „Inne”.
+
 ## 0.46.2
 
 * Wykresy: dymek ze stanem trafia do tej połowy wykresu, w której nie ma linii (odczyt wysoko: dymek na dole, i odwrotnie), więc nie zasłania danych. Jest też lekko przezroczysty.

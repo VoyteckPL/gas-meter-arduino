@@ -742,7 +742,13 @@ async def api_series(request):
         # what the boiler was doing (hot water, heating) in the window: coloured bands behind the gas charts
         transitions = request.app["boiler"]["transitions"]
         spans = boiler.intervals(transitions, now)
-        return web.json_response([[round(a, 1), round(b, 1), m] for a, b, m in spans if b >= lo and a <= hi and m != "idle"])
+        # the pump overrun ("circulating") gets its own colour; for the app's boiler tools it stays "other"
+        names = {}
+        for i, (ts, state) in enumerate(transitions):
+            names[ts] = state
+        def kind(a, m):
+            return "pump" if m == "other" and re.search(r"circulat|cool|pump|overrun|wybieg", str(names.get(a, "")).lower()) else m
+        return web.json_response([[round(a, 1), round(b, 1), kind(a, m)] for a, b, m in spans if b >= lo and a <= hi and m != "idle"])
     name = {"battery": "BatteryVoltage", "percent": "BatteryPercent", "meter": "cubic_meters",
             "rssi": "RSSI", "bt_pin": "bt/pin_mv"}.get(kind)
     if name is None:

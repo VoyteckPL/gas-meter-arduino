@@ -592,9 +592,9 @@
         const bx = sx(band.from), bw = sx(band.to) - sx(band.from);
         if (band.fade) {                          // a column that grows out of the bottom, with a thin cap and an icon
           const g = ctx.createLinearGradient(0, top, 0, plotBottom);
-          g.addColorStop(0, band.fade + "00"); g.addColorStop(0.55, band.fade + "1c"); g.addColorStop(1, band.fade + "40");
+          g.addColorStop(0, band.fade + "10"); g.addColorStop(0.5, band.fade + "40"); g.addColorStop(1, band.fade + "88");
           ctx.fillStyle = g; ctx.fillRect(bx, top, bw, plotH);
-          ctx.fillStyle = band.fade + "aa"; ctx.fillRect(bx, plotBottom - 3, bw, 3);
+          ctx.fillStyle = band.fade; ctx.fillRect(bx, plotBottom - 5, Math.max(bw, 2), 5);
           if (band.label && bw > 38) { ctx.font = "600 10px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = band.fade; ctx.globalAlpha = 0.95; ctx.fillText(band.label, bx + bw / 2, plotBottom - (band.icon ? 27 : 9)); ctx.globalAlpha = 1; ctx.font = "11px system-ui, sans-serif"; }
           if (band.icon && bw > 22) { ctx.font = "13px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.globalAlpha = 0.85; ctx.fillText(band.icon, bx + bw / 2, plotBottom - 9); ctx.globalAlpha = 1; ctx.font = "11px system-ui, sans-serif"; }
           continue;
