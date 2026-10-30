@@ -442,3 +442,18 @@ button.costtoggle.active { opacity: 1; background: color-mix(in srgb, var(--ok) 
 .thtile.off .thseg button.active { background: #8C97A6; box-shadow: none; }
 @media (max-width: 400px) { .thnow { font-size: 44px; } .thtile { padding: 14px 14px 16px; } }
 @media (prefers-reduced-motion: reduce) { .thstate.live i { animation: none; } }
+
+/* details of a thermostat */
+.thtile { cursor: pointer; }
+.dialog.thx { display: flex; flex-direction: column; gap: 12px; }
+.dialog.thx .thhead { flex: 1; min-width: 0; }
+.dialog.thx .stats .stat { --kc: var(--tc); }
+.dialog.thx canvas { height: 300px; }
+.thxmore { display: grid; gap: 6px; font-size: 13.5px; }
+.thxline { display: flex; gap: 10px; flex-wrap: wrap; padding: 9px 12px; border-radius: 12px; background: color-mix(in srgb, var(--tc) 9%, var(--chip)); }
+.thxline b { min-width: 170px; }
+.dialog.thx h3 { margin: 4px 0 0; font-size: 13px; }
+.thxquick { display: flex; gap: 8px; flex-wrap: wrap; }
+.thxset { min-width: 64px; padding: 10px 14px; border-radius: 12px; font-size: 16px; font-weight: 700; background: var(--chip); color: var(--text); border: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.thxset:hover { border-color: var(--tc); }
+.thxset.active { color: #fff; border-color: transparent; background: linear-gradient(140deg, var(--tg0), var(--tg1)); box-shadow: 0 4px 14px -5px color-mix(in srgb, var(--tc) 75%, transparent); }

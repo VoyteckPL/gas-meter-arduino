@@ -60,6 +60,7 @@ import weather
 import billing
 import boiler
 import meterclean
+import thermo
 
 log = logging.getLogger("gas_meter")
 
@@ -2088,6 +2089,52 @@ async def api_thermostats(request):
                               "pressure": {"value": p.get("state"), "unit": (p.get("attributes") or {}).get("unit_of_measurement", "bar")} if p else None})
 
 
+async def api_thermo_history(request):
+    """One thermostat over the last hours: measured and set temperature, when it heated, the gas and the money."""
+    app, now = request.app, time.time()
+    entity = request.query.get("entity_id", "")
+    ids, _ = await thermostat_entities(app)
+    if entity not in ids:
+        return web.json_response({"error": "Nieznany termostat"}, status=400)
+    try:
+        hours = max(1, min(24 * 31, int(request.query.get("hours", "24"))))
+    except ValueError:
+        hours = 24
+    since = now - hours * 3600
+    start = datetime.fromtimestamp(since - 3600).astimezone().isoformat(timespec="seconds")
+    history = await core_get("/history/period/%s?filter_entity_id=%s&end_time=%s" % (
+        quote(start, safe=":-T"), quote(entity), quote(datetime.fromtimestamp(now).astimezone().isoformat(timespec="seconds"), safe=":-T")))
+    if history is None:
+        return web.json_response({"error": "Home Assistant nie oddał historii"}, status=502)
+
+    def number(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+    rows = []
+    for row in (history[0] if history else []):
+        stamp = row.get("last_updated") or row.get("last_changed")
+        if not stamp:
+            continue
+        a = row.get("attributes") or {}
+        action = "off" if row.get("state") == "off" else str(a.get("hvac_action") or "").lower()
+        rows.append((iso_ts(stamp), number(a.get("current_temperature")), number(a.get("temperature")), action))
+    rows.sort(key=lambda r: r[0])
+    monthly, factor = bills_context(app)
+    price = billing.price_model(monthly)
+    per_m3 = price["per_kwh"] * factor if price else None
+    meter = [p for p in boiler_meter(app) if p[0] >= since - 86400]
+    st = await core_get("/states/" + quote(entity)) or {}
+    attrs = st.get("attributes") or {}
+    water = entity.startswith("water_heater.") or bool(re.search(r"water|dhw|hot|cwu|zasob", entity + " " + str(attrs.get("friendly_name", "")), re.I)) \
+        or (number(attrs.get("min_temp")) or 0) >= 30
+    result = thermo.analyse(rows, meter, per_m3, now, since, water)
+    points = [[round(t, 1), cur, tgt] for t, cur, tgt, _ in rows if t >= since - 3600]
+    result.update(entity_id=entity, water=water, now=now, since=since, points=thin(points, 1500), per_m3=per_m3)
+    return web.json_response(result)
+
+
 async def api_boiler_log(request):
     """Every run of the boiler in the last days (heating, hot water, pump overrun...) with its gas and its cost."""
     app, now = request.app, time.time()
@@ -2235,6 +2282,7 @@ def create_app(options):
     app.router.add_get("/api/boiler", api_boiler)
     app.router.add_get("/api/boiler_log", api_boiler_log)
     app.router.add_get("/api/thermostats", api_thermostats)
+    app.router.add_get("/api/thermo_history", api_thermo_history)
     app.router.add_post("/api/thermostats", api_thermostats)
     app.router.add_post("/api/boiler", api_boiler)
     app.router.add_get("/api/forecast", api_forecast)

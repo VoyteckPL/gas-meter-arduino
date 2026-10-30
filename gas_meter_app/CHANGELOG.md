@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.44.0
+
+* Zakładka Piec: stuknięcie w tarczę otwiera szczegóły termostatu (24 godz., 7 dni, 30 dni) z historii Home Assistanta:
+  * wykres temperatury zmierzonej i ustawionej, z pasami pokazującymi, kiedy palnik grzał;
+  * podsumowanie: ile palnik pracował, ile zapłonów, ile gazu i ile zł (z gazomierza);
+  * ciepła woda: średnie nagrzanie zasobnika (czas, o ile stopni, m³ i zł) i jak szybko woda stygnie bez grzania;
+  * ogrzewanie: taktowanie (krótkie zapłony poniżej 2 min) i średni czas grzania;
+  * szybkie nastawy jednym stuknięciem (19–23° dla ogrzewania, 45–60° dla wody).
+
 ## 0.43.1
 
 * Zakładka Piec: ciepła woda rozpoznawana także wtedy, gdy jest encją climate (jak w Ariston): po nazwie albo po zakresie temperatur od ok. 30°. Ogrzewanie zawsze na górze, ciepła woda pod nim, w swoich kolorach i z przyciskami „Włączona / Wyłączona”.

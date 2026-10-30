@@ -680,6 +680,7 @@ function renderThermo() {
     return;
   }
   // the heating first, the hot water under it
+  if ($("#thxDialog") && !$("#thxDialog").hidden) renderThermoQuick();
   for (const item of [...d.items].sort((x, y) => thInfo(x).water - thInfo(y).water)) {
     const info = thInfo(item), kind = info.water ? "water" : "heat", K = TH_KIND[kind];
     const act = TH_ACT[info.act] || [info.act, K.color, "chip"];
@@ -721,7 +722,107 @@ function renderThermo() {
       }));
     }
     tile.append(seg);
+    tile.addEventListener("click", (e) => { if (!e.target.closest("button")) openThermo(item.entity_id); });
+    tile.title = "Stuknij, żeby zobaczyć wykres i podsumowanie";
     grid.append(tile);
+  }
+}
+
+// ---- details of one thermostat: chart, summary, quick set points
+const thx = { id: null, hours: 24, chart: null, data: null, token: 0 };
+function thItem(id) { return thermo.data && thermo.data.items.find((x) => x.entity_id === id); }
+
+function openThermo(id) {
+  thx.id = id;
+  let dlg = $("#thxDialog");
+  if (!dlg) {
+    const close = el("button", { class: "ghost", text: "Zamknij" });
+    const shut = () => { dlg.hidden = true; document.body.classList.remove("noscroll"); };
+    close.addEventListener("click", shut);
+    const ranges = el("div", { class: "tabs", id: "thxRanges" });
+    for (const [label, h] of [["24 godz.", 24], ["7 dni", 168], ["30 dni", 720]]) {
+      const b = el("button", { class: "secondary", "data-hours": h, text: label });
+      b.addEventListener("click", () => { thx.hours = h; loadThermoHistory(); });
+      ranges.append(b);
+    }
+    const canvas = el("canvas", { id: "thxCanvas" });
+    dlg = el("div", { class: "overlay", id: "thxDialog" }, [el("div", { class: "dialog thx" }, [
+      el("div", { class: "dialog-head" }, [el("div", { class: "thhead" }, [el("span", { class: "thkic", id: "thxIc" }), el("div", { class: "thtitle" }, [el("b", { id: "thxTitle" }), el("small", { id: "thxSub" })])]), close]),
+      ranges,
+      el("div", { class: "stats", id: "thxStats" }),
+      canvas,
+      el("div", { class: "thxmore", id: "thxMore" }),
+      el("h3", { text: "Szybkie nastawy" }),
+      el("div", { class: "thxquick", id: "thxQuick" }),
+    ])]);
+    dlg.addEventListener("click", (e) => { if (e.target === dlg) shut(); });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !dlg.hidden) shut(); });
+    document.body.append(dlg);
+    thx.chart = new TimeChart(canvas, { unit: "°C", dec: 1, emptyText: "Brak danych", emptyHint: "Home Assistant nie ma jeszcze historii tego termostatu." });
+  }
+  const item = thItem(id), info = thInfo(item), K = TH_KIND[info.water ? "water" : "heat"];
+  const box = dlg.querySelector(".thx");
+  box.style.cssText = "--tc:" + K.color + ";--tg0:" + K.grad[0] + ";--tg1:" + K.grad[1];
+  $("#thxIc").innerHTML = '<svg viewBox="0 0 24 24">' + STAT_ICONS[K.icon] + "</svg>";
+  $("#thxTitle").textContent = K.name;
+  $("#thxSub").textContent = info.water ? "zasobnik ciepłej wody" : "obieg grzewczy";
+  dlg.hidden = false;
+  document.body.classList.add("noscroll");
+  renderThermoQuick();
+  loadThermoHistory();
+}
+
+async function loadThermoHistory() {
+  const token = ++thx.token, id = thx.id;
+  document.querySelectorAll("#thxRanges button").forEach((b) => b.classList.toggle("active", Number(b.dataset.hours) === thx.hours));
+  $("#thxMore").textContent = "Wczytuję historię…";
+  let d;
+  try { d = await api("thermo_history?entity_id=" + encodeURIComponent(id) + "&hours=" + thx.hours); } catch (e) { $("#thxMore").textContent = e.message; return; }
+  if (token !== thx.token) return;
+  thx.data = d;
+  const K = TH_KIND[d.water ? "water" : "heat"], canvas = $("#thxCanvas");
+  // summary of the range, in the tiles of the rest of the app
+  const stats = $("#thxStats"); stats.textContent = "";
+  const put = (tile, value, unit, sub) => { tile.querySelector(".val").replaceChildren(value, ...(unit ? [el("small", { text: unit })] : [])); tile.querySelector(".sub").textContent = sub || ""; return tile; };
+  const g1 = el("div", { class: "sgroup two" }), g2 = el("div", { class: "sgroup two" });
+  g1.append(put(statTile("", "Palnik pracował", "clock", "thxH", "--accent"), duration(d.hours * 3600), "", "w " + (thx.hours <= 24 ? "24 godz." : thx.hours / 24 + " dni")),
+            put(statTile("", "Zapłony", "flame", "thxN", "--accent"), String(d.starts), "", d.water ? "nagrzania zasobnika" : d.short ? "w tym krótkich: " + d.short : "bez taktowania"));
+  g2.append(put(statTile("", "Gaz", "counter", "thxM", "--info"), num(d.m3, 2).replace(".", ","), "m³", "z gazomierza"),
+            put(statTile("", "Koszt", "coins", "thxZ", "--ok"), showCost && d.cost !== null ? zl(d.cost) : "—", "", d.per_m3 ? "gaz " + num(d.per_m3, 2).replace(".", ",") + " zł/m³" : "brak faktur"));
+  for (const t of [...g1.children, ...g2.children]) t.style.setProperty("--kc", K.color);
+  stats.append(g1, g2);
+  // the chart: measured temperature, the set point as steps, the burns as bands
+  thx.chart.o.bands = d.runs.map((r) => ({ from: r.start, to: r.end, color: K.color + "30" }));
+  const cur = d.points.filter((p) => p[1] !== null).map((p) => [p[0], p[1]]), tgt = d.points.filter((p) => p[2] !== null).map((p) => [p[0], p[2]]);
+  if (cur.length) cur.push([d.now, cur[cur.length - 1][1]]);
+  if (tgt.length) tgt.push([d.now, tgt[tgt.length - 1][1]]);
+  setLegend(canvas, [{ label: "Temperatura (°C)", color: K.color, kind: "line" }, { label: "Ustawiona", color: cssColor("--muted"), kind: "line" }, { label: "Palnik grzeje", color: K.color + "55", kind: "box" }]);
+  thx.chart.setSeries([{ name: "Teraz", color: K.color, points: cur, kind: "line", area: true },
+                       { name: "Ustawiona", color: cssColor("--muted"), points: tgt, kind: "step", dashed: true }], [d.since, d.now]);
+  thx.chart.setView(d.since, d.now, false);
+  // what this range says
+  const more = $("#thxMore"); more.textContent = "";
+  const line = (title, text) => more.append(el("div", { class: "thxline" }, [el("b", { text: title }), el("span", { text })]));
+  if (d.water) {
+    if (d.reheat) line("Nagrzanie zasobnika", "średnio " + duration(d.reheat.minutes * 60) + ", +" + num(d.reheat.rise, 1).replace(".", ",") + "°, " + num(d.reheat.m3, 2).replace(".", ",") + " m³" + (showCost && d.reheat.cost !== null ? " · " + zl(d.reheat.cost) : "") + " (" + d.reheat.count + "× w tym czasie)");
+    if (d.cooling !== undefined) line("Stygnięcie bez grzania", "ok. " + num(d.cooling, 1).replace(".", ",") + " °C na godzinę" + (d.cooling > 1.5 ? " (z pobieraną wodą; w nocy zwykle mniej)" : ""));
+    if (!d.reheat && d.cooling === undefined) line("Zasobnik", "Za mało danych w tym zakresie.");
+  } else {
+    line("Taktowanie", d.short ? d.short + " krótkich zapłonów (poniżej 2 min) z " + d.starts + (d.short / Math.max(1, d.starts) > 0.4 ? ". Dużo: piec ma za dużą moc albo za małą histerezę." : ".") : "Brak krótkich zapłonów.");
+    if (d.starts) line("Średnie grzanie", duration(d.hours * 3600 / d.starts) + " na zapłon");
+  }
+}
+
+// a few round set points instead of tapping − / +
+function renderThermoQuick() {
+  const item = thItem(thx.id), box = $("#thxQuick");
+  if (!item || !box) return;
+  const info = thInfo(item), list = (info.water ? [45, 50, 53, 55, 60] : [19, 20, 21, 22, 23]).filter((v) => v >= info.min && v <= info.max);
+  box.textContent = "";
+  for (const v of list) {
+    const b = el("button", { class: "thxset" + (info.target === v ? " active" : ""), text: v + "°" });
+    b.addEventListener("click", () => { thSend(item, "set_temperature", v, { temperature: v }); setTimeout(renderThermoQuick, 50); });
+    box.append(b);
   }
 }
 
