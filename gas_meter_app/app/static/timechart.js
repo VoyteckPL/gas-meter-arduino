@@ -706,10 +706,22 @@
       ctx.restore();
 
       // ---- crosshair and tooltip
+      this.readout(null);                                    // nothing under the finger: the readout beside the legend is cleared
       if (this.hoverX !== null) this.drawTooltip(ctx, { sx, sy, syR, left, plotW, plotBottom, top, W, v0, v1, text, muted, card, line, accent }, prepared);
 
       // ---- overview strip
       if (this.o.nav) this.drawNav(ctx, L, { f0, f1, muted, line, accent, card });
+    }
+
+    // the text under the cursor goes to the legend above the chart (if it has one); false: no legend, the caller draws a box
+    readout(lines) {
+      const box = this.canvas.previousElementSibling;
+      if (!box || !box.classList.contains("legend")) return false;
+      let el = box.querySelector(".readout");
+      if (!lines) { if (el) el.remove(); return true; }
+      if (!el) { el = document.createElement("span"); el.className = "readout"; box.append(el); }
+      el.replaceChildren(...lines.map((l, i) => { const n = document.createElement(i ? "b" : "span"); n.textContent = l; return n; }));
+      return true;
     }
 
     drawTooltip(ctx, c, prepared) {
@@ -751,6 +763,8 @@
       const titled = rows.find(({ s }) => s.title);
       const lines = [titled ? titled.s.title(titled.p) : fullTime(anchor[0], c.v1 - c.v0),
                      ...rows.flatMap(({ s, p }) => (s.tooltip ? s.tooltip(p) : [(s.name ? s.name + ": " : "") + fmt(p[1])]))];
+      // the values are written in the line of the legend, not in a box over the data
+      if (this.readout(lines)) return;
       ctx.font = "12px system-ui, sans-serif";
       const w = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 20, h = lines.length * 17 + 10;
       let bx = x + 14; if (bx + w > c.W - 4) bx = x - 14 - w;

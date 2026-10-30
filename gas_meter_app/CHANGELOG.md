@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.47.0
+
+* Wykresy: wartość pod palcem (data i stan) pokazuje się w linii legendy nad wykresem, a nie w białym dymku nad danymi. Wykres nic już nie zasłania. Wykresy bez legendy zostają przy dymku.
+
 ## 0.46.3
 
 * Wykresy gazu: wyraźniejsze kolory pracy pieca (mocniejsze pasy i gruby pasek u dołu). Wybieg pompy ma własny fioletowy kolor i pozycję w legendzie, zamiast szarego „Inne”.
