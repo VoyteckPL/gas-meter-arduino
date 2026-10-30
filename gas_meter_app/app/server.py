@@ -2003,6 +2003,36 @@ async def api_boiler(request):
     return web.json_response(result)
 
 
+async def api_boiler_log(request):
+    """Every run of the boiler in the last days (heating, hot water, pump overrun...) with its gas and its cost."""
+    app, now = request.app, time.time()
+    try:
+        days = max(1, min(14, int(request.query.get("days", "1"))))
+    except ValueError:
+        days = 1
+    since = now - days * 86400
+    monthly, factor = bills_context(app)
+    price = billing.price_model(monthly)
+    per_m3 = price["per_kwh"] * factor if price else None      # the gas only: the fixed fees are paid anyway
+    points = [p for p in boiler_meter(app) if p[0] >= since - 86400]
+    times = [p[0] for p in points]
+    transitions = app["boiler"]["transitions"]
+    runs = []
+    for i, (ts, state) in enumerate(transitions):
+        stop = transitions[i + 1][0] if i + 1 < len(transitions) else now
+        mode = boiler.mode_of(state)
+        if stop <= since or mode in (None, "idle"):
+            continue
+        start = max(ts, since)
+        kind = mode if mode in ("heating", "dhw") else "pump" if re.search(r"circulat|cool|pump|overrun|wybieg", state.lower()) else "other"
+        m3 = boiler.gas_in(points, times, start, min(stop, times[-1])) if times and times[-1] > start else None
+        runs.append({"start": round(start, 1), "end": round(stop, 1), "kind": kind, "state": state, "live": i == len(transitions) - 1,
+                     "m3": round(m3, 3) if m3 is not None else None,
+                     "cost": round(m3 * per_m3, 2) if m3 is not None and per_m3 else None})
+    runs.reverse()
+    return web.json_response({"runs": runs, "per_m3": per_m3, "now": now, "days": days})
+
+
 async def api_set(request):
     app = request.app
     try:
@@ -2118,6 +2148,7 @@ def create_app(options):
     app.router.add_get("/api/bills", api_bills)
     app.router.add_post("/api/bills", api_bills)
     app.router.add_get("/api/boiler", api_boiler)
+    app.router.add_get("/api/boiler_log", api_boiler_log)
     app.router.add_post("/api/boiler", api_boiler)
     app.router.add_get("/api/forecast", api_forecast)
     app.router.add_get("/api/weather", api_weather)

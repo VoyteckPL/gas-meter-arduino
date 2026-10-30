@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.39.0
+
+* Nowa karta „Piec: co chodziło” na Przeglądzie (dziś, 24 godz., 7 dni): każde uruchomienie pieca jako plakietka z godzinami, czasem, zużytymi m³ i kosztem w zł. Na górze podsumowanie każdego trybu i łączna kwota, pod nim pasek czasu.
+* Koszt liczony samą ceną gazu z faktur (zł/kWh × kWh/m³), bez opłat stałych, bo te płaci się i tak.
+* Kliknięcie plakietki stanu pieca przy wykresie przewija do historii.
+
 ## 0.38.2
 
 * Stan pieca: „circulating” to wybieg pompy, z ikoną pompy.

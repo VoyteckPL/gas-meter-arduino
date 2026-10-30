@@ -120,6 +120,29 @@ function statTile(cls, label, icon, id, color, i18n) {
   ])]);
 }
 
+// what a state of the boiler entity means: kind (colour), label and icon. The HVAC entity reports the pump overrun as "circulating".
+const BOILER_KINDS = {
+  heating: { label: "Ogrzewanie", icon: "flame" }, dhw: { label: "Ciepła woda", icon: "drop" },
+  pump: { label: "Wybieg pompy", icon: "pump" }, idle: { label: "Piec w spoczynku", icon: "pause" }, other: { label: "", icon: "chip" },
+};
+function boilerKind(state, mode) {
+  const low = String(state || "").toLowerCase();
+  const kind = mode === "heating" || mode === "dhw" ? mode : /circulat|cool|pump|overrun|wybieg|nachlauf/.test(low) ? "pump" : mode === "idle" ? "idle" : "other";
+  return { kind, label: BOILER_KINDS[kind].label || String(state), icon: BOILER_KINDS[kind].icon };
+}
+function boilerPill(info, parts, live) {
+  const pill = el("span", { class: "boilerpill " + info.kind + (live && info.kind !== "idle" && info.kind !== "other" ? " on" : "") });
+  pill.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true">' + STAT_ICONS[info.icon] + "</svg>";
+  pill.append(el("b", { text: info.label }), ...parts.filter(Boolean).map((p) => (typeof p === "string" ? el("span", { text: p }) : p)));
+  return pill;
+}
+const zl = (v) => num(v, 2).replace(".", ",") + " zł";
+function duration(seconds) {
+  if (seconds < 90) return Math.round(seconds) + " s";
+  const m = Math.round(seconds / 60);
+  return m < 60 ? m + " min" : Math.floor(m / 60) + " h" + (m % 60 ? " " + (m % 60) + " min" : "");
+}
+
 // a folded card for settings and details: title, short description, content when opened
 function foldCard(root, title, sub, children) {
   const c = el("details", { class: "card fold" }, [el("summary", {}, [el("h2", { text: title }), el("span", { class: "muted small", text: sub })]), el("div", { class: "foldbody" }, children)]);
@@ -312,9 +335,23 @@ function build() {
     looks.append(bt);
   }
   root.append(el("section", { class: "card wide ovcard", id: "ovCard" }, [
-    el("div", { class: "ovhead" }, [el("div", { class: "ovtitle" }, [el("h2", { text: "Licznik gazu" }), el("span", { class: "boilerpill", id: "boilerNow", hidden: "" })]), looks]),
+    el("div", { class: "ovhead" }, [el("div", { class: "ovtitle" }, [el("h2", { text: "Licznik gazu" }), el("span", { id: "boilerNow", hidden: "" })]), looks]),
     ranges,
     el("div", { class: "ovwrap" }, [el("canvas", { id: "chart", style: "height:360px" }), el("div", { class: "ovpulse", id: "ovPulse", hidden: "" })]),
+  ]));
+
+  // the boiler: every run of today (or 24 h, 7 days) as a pill, with time, gas and money
+  const pecTabs = el("div", { class: "tabs", id: "pecTabs" });
+  for (const [label, key] of [["Dziś", "today"], ["24 godz.", "24h"], ["7 dni", "7d"]]) {
+    const bt = el("button", { class: "secondary", "data-range": key, text: label });
+    bt.addEventListener("click", () => { pec.range = key; loadPec(); });
+    pecTabs.append(bt);
+  }
+  root.append(el("section", { class: "card wide", id: "pecCard", hidden: "" }, [
+    el("div", { class: "ovhead" }, [el("h2", { text: "Piec: co chodziło" }), pecTabs]),
+    el("div", { class: "pecsum", id: "pecSum" }),
+    el("div", { class: "pecbar", id: "pecBar" }),
+    el("div", { id: "pecList" }),
   ]));
 
   // service: the meter at a glance, the update, then the counter and the details folded
@@ -479,18 +516,15 @@ function update() {
   // network info
   // what the boiler is doing right now, next to the chart title
   {
-    const b = state.boiler, pill = $("#boilerNow");
-    pill.hidden = !b;
+    const b = state.boiler, holder = $("#boilerNow");
+    holder.hidden = !b;
+    $("#pecCard").hidden = !b;
     if (b) {
-      const raw = String(b.state || ""), low = raw.toLowerCase();
-      const overrun = /circulat|cool|pump|overrun|wybieg|nachlauf/.test(low);   // the HVAC entity reports the pump overrun as "circulating"
-      const kind = b.mode === "heating" || b.mode === "dhw" ? b.mode : overrun ? "pump" : b.mode === "idle" ? "idle" : "other";
-      const label = { heating: "Ogrzewanie", dhw: "Ciepła woda", pump: "Wybieg pompy", idle: "Piec w spoczynku" }[kind] || raw;
-      const icon = { heating: "flame", dhw: "drop", pump: "pump", idle: "pause" }[kind] || "chip";
-      pill.className = "boilerpill " + kind + (kind === "heating" || kind === "dhw" || kind === "pump" ? " on" : "");
-      pill.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true">' + STAT_ICONS[icon] + "</svg>";
-      pill.append(el("b", { text: label }), el("span", { text: b.since ? "od " + new Date(b.since * 1000).toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" }) + " · " + ago(now - b.since) : "" }));
-      pill.title = "Stan pieca: " + raw;
+      const info = boilerKind(b.state, b.mode);
+      const pill = boilerPill(info, [b.since ? "od " + hhmm(b.since) + " · " + ago(now - b.since) : ""], true);
+      pill.id = "boilerNow"; pill.title = "Stan pieca: " + b.state + ". Kliknij, żeby zobaczyć historię.";
+      pill.addEventListener("click", () => $("#pecCard").scrollIntoView({ behavior: "smooth", block: "start" }));
+      holder.replaceWith(pill);
     }
   }
 
@@ -538,6 +572,68 @@ function update() {
   for (const [tab, count] of Object.entries(counts)) {
     const button = document.querySelector('#viewTabs button[data-view="' + tab + '"]');
     if (button) { if (count) button.dataset.pending = count; else delete button.dataset.pending; }
+  }
+}
+
+// ----------------------------------------------------------------------- boiler history
+const pec = { range: "today", data: null };
+const hhmm = (ts) => new Date(ts * 1000).toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" });
+
+async function loadPec() {
+  if (!built || $("#pecCard").hidden) return;
+  try { pec.data = await api("boiler_log?days=" + (pec.range === "7d" ? 7 : 1)); } catch (e) { return; }
+  renderPec();
+}
+
+function renderPec() {
+  const d = pec.data;
+  if (!d) return;
+  document.querySelectorAll("#pecTabs button").forEach((b) => b.classList.toggle("active", b.dataset.range === pec.range));
+  const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
+  const from = pec.range === "today" ? midnight.getTime() / 1000 : d.now - d.days * 86400;
+  const runs = d.runs.filter((r) => r.end > from).map((r) => ({ ...r, start: Math.max(r.start, from) }));
+
+  // totals per kind
+  const sums = {};
+  for (const r of runs) {
+    const t = sums[r.kind] = sums[r.kind] || { s: 0, m3: 0, cost: 0, n: 0 };
+    t.s += r.end - r.start; t.m3 += r.m3 || 0; t.cost += r.cost || 0; t.n++;
+  }
+  const sum = $("#pecSum"); sum.textContent = "";
+  for (const kind of ["heating", "dhw", "pump", "other"]) {
+    const t = sums[kind];
+    if (!t) continue;
+    const info = { kind, label: BOILER_KINDS[kind].label || "Inne", icon: BOILER_KINDS[kind].icon };
+    sum.append(boilerPill(info, [duration(t.s) + " · " + t.n + "×", t.m3 >= 0.005 ? num(t.m3, 2) + " m³" : "", t.cost >= 0.005 ? el("em", { text: zl(t.cost) }) : ""]));
+  }
+  const total = runs.reduce((a, r) => a + (r.cost || 0), 0);
+  if (runs.length) sum.append(el("span", { class: "pectotal" }, [el("span", { text: "razem" }), el("b", { text: zl(total) })]));
+  else sum.append(el("span", { class: "muted small", text: "Piec nic nie robił w tym czasie." }));
+
+  // the timeline: coloured runs on the time axis of the window
+  const bar = $("#pecBar"); bar.textContent = "";
+  const span = d.now - from;
+  for (const r of runs) bar.append(el("i", { class: r.kind, title: (BOILER_KINDS[r.kind].label || r.state) + " " + hhmm(r.start) + "–" + hhmm(r.end),
+    style: "left:" + ((r.start - from) / span * 100) + "%;width:" + Math.max(0.25, (r.end - r.start) / span * 100) + "%" }));
+  const ticks = el("div", { class: "pecticks" });
+  const step = span > 2 * 86400 ? 86400 : span > 12 * 3600 ? 6 * 3600 : 3 * 3600;
+  for (let t = Math.ceil(from / step) * step; t < d.now; t += step) {
+    const label = step >= 86400 ? new Date(t * 1000).toLocaleDateString("pl-PL", { weekday: "short" }) : hhmm(t);
+    ticks.append(el("span", { style: "left:" + ((t - from) / span * 100) + "%", text: label }));
+  }
+  bar.append(ticks);
+
+  // every run as a pill, grouped by day, newest first
+  const list = $("#pecList"); list.textContent = "";
+  let day = null, row = null;
+  const dayName = (ts) => { const x = new Date(ts * 1000), today = new Date(); const y = new Date(); y.setDate(today.getDate() - 1);
+    return x.toDateString() === today.toDateString() ? "Dziś" : x.toDateString() === y.toDateString() ? "Wczoraj" : x.toLocaleDateString("pl-PL", { weekday: "long", day: "numeric", month: "long" }); };
+  for (const r of runs) {
+    const name = dayName(r.start);
+    if (name !== day) { day = name; list.append(el("div", { class: "pecday", text: name })); row = el("div", { class: "pecrow" }); list.append(row); }
+    const info = boilerKind(r.state, r.kind === "pump" ? "other" : r.kind);
+    row.append(boilerPill(info, [hhmm(r.start) + "–" + (r.live ? "teraz" : hhmm(r.end)) + " · " + duration(r.end - r.start),
+      r.m3 !== null && r.m3 >= 0.005 ? num(r.m3, 2) + " m³" : "", r.cost !== null && r.cost >= 0.005 ? el("em", { text: zl(r.cost) }) : ""], r.live));
   }
 }
 
@@ -2003,7 +2099,7 @@ async function refresh() {
   try {
     state = await api("state");
     if (!built) {
-      build(); drawChart();
+      build(); drawChart(); setTimeout(loadPec, 500);
       showView("panel");                         // the app always opens on the overview
     }
     update();
@@ -2114,4 +2210,5 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) { re
 window.addEventListener("pageshow", () => { refresh(); if (built && !$("#root").hidden) drawChart(); });
 setInterval(refresh, 3000);
 setInterval(() => { if (built && !$("#root").hidden) drawChart(); }, 10000);
+setInterval(() => { if (built && !$("#root").hidden) loadPec(); }, 60000);
 setInterval(() => { if (built) { const d = $("#histDialog"); if (d && !d.hidden) loadHistory(); if (!$("#batteryView").hidden) loadBattery(); } }, 60000);

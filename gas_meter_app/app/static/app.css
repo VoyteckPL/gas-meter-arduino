@@ -314,3 +314,19 @@ table.mini th, table.mini td { padding: 4px 12px 4px 0; text-align: left; border
 .boilerpill.on { animation: boilerglow 2.2s ease-in-out infinite; }
 @keyframes boilerglow { 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--bc) 18%, transparent), 0 0 18px color-mix(in srgb, var(--bc) 40%, transparent); } }
 @media (prefers-reduced-motion: reduce) { .boilerpill.on { animation: none; } }
+
+/* history of the boiler: pills in the same style as the state next to the chart */
+.boilerpill em { font-style: normal; font-weight: 650; padding: 1px 8px; border-radius: 999px; background: color-mix(in srgb, var(--bc) 22%, transparent); }
+#boilerNow { cursor: pointer; }
+.pecsum { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 4px 0 14px; }
+.pectotal { margin-left: auto; display: inline-flex; align-items: baseline; gap: 8px; }
+.pectotal span { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; }
+.pectotal b { font-size: 22px; letter-spacing: -.3px; }
+.pecbar { position: relative; height: 14px; border-radius: 7px; background: var(--chip); margin-bottom: 26px; }
+.pecbar i { position: absolute; top: 0; bottom: 0; border-radius: 4px; background: #a898b0; }
+.pecbar i.heating { background: #ff7a45; } .pecbar i.dhw { background: #3d9bff; } .pecbar i.pump { background: #b98cff; }
+.pecticks span { position: absolute; top: 18px; transform: translateX(-50%); font-size: 11px; color: var(--muted); white-space: nowrap; }
+.pecday { font-size: 11px; font-weight: 650; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); margin: 12px 0 6px; }
+.pecrow { display: flex; flex-wrap: wrap; gap: 6px; }
+@media (max-width: 560px) { .pectotal { margin-left: 0; width: 100%; } }
+#pecList { max-height: 440px; overflow-y: auto; scrollbar-width: thin; }
