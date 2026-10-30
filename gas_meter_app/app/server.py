@@ -31,12 +31,12 @@ INGRESS_GATEWAY = "172.30.32.2"
 MAX_POINTS = 20000
 HISTORY_TOPICS = ("cubic_meters", "BatteryVoltage", "BatteryPercent", "RSSI", "flow_m3h", "bt/pin_mv", "bt/voltage",
                   "Wakes", "WifiSessions", "wifi_connect_ms", "awake_wifi_s", "awake_other_s", "session_ms",
-                  "fail_wifi", "fail_mqtt", "fail_sub", "fail_ack", "restarts", "hangs", "dhcp")
+                  "fail_wifi", "fail_mqtt", "fail_sub", "fail_ack", "retry_ok", "restarts", "hangs", "dhcp")
 # slowly changing series are kept for about a year: minimum spacing (s) and number of points
 LONG_SERIES = {"cubic_meters": (0, 150000), "BatteryVoltage": (900, 40000), "BatteryPercent": (900, 40000), "RSSI": (900, 40000),
                "Wakes": (60, 20000), "WifiSessions": (60, 20000), "wifi_connect_ms": (60, 20000),
                "awake_wifi_s": (60, 20000), "awake_other_s": (60, 20000), "session_ms": (60, 20000),
-               "fail_wifi": (0, 20000), "fail_mqtt": (0, 20000), "fail_sub": (0, 20000), "fail_ack": (0, 20000),
+               "fail_wifi": (0, 20000), "fail_mqtt": (0, 20000), "fail_sub": (0, 20000), "fail_ack": (0, 20000), "retry_ok": (0, 20000),
                "restarts": (0, 5000), "hangs": (0, 5000), "dhcp": (0, 5000)}
 CURVE_FILE = os.path.join(DATA_DIR, "curve.json")
 NOTIFY_FILE = os.path.join(DATA_DIR, "notify.json")
@@ -247,6 +247,13 @@ class Store:
                 else:
                     self.pending[name] = payload
                 return
+            if suffix == "pulse_ages":
+                # firmware 0.4.7+: how many seconds ago each pulse of the coming counter was counted (oldest first)
+                try:
+                    self.pulse_ages = (now, [float(x) for x in payload.split(",") if x.strip()])
+                except ValueError:
+                    self.pulse_ages = None
+                return
             if payload == "":
                 self.values.pop(suffix, None)
                 return
@@ -263,14 +270,16 @@ class Store:
         series = self.history.setdefault(suffix, [])
         if series and series[-1][1] == number and now - series[-1][0] < 300:
             return
+        spread = suffix == "cubic_meters" and bool(series) and self.spread_pulses(series, now, number)
         spacing, limit = LONG_SERIES.get(suffix, (30, MAX_POINTS))
         if suffix == "cubic_meters":
             spacing = 0
-        if series and now - series[-1][0] < spacing:
-            return
-        series.append([round(now, 1), number])
-        if len(series) > limit:
-            del series[: len(series) - limit]
+        if not spread:
+            if series and now - series[-1][0] < spacing:
+                return
+            series.append([round(now, 1), number])
+            if len(series) > limit:
+                del series[: len(series) - limit]
         if suffix == "cubic_meters":
             today = datetime.fromtimestamp(now).strftime("%Y-%m-%d")
             if today not in self.day_start:
@@ -279,6 +288,29 @@ class Store:
                 for old in sorted(self.day_start)[:-400]:
                     del self.day_start[old]
             self.last_meter = number
+
+    def spread_pulses(self, series, now, number):
+        """Several pulses that arrive in one session (after a failed one) are put at the moments they were counted,
+        from the ages the meter sent just before the counter. Returns True when the points were added."""
+        ages = getattr(self, "pulse_ages", None)
+        self.pulse_ages = None
+        if not ages or now - ages[0] > 30:
+            return False
+        last_t, last_v = series[-1]
+        steps = round((number - last_v) * 100)          # pulses of 0.01 m3
+        times = ages[1][-steps:] if steps > 0 else []
+        if steps < 2 or steps > 16 or len(times) < steps:
+            return False
+        t_prev = last_t
+        for i, age in enumerate(times):
+            t = max(t_prev + 0.1, min(now - age, now))    # in order, after the last reading, never in the future
+            value = round(last_v + (i + 1) * 0.01, 2) if i < steps - 1 else number
+            series.append([round(t, 1), value])
+            t_prev = t
+        spacing, limit = LONG_SERIES.get("cubic_meters", (0, MAX_POINTS))
+        if len(series) > limit:
+            del series[: len(series) - limit]
+        return True
 
     # ---- calculations for the UI ----
     def number(self, suffix):
@@ -460,6 +492,7 @@ class Bridge:
             ("fail_mqtt", "Nieudane sesje: połączenie z brokerem", "fail_mqtt", None, None, "total_increasing", "diagnostic"),
             ("fail_sub", "Nieudane sesje: subskrypcja", "fail_sub", None, None, "total_increasing", "diagnostic"),
             ("fail_ack", "Nieudane sesje: brak potwierdzenia", "fail_ack", None, None, "total_increasing", "diagnostic"),
+            ("retry_ok", "Sesje uratowane drugą próbą", "retry_ok", None, None, "total_increasing", "diagnostic"),
             ("awake_wifi_s", "Czas pracy z WiFi", "awake_wifi_s", "s", "duration", "total_increasing", "diagnostic"),
             ("awake_other_s", "Czas pracy bez WiFi", "awake_other_s", "s", "duration", "total_increasing", "diagnostic"),
             ("wakes", "Obudzenia", "Wakes", None, None, "total_increasing", "diagnostic"),
@@ -629,7 +662,7 @@ def thin(points, limit=900):
     return kept
 
 
-DIAG_SERIES = ("RSSI", "BatteryVoltage", "Wakes", "WifiSessions", "fail_wifi", "fail_mqtt", "fail_sub", "fail_ack",
+DIAG_SERIES = ("RSSI", "BatteryVoltage", "Wakes", "WifiSessions", "fail_wifi", "fail_mqtt", "fail_sub", "fail_ack", "retry_ok",
                "session_ms", "wifi_connect_ms", "awake_wifi_s", "awake_other_s", "restarts", "hangs", "dhcp", "cubic_meters")
 DIAG_VALUES = ("fw_version", "reset_reason", "uptime_s", "ssid", "bssid", "ip", "mac", "RSSI", "dhcp", "pending")
 

@@ -587,7 +587,7 @@ function update() {
   const sessions = Number(v.WifiSessions);
   if (fails.every(Number.isFinite)) {
     const total = fails.reduce((a, b) => a + b, 0), rate = sessions + total ? total / (sessions + total) * 100 : 0;
-    setStat("nFail", String(total), "", (sessions ? num(rate, 0) + " % sesji · " : "") + fails.join("/"));
+    setStat("nFail", String(total), "", (sessions ? num(rate, 0) + " % sesji · " : "") + fails.join("/") + (v.retry_ok !== undefined ? " · uratowane: " + v.retry_ok : ""));
     $("#st-nFail").title = "WiFi / broker / subskrypcja / potwierdzenie: " + fails.join(" / ");
     tone("nFail", rate > 15 ? "var(--bad)" : rate > 5 ? "var(--warn)" : "var(--ok)");
   } else setStat("nFail", "—", "", "firmware 0.4.5 lub nowszy");

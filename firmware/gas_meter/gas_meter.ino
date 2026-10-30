@@ -42,7 +42,7 @@
 #include "esp_ota_ops.h"
 #include "esp_timer.h"
 
-#define FW_VERSION "0.4.6"
+#define FW_VERSION "0.4.7"
 // The version is also kept as a marker in the binary: the Gas Meter app reads it from the .bin file it serves for the update
 static const char FW_MARKER[] = "GASMETER_FW:" FW_VERSION;
 
@@ -108,6 +108,9 @@ IPAddress DNS_SERVER(192, 168, 1, 1);
 #define WIFI_TIMEOUT_FIRST_MS  20000
 #define MQTT_TIMEOUT_MS        2000
 #define MQTT_ACK_TIMEOUT_MS    4000         // waiting for the acknowledgement of the counter: a retransmitted packet answers after 2-3 s, a repeated session costs more
+#define SESSION_BUDGET_MS      6500         // all MQTT work of one wake-up (with the second try) ends this long after WiFi is up
+#define MQTT_RETRY_MIN_LEFT_MS 2500         // a second try in the same wake-up only when this much of the budget is left
+#define PULSE_TIMES            16           // the times of the last pulses kept for the app (how long ago each one was)
 #define AWAKE_LIMIT_S          150      // the chip never stays awake longer than this: a hang restarts it (the counter is kept in RTC memory)
 #define CPU_MHZ                80       // 80 MHz is enough with WIFI_PSK_HEX (no key derivation); 240 only connects faster without it
 
@@ -132,7 +135,7 @@ IPAddress DNS_SERVER(192, 168, 1, 1);
 #endif
 
 // ------------------------------- RTC memory ---------------------------------
-#define CACHE_MAGIC 0x6A5C0DE5UL     // changed with the layout: the first start of a new layout is a cold start (counter from flash)
+#define CACHE_MAGIC 0x6A5C0DE6UL     // changed with the layout: the first start of a new layout is a cold start (counter from flash)
 
 struct Cache {
   uint32_t magic;
@@ -170,6 +173,9 @@ struct Cache {
   uint16_t failMqtt;       //   no MQTT connection,
   uint16_t failSub;        //   subscription not answered,
   uint16_t failAck;        //   counter not acknowledged (or a remote counter command not applied)
+  uint16_t retryOk;        // sessions saved by the second try in the same wake-up (the broker answered the second time)
+  uint8_t  pulseHead;      // next slot of pulseTimes
+  uint32_t pulseTimes[PULSE_TIMES];   // when the last pulses were counted (seconds, nowSeconds): sent as ages with the counter
 };
 
 RTC_NOINIT_ATTR Cache cache;
@@ -315,7 +321,14 @@ void IRAM_ATTR reedIsr() {
   }
 }
 
+static uint32_t nowSeconds();
+
 static void countPulses(uint32_t n) {
+  uint32_t t = nowSeconds();
+  for (uint32_t i = 0; i < n && i < PULSE_TIMES; i++) {
+    cache.pulseTimes[cache.pulseHead] = t;
+    cache.pulseHead = (uint8_t)((cache.pulseHead + 1) % PULSE_TIMES);
+  }
   cache.counter += n;
   cache.pending += n;
   cache.pulsesTotal += n;
@@ -938,11 +951,18 @@ static bool applyRemoteCounter(MQTTClient &mqtt) {
   return mqtt.publish(topic("counter"), String(buf), true, 1);
 }
 
-static bool publishAll(bool sendStatus) {
+// a wait of at most `ms`, but never past the deadline of the session (and never shorter than 300 ms)
+static int budgetMs(uint32_t ms, unsigned long deadline) {
+  long left = (long)(deadline - millis());
+  if (left < 300) left = 300;
+  return (int)((long)ms < left ? (long)ms : left);
+}
+
+static bool publishAll(bool sendStatus, unsigned long deadline) {
   WiFiClient net;
   MQTTClient mqtt(768);
   mqtt.begin(MQTT_SERVER, MQTT_PORT, net);
-  mqtt.setOptions(30, true, MQTT_TIMEOUT_MS);
+  mqtt.setOptions(30, true, budgetMs(MQTT_TIMEOUT_MS, deadline));
 
   if (!mqtt.connect(MQTT_CLIENT_ID, MQTT_USER, MQTT_PASS)) {
     LOG("MQTT connection failed\r\n");
@@ -958,6 +978,7 @@ static bool publishAll(bool sendStatus) {
   g_gotOverride = false;
   mqtt.onMessage((MQTTClientCallbackSimpleFunction)sessionMessage);
   // one subscription for both commands (config/ota, config/counter): every subscription waits for the broker's answer
+  mqtt.setOptions(30, true, budgetMs(MQTT_TIMEOUT_MS, deadline));
   if (!mqtt.subscribe(topic("config/#"))) {
     LOG("MQTT subscription not answered at %lu ms\r\n", (unsigned long)millis());
     mqtt.disconnect();
@@ -1010,6 +1031,8 @@ static bool publishAll(bool sendStatus) {
     mqtt.publish(topic("fail_sub"), String(buf), true, 0);
     snprintf(buf, sizeof(buf), "%u", (unsigned)cache.failAck);
     mqtt.publish(topic("fail_ack"), String(buf), true, 0);
+    snprintf(buf, sizeof(buf), "%u", (unsigned)cache.retryOk);
+    mqtt.publish(topic("retry_ok"), String(buf), true, 0);
     // time awake (counters since power-on, without this wake-up): with them the app knows what the battery really spends
     snprintf(buf, sizeof(buf), "%.1f", cache.awakeWifiMs / 1000.0);
     mqtt.publish(topic("awake_wifi_s"), String(buf), true, 0);
@@ -1039,11 +1062,23 @@ static bool publishAll(bool sendStatus) {
   // so its acknowledgement of the counter also confirms everything published before it (one round trip, not one per
   // message). Never publish a counter that is only relative (it would be a small, wrong value).
   bool confirmed = true;
+  if (cache.baseKnown && cache.pending > 0) {
+    // how many seconds ago each pulse not yet published was counted, oldest first: the app draws them at their real time
+    // even when they arrive together after a failed session
+    uint32_t n = cache.pending < PULSE_TIMES ? cache.pending : PULSE_TIMES, now = nowSeconds();
+    String ages;
+    for (uint32_t i = n; i > 0; i--) {
+      uint32_t t = cache.pulseTimes[(cache.pulseHead + PULSE_TIMES - i) % PULSE_TIMES];
+      if (ages.length()) ages += ",";
+      ages += String((unsigned long)(now >= t ? now - t : 0));
+    }
+    mqtt.publish(topic("pulse_ages"), ages, false, 0);
+  }
   if (cache.baseKnown) {
     snprintf(buf, sizeof(buf), "%.2f", cache.counter / (double)PULSES_PER_M3);
     mqtt.publish(topic("cubic_meters"), String(buf), true, 0);
     snprintf(buf, sizeof(buf), "%llu", (unsigned long long)cache.counter);
-    mqtt.setOptions(30, true, MQTT_ACK_TIMEOUT_MS);
+    mqtt.setOptions(30, true, budgetMs(MQTT_ACK_TIMEOUT_MS, deadline));
     confirmed = mqtt.publish(topic("counter"), String(buf), true, 1);   // false: no acknowledgement, the session is repeated
   }
 
@@ -1192,7 +1227,18 @@ void setup() {
     bool ok = false;
     g_failStage = 1;
     if (wifiUp((coldStart && !cache.baseKnown) ? WIFI_TIMEOUT_FIRST_MS : WIFI_TIMEOUT_MS)) {
-      ok = publishAll(statusWanted);
+      unsigned long deadline = millis() + SESSION_BUDGET_MS;
+      ok = publishAll(statusWanted, deadline);
+      // WiFi works but the broker did not answer (busy for a moment): one more try now costs less than a new session later
+      if (!ok && g_failStage >= 2 && WiFi.status() == WL_CONNECTED && (long)(deadline - millis()) >= MQTT_RETRY_MIN_LEFT_MS) {
+        uint16_t *stage = g_failStage == 2 ? &cache.failMqtt : g_failStage == 3 ? &cache.failSub : &cache.failAck;
+        if (*stage < 65535) (*stage)++;      // the failed first try still counts, so the broker problems stay visible
+        LOG("Second try in the same session\r\n");
+        delay(250);
+        g_failStage = 1;
+        ok = publishAll(statusWanted, deadline);
+        if (ok && cache.retryOk < 65535) cache.retryOk++;
+      }
 #if OTA_ENABLED
       if (ok && g_otaReq.valid) otaRun();        // returns only when the update failed; a good one restarts the chip
 #endif

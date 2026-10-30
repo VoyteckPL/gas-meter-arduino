@@ -401,6 +401,40 @@ int main(int argc, char **) {
     expect("broker connection failures counted as MQTT", cache.failMqtt > 0 && cache.failWifi == 0);
   }
 
+  { // the broker misses one acknowledgement: the second try in the same wake-up delivers the pulse at once
+    // (the first, cold start session also misses its acknowledgement: reading the counter back from the broker uses most of
+    // its budget, so it does not try twice; the pulse at 10 s then fails once and is saved by the second try)
+    world_reset(); int n = train(10, 30, 3, 1.0); g_ack_failures = 2;
+    Result r = simulate(S(200));
+    int64_t firstOk = -1;
+    for (auto &p : g_pubs) if (p.topic == "Gaz/Gazomierz/counter" && p.t >= S(10)) { firstOk = p.t; break; }
+    // the failed counter publication is recorded too; the delivered one is the second publication of that wake-up
+    int counters = 0; int64_t second = -1;
+    for (auto &p : g_pubs) if (p.topic == "Gaz/Gazomierz/counter" && p.t >= S(10) && p.t < S(20)) { if (++counters == 2) second = p.t; }
+    expect("second try in the same session saves it (retry_ok 1, no failed session left)",
+           r.chip == 1000 + (uint64_t)n && cache.retryOk == 1 && cache.failAck == 2 && cache.failCount == 0 && second > 0 && second - S(10) < S(6));
+    (void)firstOk;
+  }
+  { // the broker is down for a while: the session that gets through tells how long ago each waiting pulse was
+    // the broker misses 7 acknowledgements: the cold start and both tries of the pulses at 10, 20 and 30 s; the pulse at
+    // 40 s gets through with all four
+    world_reset(); g_ack_failures = 7; int n = train(10, 10, 4, 1.0);
+    Result r = simulate(S(200)); (void)r; (void)n;
+    std::string ages;
+    for (auto &p : g_pubs) if (p.topic == "Gaz/Gazomierz/pulse_ages") ages = p.payload;
+    std::vector<int> a; for (size_t i = 0; i < ages.size();) { size_t j = ages.find(',', i); a.push_back(atoi(ages.substr(i, j - i).c_str())); if (j == std::string::npos) break; i = j + 1; }
+    bool ok = a.size() == 4;
+    for (size_t i = 0; ok && i < a.size(); i++) ok = std::abs(a[i] - (int)(30 - 10 * i)) <= 3;
+    printf("INFO pulse ages sent: %s\n", ages.c_str());
+    expect("pulse ages: 4 waiting pulses sent with their real ages", ok);
+  }
+  { // a broker that never answers: one wake-up never stays in MQTT much longer than its budget
+    world_reset(); g_ack_failures = 100; int n = train(10, 60, 2, 1.0); (void)n;
+    simulate(S(200));
+    printf("INFO longest MQTT session with a broker that never acknowledges: %u ms\n", (unsigned)cache.lastSessionMs);
+    expect("session stays within its budget even with two tries", cache.lastSessionMs < 9000);
+  }
+
   printf("\n%s (%d failure(s))\n", failures ? "SOME TESTS FAILED" : "ALL TESTS PASSED", failures);
   return failures ? 1 : 0;
 }

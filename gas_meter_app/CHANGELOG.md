@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.46.0
+
+* Obsługa firmware 0.4.7: impulsy, które dotarły razem po nieudanej sesji, trafiają na wykres w momentach, w których je policzono (gazomierz wysyła, ile sekund temu był każdy z nich). Koniec ze skokami o kilka impulsów.
+* Nowa encja diagnostyczna „Sesje uratowane drugą próbą” (retry_ok); w zakładce Sieć przy nieudanych sesjach i w eksporcie diagnostyki.
+
 ## 0.45.1
 
 * Poprawka: przesuwanie i powiększanie wykresów przestawało działać, gdy zgubił się koniec jednego dotyku (np. apka przeszła w tło albo dopiero się uruchamiała). Wykres pamiętał „zawieszony” palec i każdy kolejny dotyk brał za szczypanie. Teraz pierwszy palec zawsze zaczyna od czysta, a po powrocie do apki wszystkie gesty są czyszczone.

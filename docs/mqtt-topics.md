@@ -30,7 +30,9 @@ The meter sleeps almost all the time, so:
 | `dhcp` | 1 when the last status session used DHCP instead of the static address (fallback after failures, firmware 0.4.2+) |
 | `awake_wifi_s`, `awake_other_s` | seconds awake since power-on in wake-ups with WiFi / without (firmware 0.4.4+, for the battery model) |
 | `session_ms` | how long the last wake-up with a WiFi session was awake, from the start of the program to sleep |
-| `fail_wifi`, `fail_mqtt`, `fail_sub`, `fail_ack` | failed WiFi sessions since power-on by the stage that failed: WiFi connection, MQTT connection, subscription not answered, counter not acknowledged (status message) |
+| `fail_wifi`, `fail_mqtt`, `fail_sub`, `fail_ack` | failed WiFi sessions since power-on by the stage that failed: WiFi connection, MQTT connection, subscription not answered, counter not acknowledged (status message). Since 0.4.7 every failed try counts, also the first try of a session saved by the second one |
+| `retry_ok` | sessions saved by the second try in the same wake-up (0.4.7+): WiFi worked, the broker did not answer the first time (status message) |
+| `pulse_ages` | not retained, sent just before the counter when pulses are waiting (0.4.7+): how many seconds ago each of them was counted, oldest first, e.g. `30,20,10,0`. The app puts the pulses of a late session at their real moments |
 | `ip`, `mac`, `ssid`, `bssid` | network information (status message) |
 
 Manual counter override (HA entity "Set counter"): publish the pulse count (retained) to
