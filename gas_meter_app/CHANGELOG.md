@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.38.2
+
+* Stan pieca: „circulating” to wybieg pompy, z ikoną pompy.
+
 ## 0.38.1
 
 * Wykres licznika: bez stanu licznika przy kropce „teraz” (jest w pasku odczytów).

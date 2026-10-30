@@ -95,6 +95,7 @@ const STAT_ICONS = {
   tag: '<path d="M3.5 11.5V4.5a1 1 0 0 1 1-1h7l9 9-8 8z"/><circle cx="8" cy="8" r="1.4"/>',
   receipt: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h3"/>',
   drop: '<path d="M12 3s6 6.4 6 11a6 6 0 0 1-12 0c0-4.6 6-11 6-11z"/>',
+  pump: '<circle cx="11" cy="13" r="7"/><path d="M11 6h10"/><path d="M8.6 15.6a3.4 3.4 0 1 1 5.8-2.4"/><path d="M14.4 10.4v2.8h-2.8"/>',
   fan: '<circle cx="12" cy="12" r="1.6"/><path d="M12 10.4C11 6 13 3 16 4s1.5 5.5-2.4 7.2M13.6 12.4c4.3 1 6.6 3.4 5.4 6.2s-5.6.9-6.4-3.2M10.5 12.9c-3.2 3.1-6.6 3.6-7.7.7s3.4-4.9 6.9-3"/>',
   pause: '<circle cx="12" cy="12" r="8.5"/><path d="M10 9v6M14 9v6"/>',
   bolt: '<path d="M13 2.5 5 13.5h6l-1 8 8-11h-6z"/>',
@@ -482,10 +483,10 @@ function update() {
     pill.hidden = !b;
     if (b) {
       const raw = String(b.state || ""), low = raw.toLowerCase();
-      const overrun = /cool|pump|overrun|wybieg|nachlauf/.test(low);         // the HVAC entity reports the pump overrun as "cooling"
+      const overrun = /circulat|cool|pump|overrun|wybieg|nachlauf/.test(low);   // the HVAC entity reports the pump overrun as "circulating"
       const kind = b.mode === "heating" || b.mode === "dhw" ? b.mode : overrun ? "pump" : b.mode === "idle" ? "idle" : "other";
       const label = { heating: "Ogrzewanie", dhw: "Ciepła woda", pump: "Wybieg pompy", idle: "Piec w spoczynku" }[kind] || raw;
-      const icon = { heating: "flame", dhw: "drop", pump: "fan", idle: "pause" }[kind] || "chip";
+      const icon = { heating: "flame", dhw: "drop", pump: "pump", idle: "pause" }[kind] || "chip";
       pill.className = "boilerpill " + kind + (kind === "heating" || kind === "dhw" || kind === "pump" ? " on" : "");
       pill.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true">' + STAT_ICONS[icon] + "</svg>";
       pill.append(el("b", { text: label }), el("span", { text: b.since ? "od " + new Date(b.since * 1000).toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" }) + " · " + ago(now - b.since) : "" }));

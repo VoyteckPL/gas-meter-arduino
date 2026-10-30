@@ -312,7 +312,5 @@ table.mini th, table.mini td { padding: 4px 12px 4px 0; text-align: left; border
 .boilerpill span { opacity: .7; }
 .boilerpill.heating { --bc: #ff7a45; } .boilerpill.dhw { --bc: #3d9bff; } .boilerpill.pump { --bc: #b98cff; } .boilerpill.idle { --bc: #8f8a9a; }
 .boilerpill.on { animation: boilerglow 2.2s ease-in-out infinite; }
-.boilerpill.pump svg { animation: spin 2.4s linear infinite; }
 @keyframes boilerglow { 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--bc) 18%, transparent), 0 0 18px color-mix(in srgb, var(--bc) 40%, transparent); } }
-@keyframes spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .boilerpill.on, .boilerpill.pump svg { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .boilerpill.on { animation: none; } }
