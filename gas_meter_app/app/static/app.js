@@ -1107,7 +1107,7 @@ const HIST = {
   btVolt:  { key: "hBtVolt",  kind: "bt",      unit: "V",    dec: 3, area: true, stat: "range", raw: true, test: true },
   btPin:   { key: "hBtPin",   kind: "bt_pin",  unit: "mV",   dec: 0, stat: "range", raw: true, test: true },
 };
-const BOILER_COLORS = { dhw: "#1f7bff", heating: "#ff5a1f", pump: "#9b5cf6", other: "#8d8499" };
+const BOILER_COLORS = { dhw: "#1f7bff", heating: "#ff5a1f", pump: "#ffa01a", other: "#8d8499" };
 const BOILER_NAMES = { dhw: "Ciepła woda", heating: "Ogrzewanie", pump: "Wybieg pompy", other: "Inne" };
 const PRESETS = [["range1h", 3600], ["range6h", 6 * 3600], ["range24h", 86400], ["range7d", 7 * 86400], ["range14d", 14 * 86400], ["rangeAll", 0]];
 const history = { entity: "meter", chart: null, token: 0, detailToken: 0 };

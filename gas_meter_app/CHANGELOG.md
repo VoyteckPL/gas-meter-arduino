@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.47.2
+
+* Wykresy gazu: wybieg pompy jest jasnym, żółtawo-pomarańczowym pasem (ogrzewanie zostaje czerwono-pomarańczowe, ciepła woda niebieska).
+
 ## 0.47.1
 
 * Zakładka Piec: gdy termostat ogrzewania zgłasza stan „chłodzi” (cooling) albo „circulating”, to jest wybieg pompy. Tarcza robi się fioletowa, z ikoną pompy, pigułką „Wybieg pompy” i opisem, że piec nie spala gazu. Wcześniej wyglądała jak zwykłe ogrzewanie albo pokazywała „Chłodzi”.
