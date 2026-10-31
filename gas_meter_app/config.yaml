@@ -1,5 +1,5 @@
 name: "Energia Gazomierz"
-version: "0.47.3"
+version: "0.48.0"
 slug: "gas_meter"
 description: "Panel i ustawienia gazomierza na baterii (ESP32, MQTT): odczyty, historia, bateria z prognozą żywotności, powiadomienia."
 url: "https://github.com/VoyteckPL/gas-meter-arduino"
@@ -33,6 +33,7 @@ options:
   battery_cells: 2
   battery_cell_mah: 3000
   battery_usable_pct: 85
+  battery_changed: "2026-10-29 16:40"
   notify_service: ""
   notify_persistent: true
   battery_report: "monthly"
@@ -57,6 +58,7 @@ schema:
   battery_cells: "int(1,8)"
   battery_cell_mah: "int(500,10000)"
   battery_usable_pct: "int(50,100)"
+  battery_changed: "str?"
   notify_service: "str?"
   notify_persistent: "bool"
   battery_report: "list(off|weekly|monthly)"

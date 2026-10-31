@@ -335,6 +335,7 @@ function build() {
       statTile("", "battery", "battery", "battery", null, true),
       statTile("", "signal", "wifi", "rssi", null, true),
       statTile("", "lastRead", "radio", "lastData", null, true),
+      statTile("", "Od wymiany", "hourglass", "chg", "--ok"),
       statTile("", "Na zewnątrz", "thermo", "outTemp", "--info"),
     ]),
   ]));
@@ -531,6 +532,8 @@ function update() {
   const newest = Math.max(0, ...Object.entries(state.updated).filter(([k]) => !k.startsWith("cfg/") && !k.startsWith("app/")).map(([, ts]) => ts));
   if (newest) setStat("lastData", ago(now - newest), t("ago"), clock(newest));
   else setStat("lastData", t("never"), "", "");
+  const bs = state.battery_since;
+  setStat("chg", bs ? String(Math.round(bs.days)) : "—", bs ? "dni" : "", bs ? "zużyte ok. " + num(bs.used_pct, 1).replace(".", ",") + " % · " + num(bs.m3, 1).replace(".", ",") + " m³" : "ustaw datę w zakładce Bateria");
   const out = state.outdoor;
   const SKY = { sunny: "słonecznie", "clear-night": "bezchmurnie", partlycloudy: "częściowe zachmurzenie", cloudy: "pochmurno", rainy: "deszcz",
                 pouring: "ulewa", snowy: "śnieg", "snowy-rainy": "deszcz ze śniegiem", fog: "mgła", windy: "wietrznie", lightning: "burza", "lightning-rainy": "burza z deszczem", hail: "grad" };
@@ -2133,6 +2136,28 @@ function buildBattery() {
     testBox,
   ], true);
 
+  const chgInput = el("input", { type: "datetime-local", id: "chgDate" });
+  const chgBtn = el("button", { text: "Zapisz datę" });
+  chgBtn.addEventListener("click", async () => {
+    try {
+      const v = chgInput.value ? chgInput.value.replace("T", " ") : "";
+      await api("battery_change", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: v }) });
+      toast("Zapisano datę wymiany baterii"); loadBattery(); refresh();
+    } catch (e) { toast(e.message, true); }
+  });
+  const chgNow = el("button", { class: "secondary", text: "Wymieniłem teraz" });
+  chgNow.addEventListener("click", async () => {
+    const ok = await confirmDialog({ title: "Bateria wymieniona teraz?", message: "Liczenie od wymiany zacznie się od zera.", confirmText: "Tak, od teraz" });
+    if (!ok) return;
+    try { await api("battery_change", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: "" }) }); toast("Zapisano"); loadBattery(); refresh(); } catch (e) { toast(e.message, true); }
+  });
+  card([
+    el("h2", { text: "Od wymiany baterii" }),
+    el("div", { class: "kv", id: "chgStats", style: "margin-top:0" }),
+    el("div", { class: "field", style: "gap:8px;flex-wrap:wrap;margin-top:12px" }, [chgInput, chgBtn, chgNow]),
+    el("p", { class: "hint", text: "Zużycie energii liczone jest modelem z czasu pracy gazomierza, nie pomiarem prądu. Napięcie ogniw prawie nie spada przez większość pracy." }),
+  ], true);
+
   card([
     el("h2", { "data-i18n": "bPredTitle" }),
     el("div", { class: "split" }, [
@@ -2363,6 +2388,23 @@ function renderBattery() {
     put("bAvg", avg ? (avg * 1000).toFixed(0) : "—", avg ? "µA" : "", avg && d.budget_ma ? "sesje WiFi " + (d.budget_ma.sessions / d.budget_ma.total * 100).toFixed(0) + " % poboru" : "");
     put("bSess", d.sessions_day !== null && d.sessions_day !== undefined ? num(d.sessions_day, 0) : "—", "",
         d.pulses_day !== null && d.pulses_day !== undefined ? "impulsy: " + num(d.pulses_day, 0) + " na dobę" : "");
+  }
+
+  // since the cells were replaced
+  {
+    const c = d.since_change, box = $("#chgStats"); box.textContent = "";
+    const row = (k, v) => box.append(el("span", { text: k }), el("span", { class: "v", text: v }));
+    if (!c) row("Data wymiany", "nie ustawiona");
+    else {
+      const when = new Date(c.ts * 1000);
+      if (document.activeElement !== $("#chgDate")) { const pad = (n) => String(n).padStart(2, "0"); $("#chgDate").value = when.getFullYear() + "-" + pad(when.getMonth() + 1) + "-" + pad(when.getDate()) + "T" + pad(when.getHours()) + ":" + pad(when.getMinutes()); }
+      row("Włożone", when.toLocaleDateString("pl-PL") + " " + when.toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" }));
+      row("Dni pracy", num(c.days, 1).replace(".", ",") + " (" + fmtLife(c.days) + ")");
+      row("Energia z ogniw (model)", Math.round(c.used_mah) + " mAh · " + num(c.used_pct, 1).replace(".", ",") + " % pojemności");
+      row("Gaz od wymiany", num(c.m3, 2).replace(".", ",") + " m³ · " + Math.round(c.m3 * 100) + " impulsów");
+      row("Sesje WiFi · obudzenia", c.sessions + " · " + c.wakes);
+      if (c.first_v && c.now_v) row("Napięcie: start → teraz", num(c.first_v, 2) + " V → " + num(c.now_v, 2) + " V");
+    }
   }
 
   // statistics

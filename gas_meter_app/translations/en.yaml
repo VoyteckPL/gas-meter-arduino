@@ -29,6 +29,9 @@ configuration:
   battery_usable_pct:
     name: Użyteczna część pojemności (%)
     description: Jaka część pojemności z etykiety jest realnie dostępna (odcięcie 3,0 V, zimno, starzenie). Domyślnie 85. Zmierzona pojemność z testu rozładowania ma pierwszeństwo.
+  battery_changed:
+    name: Data wymiany baterii
+    description: Kiedy włożono obecne ogniwa (RRRR-MM-DD GG:MM, czas serwera). Od tej daty apka liczy dni, zużycie energii i gaz. Zmienisz ją też przyciskiem w zakładce Bateria.
   notify_service:
     name: Dodatkowa usługa powiadomień
     description: Opcjonalnie, np. notify.mobile_app_twoj_telefon. Zwykle odbiorców wybierasz w panelu (zakładka Bateria).

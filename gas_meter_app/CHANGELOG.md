@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.48.0
+
+* Licznik od wymiany baterii. Domyślna data to 29.10.2026 16:40 (opcja „Data wymiany baterii”), zmienisz ją też w zakładce Bateria (data i przycisk „Wymieniłem teraz”).
+* Przegląd: nowy kafelek „Od wymiany”: dni pracy, zużycie z ogniw (%) i gaz od wymiany.
+* Zakładka Bateria: karta „Od wymiany baterii” z datą włożenia, dniami, energią z ogniw (mAh i %, model z czasu pracy gazomierza), gazem w m³ i impulsach, sesjami WiFi i napięciem na starcie oraz teraz.
+
 ## 0.47.3
 
 * Kolory pracy pieca są takie same wszędzie: plakietka stanu, historia „Piec” i tarcza ogrzewania mają teraz kolory z wykresu (ogrzewanie czerwono-pomarańczowe, ciepła woda niebieska, wybieg pompy jasnopomarańczowy).

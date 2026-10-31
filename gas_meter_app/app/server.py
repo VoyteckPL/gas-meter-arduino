@@ -39,6 +39,7 @@ LONG_SERIES = {"cubic_meters": (0, 150000), "BatteryVoltage": (900, 40000), "Bat
                "fail_wifi": (0, 20000), "fail_mqtt": (0, 20000), "fail_sub": (0, 20000), "fail_ack": (0, 20000), "retry_ok": (0, 20000),
                "restarts": (0, 5000), "hangs": (0, 5000), "dhcp": (0, 5000)}
 CURVE_FILE = os.path.join(DATA_DIR, "curve.json")
+BATTERY_CHANGE_FILE = os.path.join(DATA_DIR, "battery_change.json")
 NOTIFY_FILE = os.path.join(DATA_DIR, "notify.json")
 TARGETS_FILE = os.path.join(DATA_DIR, "notify_targets.json")
 CORE_API = os.environ.get("CORE_API", "http://supervisor/core/api")
@@ -640,6 +641,15 @@ async def api_state(request):
     data["language"] = request.app["options"].get("language", "auto")
     data["battery_app"] = request.app.get("battery_last")
     data["outdoor"] = await outdoor_temperature(request.app)
+    cache = request.app.setdefault("since_cache", {"at": 0, "value": None})
+    if time.time() - cache["at"] > 60:
+        store = request.app["store"]
+        with store.lock:
+            series = {k: [list(p) for p in store.history.get(n, [])] for k, n in (("sessions", "WifiSessions"), ("wakes", "Wakes"), ("awake_wifi", "awake_wifi_s"), ("awake_other", "awake_other_s"))}
+            series["meter"] = [list(p) for p in store.series("cubic_meters")]
+        cap = battery.capacity(request.app["options"], (store.curve_info or {}).get("measured_mah"))
+        cache.update(at=time.time(), value=since_change(request.app, series, [], cap["total_mah"], time.time()))
+    data["battery_since"] = cache["value"]
     cache = request.app.setdefault("price_cache", {"at": 0, "value": None})
     if time.time() - cache["at"] > 300:
         monthly, factor = bills_context(request.app)
@@ -758,6 +768,61 @@ async def api_series(request):
     return web.json_response(thin(points, limit))
 
 
+def parse_local(text):
+    """'2026-10-29 16:40' (the time of the server, as set in Home Assistant) -> unix time, or None."""
+    for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M", "%Y-%m-%d"):
+        try:
+            return time.mktime(time.strptime(str(text).strip(), fmt))
+        except ValueError:
+            pass
+    return None
+
+
+def battery_change_ts(app):
+    """When the cells were last replaced: what was saved with the button, else the option battery_changed."""
+    try:
+        with open(BATTERY_CHANGE_FILE, encoding="utf-8") as handle:
+            return float(json.load(handle)["ts"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return parse_local(app["options"].get("battery_changed") or "")
+
+
+def since_change(app, series, volts, cap_mah, now):
+    """What happened since the cells were replaced: days, gas, pulses, sessions and the energy taken from the cells
+    (the time awake from the meter's own counters x the average currents of the battery model, plus sleep and self-discharge)."""
+    ts = battery_change_ts(app)
+    if not ts or ts > now:
+        return None
+    hours = (now - ts) / 3600.0
+    wifi_s = battery.counter_delta(series.get("awake_wifi") or [], ts)
+    other_s = battery.counter_delta(series.get("awake_other") or [], ts)
+    cfg = battery.DEFAULTS
+    sleep_ma = cfg["sleep_ua"] / 1000.0
+    self_ma = cap_mah * cfg["selfdischarge_pct_month"] / 100.0 / (30.4 * 24)
+    used = wifi_s * cfg["wifi_ma"] / 3600.0 + other_s * cfg["cpu_ma"] / 3600.0 + (sleep_ma + self_ma) * hours
+    first_v = next((v for t, v in volts if t >= ts), None)
+    return {"ts": ts, "days": round(hours / 24.0, 2), "m3": round(battery.meter_delta(series.get("meter") or [], ts), 3),
+            "sessions": int(battery.counter_delta(series.get("sessions") or [], ts)), "wakes": int(battery.counter_delta(series.get("wakes") or [], ts)),
+            "used_mah": round(used, 1), "used_pct": round(used / cap_mah * 100.0, 2) if cap_mah else None,
+            "wifi_s": round(wifi_s, 1), "first_v": first_v, "now_v": volts[-1][1] if volts else None}
+
+
+async def api_battery_change(request):
+    """GET: when the cells were replaced. POST {"date": "YYYY-MM-DD HH:MM"} (empty = now): saves it."""
+    app = request.app
+    if request.method == "POST":
+        try:
+            text = (await request.json()).get("date") or ""
+        except (ValueError, AttributeError):
+            return web.json_response({"error": "bad request"}, status=400)
+        ts = parse_local(text) if str(text).strip() else time.time()
+        if ts is None or ts > time.time() + 60:
+            return web.json_response({"error": "Zła data (wpisz np. 2026-10-29 16:40, nie z przyszłości)"}, status=400)
+        with open(BATTERY_CHANGE_FILE, "w", encoding="utf-8") as handle:
+            json.dump({"ts": ts}, handle)
+    return web.json_response({"ts": battery_change_ts(app)})
+
+
 def compute_battery(app, source="meter", days=30, factor=2.044, test_ma=None, test_cells=1, history_days=None):
     """Statistics and predictions for the battery: source meter (the gas meter) or bt (discharge test)."""
     store, options = app["store"], app["options"]
@@ -804,6 +869,8 @@ def compute_battery(app, source="meter", days=30, factor=2.044, test_ma=None, te
     result = battery.analyze(volts, series, opts, curve=curve, now=now, season=season)
     result["curve_info"] = curve_info
     result["capacity"] = cap
+    if source != "bt":
+        result["since_change"] = since_change(app, series, volts, cap["total_mah"], now)
     # capacity of one cell: measured when a run has finished, otherwise estimated from the running test
     if source == "bt" and measured:
         result["test_capacity"] = {"per_cell_mah": measured, "final": True}
@@ -2348,6 +2415,8 @@ def create_app(options):
     app.router.add_get("/api/series", api_series)
     app.router.add_get("/api/diag_export", api_diag_export)
     app.router.add_get("/api/battery", api_battery)
+    app.router.add_get("/api/battery_change", api_battery_change)
+    app.router.add_post("/api/battery_change", api_battery_change)
     app.router.add_get("/api/orlen", api_orlen)
     app.router.add_get("/api/bills", api_bills)
     app.router.add_post("/api/bills", api_bills)
