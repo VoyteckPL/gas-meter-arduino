@@ -643,10 +643,11 @@ function thInfo(item) {
   const water = item.domain === "water_heater" || /water|dhw|hot|cwu|zasob|boiler_temp/i.test(item.entity_id + " " + (a.friendly_name || "")) || (n(a.min_temp) ?? 0) >= 30;
   const min = n(a.min_temp) ?? (water ? 35 : 7), max = Math.max(min + 1, n(a.max_temp) ?? (water ? 65 : 30)), step = n(a.target_temp_step) || (water ? 1 : 0.5);
   const on = item.domain === "water_heater" ? (p.on ?? item.state !== "off") : (p.mode ?? item.state) !== "off";
-  const act = !on ? "off" : String(a.hvac_action || "").toLowerCase();
+  let act = !on ? "off" : String(a.hvac_action || "").toLowerCase();
+  if (act === "cooling" || act === "circulating") act = "circulating";     // the boiler has no cooling: its HVAC entity reports the pump overrun that way
   return { a, water, on, mode: p.mode ?? item.state, modes: Array.isArray(a.hvac_modes) ? a.hvac_modes : [], min, max, step,
            current: n(a.current_temperature), target: p.temperature ?? n(a.temperature),
-           act: TH_ACT[act] ? act : act ? act : "idle", unavailable: item.state === "unavailable" || item.state === "unknown" };
+           act: act || "idle", unavailable: item.state === "unavailable" || item.state === "unknown" };
 }
 
 // a 270° arc from min to max: the set temperature fills it, a dot marks the measured one
@@ -674,6 +675,7 @@ function thDial(info, kind, id) {
 const TH_KIND = {
   heat: { name: "Ogrzewanie", icon: "flame", grad: ["#FFC24B", "#FF4D2E"], color: "#FF6A33" },
   water: { name: "Ciepła woda", icon: "drop", grad: ["#4FE3F0", "#3F6BFF"], color: "#2F9BFF" },
+  pump: { name: "Ogrzewanie", icon: "pump", grad: ["#C9A3FF", "#7C3AED"], color: "#9B5CF6" },      // the heating while only its pump runs on
 };
 
 function renderThermo() {
@@ -689,16 +691,18 @@ function renderThermo() {
   // the heating first, the hot water under it
   if ($("#thxDialog") && !$("#thxDialog").hidden) renderThermoQuick();
   for (const item of [...d.items].sort((x, y) => thInfo(x).water - thInfo(y).water)) {
-    const info = thInfo(item), kind = info.water ? "water" : "heat", K = TH_KIND[kind];
+    const info = thInfo(item), pumping = !info.water && info.on && info.act === "circulating";
+    const kind = info.water ? "water" : pumping ? "pump" : "heat", K = TH_KIND[kind];
     const act = TH_ACT[info.act] || [info.act, K.color, "chip"];
     const name = item.attributes.friendly_name && !/ariston|genus/i.test(item.attributes.friendly_name) ? item.attributes.friendly_name : K.name;
     const working = info.on && (info.act === "heating" || info.act === "circulating");
-    const tile = el("div", { class: "thtile " + kind + (working ? " working" : "") + (info.on ? "" : " off"), style: "--tc:" + K.color + ";--tg0:" + K.grad[0] + ";--tg1:" + K.grad[1] });
+    const tile = el("div", { class: "thtile " + kind + (working ? " working" : "") + (pumping ? " pumping" : "") + (info.on ? "" : " off"), style: "--tc:" + K.color + ";--tg0:" + K.grad[0] + ";--tg1:" + K.grad[1] });
     // header: the kind with its icon, the state as a pill
     const kic = el("span", { class: "thkic" }); kic.innerHTML = '<svg viewBox="0 0 24 24">' + STAT_ICONS[K.icon] + "</svg>";
     const state = info.unavailable ? "Niedostępny" : !info.on ? "Wyłączone" : act[0];
     tile.append(el("div", { class: "thhead" }, [kic, el("div", { class: "thtitle" }, [el("b", { text: name }), el("small", { text: info.water ? "zasobnik" : "obieg grzewczy" })]),
       el("span", { class: "thstate" + (working ? " live" : "") + (info.on ? "" : " off"), style: "--sc:" + (info.on ? act[1] : "#8C97A6") }, [el("i"), state])]));
+    if (pumping) tile.append(el("div", { class: "thpump" }, "Wybieg pompy: piec nie spala gazu, pompa tylko dochładza obieg"));
     const body = el("div", { class: "thbody" });
     body.innerHTML = thDial(info, kind, item.entity_id);
     const f = (v) => num(v, info.step < 1 ? 1 : 0).replace(".", ",").replace(",0", "");

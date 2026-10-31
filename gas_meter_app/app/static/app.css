@@ -462,3 +462,6 @@ button.costtoggle.active { opacity: 1; background: color-mix(in srgb, var(--ok) 
 .legend .readout { margin-left: auto; display: inline-flex; gap: 8px; align-items: baseline; padding: 1px 10px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--text); white-space: nowrap; }
 .legend .readout span { color: var(--muted); font-size: .95em; }
 .legend .readout b { font-weight: 650; }
+
+/* the heating's pump overrun (the entity says "cooling"): its own purple, so it is not taken for heating */
+.thpump { margin: -2px 0 0; padding: 6px 12px; border-radius: 12px; font-size: 12.5px; text-align: center; color: #9b5cf6; background: color-mix(in srgb, #9b5cf6 12%, transparent); border: 1px solid color-mix(in srgb, #9b5cf6 30%, transparent); }

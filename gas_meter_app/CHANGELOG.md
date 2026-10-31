@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.47.1
+
+* Zakładka Piec: gdy termostat ogrzewania zgłasza stan „chłodzi” (cooling) albo „circulating”, to jest wybieg pompy. Tarcza robi się fioletowa, z ikoną pompy, pigułką „Wybieg pompy” i opisem, że piec nie spala gazu. Wcześniej wyglądała jak zwykłe ogrzewanie albo pokazywała „Chłodzi”.
+
 ## 0.47.0
 
 * Wykresy: wartość pod palcem (data i stan) pokazuje się w linii legendy nad wykresem, a nie w białym dymku nad danymi. Wykres nic już nie zasłania. Wykresy bez legendy zostają przy dymku.
