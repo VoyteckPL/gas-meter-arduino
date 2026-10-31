@@ -310,7 +310,7 @@ table.mini th, table.mini td { padding: 4px 12px 4px 0; text-align: left; border
 .boilerpill svg { width: 18px; height: 18px; fill: none; stroke: var(--bc); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .boilerpill b { font-weight: 650; }
 .boilerpill span { opacity: .7; }
-.boilerpill.heating { --bc: #ff7a45; } .boilerpill.dhw { --bc: #3d9bff; } .boilerpill.pump { --bc: #b98cff; } .boilerpill.idle { --bc: #8f8a9a; }
+.boilerpill.heating { --bc: #ff5a1f; } .boilerpill.dhw { --bc: #1f7bff; } .boilerpill.pump { --bc: #ffa01a; } .boilerpill.idle { --bc: #8f8a9a; }
 .boilerpill.on { animation: boilerglow 2.2s ease-in-out infinite; }
 @keyframes boilerglow { 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--bc) 18%, transparent), 0 0 18px color-mix(in srgb, var(--bc) 40%, transparent); } }
 @media (prefers-reduced-motion: reduce) { .boilerpill.on { animation: none; } }
@@ -318,7 +318,7 @@ table.mini th, table.mini td { padding: 4px 12px 4px 0; text-align: left; border
 /* history of the boiler: four looks (A timeline, B hours, C sessions, D tracks) */
 #boilerNow { cursor: pointer; }
 .boilerpill em { font-style: normal; font-weight: 650; padding: 1px 8px; border-radius: 999px; background: color-mix(in srgb, var(--bc) 22%, transparent); }
-.pec { --heat: #ff7a45; --dhw: #3d9bff; --pump: #a77bf0; max-height: 560px; overflow-y: auto; scrollbar-width: thin; font-variant-numeric: tabular-nums; }
+.pec { --heat: #ff5a1f; --dhw: #1f7bff; --pump: #ffa01a; max-height: 560px; overflow-y: auto; scrollbar-width: thin; font-variant-numeric: tabular-nums; }
 .pec .heat { --c: var(--heat); } .pec .dhw { --c: var(--dhw); } .pec .pump { --c: var(--pump); }
 .pec svg.pi { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 .pec .zl { font-weight: 650; }
@@ -464,4 +464,4 @@ button.costtoggle.active { opacity: 1; background: color-mix(in srgb, var(--ok) 
 .legend .readout b { font-weight: 650; }
 
 /* the heating's pump overrun (the entity says "cooling"): its own purple, so it is not taken for heating */
-.thpump { margin: -2px 0 0; padding: 6px 12px; border-radius: 12px; font-size: 12.5px; text-align: center; color: #9b5cf6; background: color-mix(in srgb, #9b5cf6 12%, transparent); border: 1px solid color-mix(in srgb, #9b5cf6 30%, transparent); }
+.thpump { margin: -2px 0 0; padding: 6px 12px; border-radius: 12px; font-size: 12.5px; text-align: center; color: #e08700; background: color-mix(in srgb, #ffa01a 14%, transparent); border: 1px solid color-mix(in srgb, #ffa01a 40%, transparent); }

@@ -625,7 +625,7 @@ function update() {
 // ----------------------------------------------------------------------- thermostats
 const thermo = { data: null, pending: {}, timers: {} };
 const TH_ACT = {                                  // what the boiler is doing: label, colour, icon
-  heating: ["Grzeje", "#FF7A2F", "flame"], circulating: ["Wybieg pompy", "#A77BF0", "pump"], idle: ["Bezczynny", "#4FB4E6", "pause"],
+  heating: ["Grzeje", "#FF7A2F", "flame"], circulating: ["Wybieg pompy", "#FFA01A", "pump"], idle: ["Bezczynny", "#4FB4E6", "pause"],
   off: ["Wyłączony", "#9DB4CC", "power"], cooling: ["Chłodzi", "#38BDF8", "drop"],
 };
 const TH_MODES = { heat: ["Grzanie", "flame"], off: ["Wyłącz", "power"], auto: ["Auto", "chip"], heat_cool: ["Auto", "chip"] };
@@ -675,7 +675,7 @@ function thDial(info, kind, id) {
 const TH_KIND = {
   heat: { name: "Ogrzewanie", icon: "flame", grad: ["#FFC24B", "#FF4D2E"], color: "#FF6A33" },
   water: { name: "Ciepła woda", icon: "drop", grad: ["#4FE3F0", "#3F6BFF"], color: "#2F9BFF" },
-  pump: { name: "Ogrzewanie", icon: "pump", grad: ["#C9A3FF", "#7C3AED"], color: "#9B5CF6" },      // the heating while only its pump runs on
+  pump: { name: "Ogrzewanie", icon: "pump", grad: ["#FFD36B", "#FF9500"], color: "#FFA01A" },      // the heating while only its pump runs on
 };
 
 function renderThermo() {

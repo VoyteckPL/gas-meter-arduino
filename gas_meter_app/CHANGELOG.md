@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.47.3
+
+* Kolory pracy pieca są takie same wszędzie: plakietka stanu, historia „Piec” i tarcza ogrzewania mają teraz kolory z wykresu (ogrzewanie czerwono-pomarańczowe, ciepła woda niebieska, wybieg pompy jasnopomarańczowy).
+
 ## 0.47.2
 
 * Wykresy gazu: wybieg pompy jest jasnym, żółtawo-pomarańczowym pasem (ogrzewanie zostaje czerwono-pomarańczowe, ciepła woda niebieska).
