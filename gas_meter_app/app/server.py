@@ -1861,7 +1861,8 @@ async def cost_backfill(app, dry):
            "years": {y: round(v, 2) for y, v in sorted(years.items())}}
     if dry or not rows:
         return out
-    metadata = {"has_mean": False, "has_sum": True, "name": None, "source": "recorder", "statistic_id": cost_id, "unit_of_measurement": unit}
+    metadata = {"mean_type": 0, "has_sum": True, "name": None, "source": "recorder", "statistic_id": cost_id,
+                "unit_of_measurement": unit, "unit_class": None}
     commands = [{"type": "recorder/import_statistics", "metadata": metadata,
                  "stats": [{"start": iso_hour(r["start"]), "sum": round(r["sum"], 4), "state": round(r["state"], 4)} for r in rows[i:i + 3000]]}
                 for i in range(0, len(rows), 3000)]
@@ -1903,7 +1904,7 @@ async def drop_legacy_statistics(app):
 async def send_energy(rows, statistic_id=ENERGY_ID, name="Gazomierz (z historią)", source="gas_meter_app"):
     """Sends hourly rows as the external statistic, all chunks over one connection (a connection per chunk made a long
     history take minutes). A Home Assistant that does not know unit_class gets the metadata without it."""
-    metadata = {"has_mean": False, "has_sum": True, "name": name, "source": source,
+    metadata = {"mean_type": 0, "has_sum": True, "name": name, "source": source,
                 "statistic_id": statistic_id, "unit_of_measurement": "m³", "unit_class": "volume"}
 
     def commands():

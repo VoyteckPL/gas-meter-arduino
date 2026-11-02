@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.48.1
+
+* Import statystyk gazu i kosztów (`recorder/import_statistics`) wysyła teraz `mean_type` i `unit_class`. Bez tego HA Core 2026.11 przestaje przyjmować takie importy (historia gazu, podział CWU/ogrzewanie, koszty), a ostrzeżenie w logu HA znika.
+
 ## 0.48.0
 
 * Licznik od wymiany baterii. Domyślna data to 29.10.2026 16:40 (opcja „Data wymiany baterii”), zmienisz ją też w zakładce Bateria (data i przycisk „Wymieniłem teraz”).
